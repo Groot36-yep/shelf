@@ -361,3 +361,14 @@ body.dragging .drag-overlay { display: flex; }
 .search { min-width: 0; }
 .cand-thumb { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: rgba(0, 0, 0, 0.5); }
 @media (max-width: 760px) { .side-source { width: auto; } .src-note { margin-left: 6px; } }
+
+/* privacy */
+button.side-foot { border: 0; background: none; text-align: left; display: flex; gap: 8px; align-items: flex-start; cursor: default; color: var(--text-3); font-size: 11px; line-height: 1.45; padding: 8px; border-radius: 8px; margin: auto 0 0; }
+button.side-foot:hover { background: var(--fill); }
+button.side-foot svg { width: 15px; height: 15px; flex: none; color: var(--green); }
+.shield { width: 64px; height: 64px; border-radius: 16px; background: var(--green); display: flex; align-items: center; justify-content: center; }
+.shield svg { width: 36px; height: 36px; color: #fff; stroke-width: 2; }
+.row-help.flush { margin: 0; padding: 0 4px; }
+.danger-pill { color: var(--red-text); margin-right: auto; }
+.sheet .section-label { margin-bottom: -6px; padding-left: 4px; }
+@media (max-width: 760px) { button.side-foot { display: none; } }

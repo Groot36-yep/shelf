@@ -6,7 +6,14 @@
 (function (root) {
   'use strict';
 
-  var cache = {};
+  var cache = {}; // lives only in memory; gone when the tab closes
+
+  // Only ever use links and images that point where we expect.
+  function safeUrl(u, allowed) {
+    if (typeof u !== 'string') return null;
+    u = u.replace(/^http:\/\//, 'https://');
+    return allowed.some(function (prefix) { return u.indexOf(prefix) === 0; }) ? u : null;
+  }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   // Small polite queue so we never hammer either service.
@@ -22,7 +29,8 @@
     attempt = attempt || 0;
     if (cache[url]) return Promise.resolve(cache[url]);
     return enqueue(function () {
-      return fetch(url, { headers: headers || {} });
+      // No cookies, no referrer: the services learn nothing about where the request came from.
+      return fetch(url, { headers: headers || {}, credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors' });
     }).then(function (res) {
       if (res.status === 429 && attempt < 3) {
         return wait(1500 * (attempt + 1)).then(function () { return getJSON(url, headers, attempt + 1); });
@@ -54,14 +62,14 @@
     return {
       type: 'movie',
       source: 'TMDB',
-      id: m.id,
-      title: m.title,
-      altTitle: m.original_title,
+      id: parseInt(m.id, 10),
+      title: String(m.title || ''),
+      altTitle: String(m.original_title || ''),
       year: year,
       popularity: m.popularity || 0,
-      poster: m.poster_path ? TMDB_IMG + m.poster_path : null,
+      poster: /^\/[A-Za-z0-9_.-]+$/.test(m.poster_path || '') ? TMDB_IMG + m.poster_path : null,
       overview: m.overview || '',
-      url: 'https://www.themoviedb.org/movie/' + m.id
+      url: 'https://www.themoviedb.org/movie/' + parseInt(m.id, 10)
     };
   }
 
@@ -97,15 +105,15 @@
     return {
       type: 'episode',
       source: 'TVmaze',
-      id: show.id,
-      title: show.name,
+      id: parseInt(show.id, 10),
+      title: String(show.name || ''),
       altTitle: '',
       year: year,
       popularity: (show.weight || 0) + (searchScore || 0) * 10,
-      poster: show.image ? (show.image.medium || show.image.original).replace(/^http:/, 'https:') : null,
+      poster: show.image ? safeUrl(show.image.medium || show.image.original, ['https://static.tvmaze.com/']) : null,
       overview: (show.summary || '').replace(/<[^>]+>/g, ''),
       network: (show.network && show.network.name) || (show.webChannel && show.webChannel.name) || '',
-      url: show.url
+      url: safeUrl(show.url, ['https://www.tvmaze.com/'])
     };
   }
 
@@ -115,10 +123,10 @@
   }
 
   function getEpisode(showId, season, episode) {
-    return getJSON(TVMAZE + '/shows/' + showId + '/episodebynumber?season=' + season + '&number=' + episode)
+    return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodebynumber?season=' + parseInt(season, 10) + '&number=' + parseInt(episode, 10))
       .then(function (ep) {
         if (!ep) return null;
-        return { name: ep.name, airdate: ep.airdate, runtime: ep.runtime, url: ep.url };
+        return { name: String(ep.name || ''), airdate: ep.airdate };
       });
   }
 

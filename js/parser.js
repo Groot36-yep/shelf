@@ -242,14 +242,24 @@
   }
 
   // --- Plex names ------------------------------------------------------------
+  var WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
+
+  // Make a string safe to use as ONE file or folder name on macOS, Windows and Linux.
+  // Titles come from online databases, so treat them as untrusted.
   function safeName(s) {
-    return (s || '')
+    var out = String(s || '')
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '') // control + bidi tricks
       .replace(/\s*:\s*/g, ' - ')
       .replace(/[\/\\]/g, '-')
       .replace(/[*?"<>|]/g, '')
       .replace(/\s+/g, ' ')
-      .replace(/[. ]+$/, '')
+      .replace(/^[. ]+/, '')        // no hidden files, no "..": nothing that climbs folders
+      .replace(/[. ]+$/, '')        // Windows drops trailing dots/spaces
       .trim();
+    if (out.length > 150) out = out.slice(0, 150).replace(/[. ]+$/, '');
+    if (!out) out = 'Unknown';
+    if (WIN_RESERVED.test(out)) out = out + '_';
+    return out;
   }
 
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -268,69 +278,158 @@
       subSuffix = (parsed.lang ? '.' + parsed.lang : '') + (parsed.subFlags.length ? '.' + parsed.subFlags.join('.') : '');
     }
     if (match.type === 'movie') {
-      var name = safeName(match.title) + (match.year ? ' (' + match.year + ')' : '');
-      var idTag = opts.movieIds && match.id ? ' {tmdb-' + match.id + '}' : '';
+      var year = parseInt(match.year, 10);
+      var name = safeName(match.title) + (year > 1800 ? ' (' + year + ')' : '');
+      var tmdbId = parseInt(match.id, 10);
+      var idTag = opts.movieIds && tmdbId > 0 ? ' {tmdb-' + tmdbId + '}' : '';
       return { folder: ['Movies', name + idTag], file: name + idTag + subSuffix + '.' + ext };
     }
-    var show = safeName(match.show) + (opts.showYear && match.showYear ? ' (' + match.showYear + ')' : '');
-    var se = 'S' + pad2(match.season) + 'E' + pad2(match.episode);
+    var showYear = parseInt(match.showYear, 10);
+    var season = Math.max(0, parseInt(match.season, 10) || 0);
+    var episode = Math.max(0, parseInt(match.episode, 10) || 0);
+    var show = safeName(match.show) + (opts.showYear && showYear > 1800 ? ' (' + showYear + ')' : '');
+    var se = 'S' + pad2(season) + 'E' + pad2(episode);
     var ep = match.episodeTitle ? ' - ' + safeName(match.episodeTitle) : '';
     return {
-      folder: ['TV Shows', show, 'Season ' + pad2(match.season)],
+      folder: ['TV Shows', show, 'Season ' + pad2(season)],
       file: show + ' - ' + se + ep + subSuffix + '.' + ext
     };
   }
 
-  // --- Shell script ----------------------------------------------------------
+  // --- Rename scripts ---------------------------------------------------------
+  // Every name that goes into a script is quoted so the shell treats it as plain text,
+  // never as a command. Filenames and titles are untrusted input.
+
+  function oneLine(s) { return String(s).replace(/[\u0000-\u001f\u007f]/g, ' '); }
+
+  // bash: single quotes, with ' written as '\''
   function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
+  // PowerShell: single quotes; PowerShell also treats ‘ ’ ‚ ‛ as quotes, so double all of them
+  function psq(s) { return "'" + String(s).replace(/['‘’‚‛]/g, function (q) { return q + q; }) + "'"; }
+
+  var PAST = { move: 'moved', copy: 'copied', link: 'linked' };
+
+  function buildBash(items, opts) {
+    var mode = PAST[opts.mode] ? opts.mode : 'move';
+    var lib = String(opts.library || '~/Media').trim().replace(/\/+$/, '') || '~';
+    var libExpr = lib.indexOf('~/') === 0 ? '"$HOME"/' + shq(lib.slice(2)) : lib === '~' ? '"$HOME"' : shq(lib);
+    var cmd = mode === 'copy' ? 'cp -p' : mode === 'link' ? 'ln' : 'mv -n';
+    var head = function (what) {
+      return [
+        '#!/bin/bash',
+        '# Made by Shelf — ' + what,
+        '# HOW TO RUN: keep this file in the same folder as your videos. Open Terminal,',
+        '# type "bash " (with a space), drag this file into the window, and press Return.',
+        '# It never overwrites a file that already exists.',
+        '',
+        'cd "$(dirname "$0")" || exit 1',
+        'LIB=' + libExpr,
+        'ok=0; skipped=0',
+        'note() { printf \'%s %s\\n\' "$1" "$2"; }',
+        ''
+      ];
+    };
+    var lines = head('renames your videos for Plex.');
+    var undo = head('puts your files back the way they were.');
+    items.forEach(function (it) {
+      var src = shq(it.source);
+      var dir = '"$LIB"/' + it.folder.map(shq).join('/');
+      var dest = dir + '/' + shq(it.file);
+      lines.push('# ' + oneLine(it.source));
+      lines.push('if [ ! -e ' + src + ' ]; then note "Not found, skipped:" ' + src + '; skipped=$((skipped+1))');
+      lines.push('elif [ -e ' + dest + ' ]; then note "Already exists, skipped:" ' + shq(it.file) + '; skipped=$((skipped+1))');
+      lines.push('else mkdir -p ' + dir + ' && ' + cmd + ' ' + src + ' ' + dest + ' && ok=$((ok+1)); fi');
+      lines.push('');
+      undo.push('# ' + oneLine(it.file));
+      if (mode === 'move') {
+        // Only move back if the file is in the library and nothing has taken its old place.
+        undo.push('if [ -e ' + dest + ' ] && [ ! -e ' + src + ' ]; then mkdir -p "$(dirname ' + src + ')" && mv -n ' + dest + ' ' + src + ' && ok=$((ok+1)); fi');
+      } else if (mode === 'link') {
+        // Only remove the library entry if it is still the very same file as the original.
+        undo.push('if [ -e ' + dest + ' ] && [ ' + dest + ' -ef ' + src + ' ]; then rm -- ' + dest + ' && ok=$((ok+1)); fi');
+      } else {
+        // Only remove the copy if the original is still there and identical.
+        undo.push('if [ -e ' + dest + ' ] && [ -e ' + src + ' ] && cmp -s ' + src + ' ' + dest + '; then rm -- ' + dest + ' && ok=$((ok+1)); fi');
+      }
+    });
+    lines.push('echo "Shelf: ' + PAST[mode] + ' $ok file(s), skipped $skipped."');
+    undo.push('echo "Shelf: undid $ok file(s)."');
+    return { script: lines.join('\n') + '\n', undo: undo.join('\n') + '\n', ext: 'sh' };
+  }
+
+  function buildPowerShell(items, opts) {
+    var mode = PAST[opts.mode] ? opts.mode : 'move';
+    var lib = String(opts.library || '~\\Videos').trim().replace(/[\\/]+$/, '') || '~';
+    var libExpr = /^~([\\/]|$)/.test(lib) ? '[System.IO.Path]::Combine($HOME, ' + psq(lib.replace(/^~[\\/]?/, '')) + ')' : psq(lib);
+    var head = function (what) {
+      var h = [
+        '# Made by Shelf — ' + what,
+        '# HOW TO RUN: keep this file in the same folder as your videos,',
+        '# then right-click it and choose "Run with PowerShell".',
+        '# It never overwrites a file that already exists.',
+        '',
+        '$ErrorActionPreference = \'Stop\'',
+        '$Here = $PSScriptRoot',
+        '$Lib = ' + libExpr,
+        '$script:ok = 0; $script:skipped = 0',
+        'function Get-LibPath([string[]]$Parts) { $p = $Lib; foreach ($x in $Parts) { $p = [System.IO.Path]::Combine($p, $x) }; return $p }',
+        ''
+      ];
+      if (mode === 'link') {
+        h.push('Add-Type -Namespace Shelf -Name Native -MemberDefinition \'[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CreateHardLink(string newFile, string existingFile, IntPtr security);\'');
+        h.push('');
+      }
+      return h;
+    };
+    var op = mode === 'copy' ? '[System.IO.File]::Copy($from, $to, $false)'
+      : mode === 'link' ? 'if (-not [Shelf.Native]::CreateHardLink($to, $from, [IntPtr]::Zero)) { throw "Hard link failed (are both folders on the same drive?)" }'
+      : '[System.IO.File]::Move($from, $to)';
+    var lines = head('renames your videos for Plex.');
+    lines.push(
+      'function Invoke-ShelfItem([string]$Src, [string[]]$Dir, [string]$File) {',
+      '  $from = [System.IO.Path]::Combine($Here, $Src)',
+      '  if (-not [System.IO.File]::Exists($from)) { Write-Host "Not found, skipped: $Src"; $script:skipped++; return }',
+      '  $toDir = Get-LibPath $Dir',
+      '  $to = [System.IO.Path]::Combine($toDir, $File)',
+      '  if ([System.IO.File]::Exists($to)) { Write-Host "Already exists, skipped: $File"; $script:skipped++; return }',
+      '  try { [void][System.IO.Directory]::CreateDirectory($toDir); ' + op + '; $script:ok++ }',
+      '  catch { Write-Host "Could not do $Src : $($_.Exception.Message)"; $script:skipped++ }',
+      '}',
+      ''
+    );
+    var undo = head('puts your files back the way they were.');
+    var check = mode === 'move'
+      ? 'if ([System.IO.File]::Exists($to) -and -not [System.IO.File]::Exists($from)) { [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($from)); [System.IO.File]::Move($to, $from); $script:ok++ }'
+      : 'if ([System.IO.File]::Exists($to) -and [System.IO.File]::Exists($from)) { $a = Get-Item -LiteralPath $from; $b = Get-Item -LiteralPath $to; if ($a.Length -eq $b.Length -and $a.LastWriteTimeUtc -eq $b.LastWriteTimeUtc) { [System.IO.File]::Delete($to); $script:ok++ } }';
+    undo.push(
+      'function Undo-ShelfItem([string]$Src, [string[]]$Dir, [string]$File) {',
+      '  $from = [System.IO.Path]::Combine($Here, $Src)',
+      '  $to = [System.IO.Path]::Combine((Get-LibPath $Dir), $File)',
+      '  try { ' + check + ' }',
+      '  catch { Write-Host "Could not undo $File : $($_.Exception.Message)" }',
+      '}',
+      ''
+    );
+    items.forEach(function (it) {
+      var args = ' ' + psq(it.source) + ' @(' + it.folder.map(psq).join(', ') + ') ' + psq(it.file);
+      lines.push('# ' + oneLine(it.source));
+      lines.push('Invoke-ShelfItem' + args);
+      undo.push('Undo-ShelfItem' + args);
+    });
+    lines.push('', 'Write-Host "Shelf: ' + PAST[mode] + ' $($script:ok) file(s), skipped $($script:skipped)."', 'Read-Host "Press Enter to close" | Out-Null');
+    undo.push('', 'Write-Host "Shelf: undid $($script:ok) file(s)."', 'Read-Host "Press Enter to close" | Out-Null');
+    // Windows PowerShell 5 needs a byte-order mark to read accented letters correctly.
+    return { script: '﻿' + lines.join('\r\n') + '\r\n', undo: '﻿' + undo.join('\r\n') + '\r\n', ext: 'ps1' };
+  }
 
   /**
    * items: [{ source: 'relative/path.mkv', folder: [...], file }]
-   * opts: { library: '~/Media', mode: 'move'|'copy'|'link' }
+   * opts: { library, mode: 'move'|'copy'|'link', platform: 'mac'|'windows' }
    */
   function buildScript(items, opts) {
-    var lib = (opts.library || '~/Media').trim().replace(/\/+$/, '');
-    var libExpr = lib.indexOf('~/') === 0 ? '"$HOME"/' + shq(lib.slice(2)) : lib === '~' ? '"$HOME"' : shq(lib);
-    var cmd = opts.mode === 'copy' ? 'cp -n' : opts.mode === 'link' ? 'ln' : 'mv -n';
-    var lines = [
-      '#!/bin/bash',
-      '# Made by Shelf — renames your videos for Plex.',
-      '# HOW TO RUN: put this file in the same folder as your videos, then in Terminal type',
-      '#   bash ' + 'shelf-rename.sh',
-      '# (or type "bash " and drag this file into the Terminal window, then press Return).',
-      '',
-      'cd "$(dirname "$0")" || exit 1',
-      'LIB=' + libExpr,
-      'ok=0; skipped=0',
-      ''
-    ];
-    var undo = [
-      '#!/bin/bash',
-      '# Made by Shelf — puts files back where they were.',
-      'cd "$(dirname "$0")" || exit 1',
-      'LIB=' + libExpr,
-      ''
-    ];
-    items.forEach(function (it) {
-      var dir = it.folder.map(shq).join('/');
-      var dest = '"$LIB"/' + dir + '/' + shq(it.file);
-      lines.push('# ' + it.source.replace(/\n/g, ' '));
-      lines.push('if [ -e ' + shq(it.source) + ' ]; then');
-      lines.push('  mkdir -p "$LIB"/' + dir);
-      lines.push('  if [ -e ' + dest + ' ]; then echo "Already exists, skipped: ' + it.file.replace(/["$`\\]/g, '') + '"; skipped=$((skipped+1));');
-      lines.push('  else ' + cmd + ' ' + shq(it.source) + ' ' + dest + ' && ok=$((ok+1)); fi');
-      lines.push('else echo "Not found, skipped: ' + it.source.replace(/["$`\\]/g, '') + '"; skipped=$((skipped+1)); fi');
-      lines.push('');
-      if (opts.mode === 'move' || !opts.mode) {
-        undo.push('[ -e ' + dest + ' ] && mkdir -p "$(dirname ' + shq(it.source) + ')" && mv -n ' + dest + ' ' + shq(it.source));
-      } else {
-        undo.push('rm -f ' + dest);
-      }
-    });
-    var past = opts.mode === 'copy' ? 'copied' : opts.mode === 'link' ? 'linked' : 'moved';
-    lines.push('echo "Shelf: ' + past + ' $ok file(s), skipped $skipped."');
-    undo.push('echo "Shelf: undo finished."');
-    return { script: lines.join('\n') + '\n', undo: undo.join('\n') + '\n' };
+    opts = opts || {};
+    return opts.platform === 'windows' ? buildPowerShell(items, opts) : buildBash(items, opts);
   }
 
   var api = {

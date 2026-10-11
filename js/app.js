@@ -6,20 +6,41 @@
   var S = window.ShelfSources;
 
   // ---------- Settings (kept in this browser only) ----------
-  function load(key, fallback) {
-    try { var v = localStorage.getItem('shelf.' + key); return v === null ? fallback : JSON.parse(v); }
+  // Nothing about your files is ever stored. Only these preferences are, in this browser.
+  function store(kind) { try { return window[kind]; } catch (e) { return null; } }
+  function load(key, fallback, kind) {
+    try { var v = store(kind || 'localStorage').getItem('shelf.' + key); return v === null ? fallback : JSON.parse(v); }
     catch (e) { return fallback; }
   }
-  function save(key, value) {
-    try { localStorage.setItem('shelf.' + key, JSON.stringify(value)); } catch (e) { /* private mode: ignore */ }
+  function save(key, value, kind) {
+    try { store(kind || 'localStorage').setItem('shelf.' + key, JSON.stringify(value)); } catch (e) { /* storage blocked: fine */ }
   }
+  function forget(key, kind) { try { store(kind || 'localStorage').removeItem('shelf.' + key); } catch (e) { /* ignore */ } }
+
+  var isWindows = /win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
   var settings = {
-    tmdbKey: load('tmdbKey', ''),
+    rememberKey: load('rememberKey', true),
     movieIds: load('movieIds', false),
     showYear: load('showYear', false),
+    posters: load('posters', true),
     mode: load('mode', 'move'),
-    library: load('library', '~/Media')
+    platform: load('platform', isWindows ? 'windows' : 'mac'),
+    libraryMac: load('libraryMac', load('library', '~/Media')),
+    libraryWin: load('libraryWin', '~\\Videos')
   };
+  settings.tmdbKey = settings.rememberKey ? load('tmdbKey', '') : load('tmdbKey', '', 'sessionStorage');
+
+  function saveKey(key) {
+    settings.tmdbKey = key;
+    forget('tmdbKey'); forget('tmdbKey', 'sessionStorage');
+    if (key) save('tmdbKey', key, settings.rememberKey ? 'localStorage' : 'sessionStorage');
+  }
+  function eraseEverything() {
+    ['localStorage', 'sessionStorage'].forEach(function (kind) {
+      var st = store(kind); if (!st) return;
+      try { Object.keys(st).filter(function (k) { return k.indexOf('shelf.') === 0; }).forEach(function (k) { st.removeItem(k); }); } catch (e) { /* ignore */ }
+    });
+  }
 
   // ---------- State ----------
   var items = [];          // see makeItem()
@@ -44,6 +65,7 @@
     if (attrs) Object.keys(attrs).forEach(function (k) {
       if (k === 'class') n.className = attrs[k];
       else if (k === 'text') n.textContent = attrs[k];
+      else if (k === 'style') n.style.cssText = attrs[k];
       else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), attrs[k]);
       else if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) n.setAttribute(k, attrs[k]);
     });
@@ -66,8 +88,8 @@
   function tintFor(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return TINTS[Math.abs(h) % TINTS.length]; }
   function posterNode(cls, url, label) {
     var box = el('div', { class: cls });
-    if (url) {
-      box.appendChild(el('img', { src: url, alt: '', loading: 'lazy' }));
+    if (url && settings.posters) {
+      box.appendChild(el('img', { src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }));
     } else {
       box.style.background = tintFor(label);
       box.textContent = initials(label);
@@ -161,9 +183,11 @@
     running++; render();
     var parsed = item.parsed;
     var title = query || parsed.title;
+    var year = query ? null : parsed.year;
+    item.sent = { to: item.kind === 'movie' ? 'TMDB' : 'TVmaze', text: title + (item.kind === 'movie' && year ? ' · ' + year : '') };
     var lookup;
     if (item.kind === 'movie') {
-      lookup = S.searchMovies(title, query ? null : parsed.year, settings.tmdbKey);
+      lookup = S.searchMovies(title, year, settings.tmdbKey);
     } else {
       lookup = S.searchShows(title);
     }
@@ -281,7 +305,7 @@
 
     var poster = $('inspPoster');
     poster.textContent = ''; poster.removeAttribute('style');
-    if (c && c.poster) poster.appendChild(el('img', { src: c.poster, alt: 'Poster for ' + c.title }));
+    if (c && c.poster && settings.posters) poster.appendChild(el('img', { src: c.poster, alt: 'Poster for ' + c.title, referrerpolicy: 'no-referrer' }));
     else { poster.style.background = tintFor(title); poster.textContent = initials(title); }
 
     $('inspTitle').textContent = title;
@@ -305,12 +329,13 @@
     function fact(k, v) { facts.appendChild(el('div', { class: 'fact' }, [el('span', { text: k }), typeof v === 'string' ? el('span', { text: v }) : v])); }
     fact('Type', item.parsed.isSubtitle ? 'Subtitle' : item.kind === 'episode' ? 'TV Episode' : 'Movie');
     if (c) {
-      var link = el('a', { href: c.url, target: '_blank', rel: 'noopener', text: c.source });
+      var link = c.url ? el('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer', text: c.source }) : el('span', { text: c.source });
       fact('Source', el('span', {}, [link]));
       var col = c.score >= 78 ? 'var(--green)' : 'var(--orange)';
       fact('Confidence', el('span', {}, [el('span', { class: 'bar' }, [el('i', { style: 'width:' + c.score + '%;background:' + col })]), c.score + '%']));
     }
     if (item.parsed.resolution) fact('Quality', item.parsed.resolution);
+    if (item.sent) fact('Shared with ' + item.sent.to, '“' + item.sent.text + '”');
     fact('Original', el('span', { style: 'font-family:var(--mono);font-size:11px;overflow-wrap:anywhere', text: item.relPath }));
 
     var candWrap = $('inspCandWrap'), cands = $('inspCands');
@@ -426,6 +451,8 @@
       $('keyInput').value = settings.tmdbKey;
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
+      $('optRemember').checked = settings.rememberKey;
+      $('optPosters').checked = settings.posters;
       $('keyStatus').textContent = 'Saved only in this browser. Never sent anywhere except TMDB.';
     }
     if (d.showModal) d.showModal(); else d.setAttribute('open', '');
@@ -448,33 +475,51 @@
     $('renameSummary').textContent =
       [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '');
-    $('libInput').value = settings.library;
-    $('scriptWhere').textContent = scriptBase
-      ? 'Put the script inside the “' + scriptBase + '” folder you chose.'
-      : 'Put the script in the same folder as your videos.';
+    syncPlatform();
     syncMode();
   }
 
+  function libKey() { return settings.platform === 'windows' ? 'libraryWin' : 'libraryMac'; }
+  function syncPlatform() {
+    var win = settings.platform === 'windows';
+    document.querySelectorAll('#osSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.os === settings.platform ? 'true' : 'false'); });
+    $('libInput').value = settings[libKey()];
+    $('libInput').placeholder = win ? '~\\Videos or D:\\Plex' : '~/Media';
+    var where = scriptBase ? 'Put the script inside the “' + scriptBase + '” folder you chose.' : 'Put the script in the same folder as your videos.';
+    $('scriptWhere').textContent = where;
+    $('howTo').textContent = win
+      ? 'Then right-click the script and choose “Run with PowerShell”. If Windows asks whether to run it, choose Open or Run once.'
+      : 'Then open Terminal, type “bash ” (with a space), drag the script into the window and press Return.';
+    $('dlScript').textContent = 'Download Rename Script (.' + (win ? 'ps1' : 'sh') + ')';
+  }
+
   function syncMode() {
-    document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === settings.mode ? 'true' : 'false'); });
+    document.querySelectorAll('#osSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var k = libKey(); settings[k] = $('libInput').value.trim() || settings[k]; save(k, settings[k]);
+      settings.platform = b.dataset.os; save('platform', settings.platform); syncPlatform();
+    });
+  });
+  document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === settings.mode ? 'true' : 'false'); });
     $('modeHelp').textContent = MODE_HELP[settings.mode];
   }
 
   function download(filename, text) {
-    var blob = new Blob([text], { type: 'text/x-shellscript' });
+    var blob = new Blob([text], { type: 'application/octet-stream' });
     var a = el('a', { href: URL.createObjectURL(blob), download: filename });
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
 
   function buildScripts() {
-    settings.library = $('libInput').value.trim() || '~/Media';
-    save('library', settings.library);
+    var k = libKey();
+    settings[k] = $('libInput').value.trim() || (settings.platform === 'windows' ? '~\\Videos' : '~/Media');
+    save(k, settings[k]);
     var list = readyItems().map(function (i) {
       var p = plexFor(i);
       return { source: scriptPath(i), folder: p.folder, file: p.file };
     });
-    return P.buildScript(list, { library: settings.library, mode: settings.mode });
+    return P.buildScript(list, { library: settings[libKey()], mode: settings.mode, platform: settings.platform });
   }
 
   // ---------- Events ----------
@@ -509,13 +554,13 @@
 
   on('dlScript', 'click', function () {
     var s = buildScripts();
-    download('shelf-rename.sh', s.script);
-    toast('Downloaded shelf-rename.sh');
+    download('shelf-rename.' + s.ext, s.script);
+    toast('Downloaded shelf-rename.' + s.ext);
   });
   on('dlUndo', 'click', function () {
     var s = buildScripts();
-    download('shelf-undo.sh', s.undo);
-    toast('Downloaded shelf-undo.sh');
+    download('shelf-undo.' + s.ext, s.undo);
+    toast('Downloaded shelf-undo.' + s.ext);
   });
 
   on('searchForm', 'submit', function (e) {
@@ -529,7 +574,7 @@
   });
 
   on('keyInput', 'change', function (e) {
-    settings.tmdbKey = e.target.value.trim(); save('tmdbKey', settings.tmdbKey); render();
+    saveKey(e.target.value.trim()); render();
   });
   on('testKey', 'click', function () {
     var key = $('keyInput').value.trim();
@@ -538,8 +583,24 @@
     status.textContent = 'Checking…';
     S.testTmdbKey(key).then(function () {
       status.textContent = 'It works! Movies will now be matched.';
-      settings.tmdbKey = key; save('tmdbKey', key); render();
+      saveKey(key); render();
     }).catch(function () { status.textContent = 'TMDB didn\'t accept that key. Copy it again from themoviedb.org → Settings → API.'; });
+  });
+  on('optRemember', 'change', function (e) {
+    settings.rememberKey = e.target.checked; save('rememberKey', settings.rememberKey); saveKey(settings.tmdbKey);
+    toast(settings.rememberKey ? 'Your key will be remembered on this device.' : 'Your key will be forgotten when you close this tab.');
+  });
+  on('optPosters', 'change', function (e) { settings.posters = e.target.checked; save('posters', settings.posters); render(); });
+  on('forgetKey', 'click', function () {
+    saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this browser.'; render();
+  });
+  on('eraseAll', 'click', function () {
+    eraseEverything();
+    items = []; selectedId = null; filter = 'all';
+    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.posters = true; settings.rememberKey = true;
+    $('privacySheet').close();
+    render();
+    toast('Erased. Shelf has nothing stored in this browser.');
   });
   on('optIds', 'change', function (e) { settings.movieIds = e.target.checked; save('movieIds', settings.movieIds); render(); });
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });

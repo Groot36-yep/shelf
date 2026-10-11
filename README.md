@@ -12,8 +12,10 @@ bonanza.s01e01.a.rose.for.lotta.mkv           →  TV Shows/Bonanza/Season 01/Bo
 bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bonanza - S01E01 - A Rose for Lotta.en.srt
 ```
 
-> **Demo version.** Shelf runs in your web browser. It only reads file *names*. Your videos are
-> never uploaded anywhere.
+> **Private by design.** Shelf runs in your web browser on Mac or Windows. It only reads file
+> *names*, and only a cleaned-up title (like `Charade` + `1963`) is ever looked up. Your videos,
+> folders and file list never leave your computer. No accounts, cookies or tracking. See
+> [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
 ## Try it
 
@@ -25,17 +27,23 @@ Open the live demo: **https://groot36-yep.github.io/shelf/**
    **Settings** first (themoviedb.org → Settings → API). The key is stored only in your browser.
 4. Anything Shelf isn't sure about is marked **Review**. Click it, and pick the right match on
    the right-hand side, or search by title.
-5. Click **Rename…** to download a small script that does the renaming on your Mac.
+5. Click **Rename…**, choose **Mac** or **Windows**, and download the small script that does the renaming.
 
 ### Running the rename script
 
-A web page can't rename files on your computer by itself, so Shelf gives you a script instead.
+For your safety, a web page can't touch files on your computer, so Shelf gives you a script
+instead. You can open it in any text editor to see exactly what it will do.
 
+**Mac**
 1. Put `shelf-rename.sh` in the folder with your videos.
 2. Open **Terminal** (press ⌘ Space, type *Terminal*, press Return).
 3. Type `bash ` (with a space), drag the script into the Terminal window, and press Return.
 
-Download **shelf-undo.sh** too. Running it the same way puts everything back.
+**Windows**
+1. Put `shelf-rename.ps1` in the folder with your videos.
+2. Right-click it and choose **Run with PowerShell**. If Windows asks whether to run it, choose **Open** or **Run once**.
+
+Download the **undo** script too. Running it the same way puts everything back.
 
 Shelf never overwrites a file that already exists. It skips it and tells you.
 
@@ -52,6 +60,9 @@ Shelf never overwrites a file that already exists. It skips it and tells you.
 - **Add TMDB ID to movie names**: `Charade (1963) {tmdb-4808}.mkv`. Plex then never mismatches it.
 - **Add year to show names**: `Doctor Who (2005)`. Useful when a show has been remade.
 - **Move, Copy or Hard Link**: hard links use no extra disk space, which is handy for files you keep seeding.
+- **Show posters**: turn off to download no images at all.
+- **Remember key on this device**: turn off to have your TMDB key forgotten when you close the tab.
+- **Privacy → Erase All Shelf Data**: removes every setting Shelf saved in your browser.
 
 ## Project layout
 
@@ -61,7 +72,7 @@ css/styles.css    macOS-style look, light and dark mode
 js/parser.js      filename parsing, match scoring, Plex names, script builder (no network)
 js/sources.js     TMDB and TVmaze lookups
 js/app.js         the interface
-tests/            run with: node tests/parser.test.js
+tests/            node tests/parser.test.js and node tests/scripts.test.js
 ```
 
 No build step and no dependencies. Open `index.html`, or serve the folder with any static web server.

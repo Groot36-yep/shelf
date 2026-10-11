@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Privacy & security: the page may only talk to TMDB and TVmaze, load nothing from anywhere else,
+     run no inline or third-party code, and never tell other sites where you came from. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://image.tmdb.org https://static.tvmaze.com; connect-src https://api.themoviedb.org https://api.tvmaze.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
 <meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
@@ -28,6 +32,10 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
         Settings
       </button>
+      <button class="side-item" type="button" data-open="privacy">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        Privacy
+      </button>
       <button class="side-item" type="button" data-open="about">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>
         About
@@ -44,7 +52,10 @@
       </div>
     </div>
 
-    <p class="side-foot">Your files never leave your computer. Shelf only reads their names.</p>
+    <button class="side-foot" type="button" data-open="privacy">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>Private by design. Your videos never leave your computer.</span>
+    </button>
   </nav>
 
   <main class="main">
@@ -142,6 +153,13 @@
     </div>
     <div class="group">
       <div class="row">
+        <span>My computer</span>
+        <div class="segmented small" role="group" aria-label="My computer" id="osSeg">
+          <button type="button" data-os="mac" aria-pressed="true">Mac</button>
+          <button type="button" data-os="windows" aria-pressed="false">Windows</button>
+        </div>
+      </div>
+      <div class="row">
         <span>Files</span>
         <div class="segmented small" role="group" aria-label="Files" id="modeSeg">
           <button type="button" data-mode="move" aria-pressed="true">Move</button>
@@ -157,10 +175,10 @@
       <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
     </div>
     <div class="callout">
-      <b>How it works.</b> A web page can't rename files on your Mac, so Shelf gives you a small script that does it.
+      <b>How it works.</b> For your safety a web page can't touch files on your computer, so Shelf gives you a small script that does the renaming. You can open it in any text editor to see exactly what it will do.
       <span id="scriptWhere"></span>
-      Then open <b>Terminal</b>, type <code>bash </code> (with a space), drag the script into the window and press Return.
-      Keep the undo script in case you change your mind.
+      <span id="howTo"></span>
+      It never overwrites anything. Keep the undo script in case you change your mind.
     </div>
     <div class="sheet-actions">
       <button class="pill" type="submit" value="cancel">Cancel</button>
@@ -182,7 +200,16 @@
           <input id="keyInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Paste from themoviedb.org → Settings → API">
           <button class="pill" type="button" id="testKey">Test</button>
         </div>
-        <span class="row-help" id="keyStatus">Saved only in this browser. Never sent anywhere except TMDB.</span>
+        <span class="row-help" id="keyStatus">Only ever sent to TMDB.</span>
+        <span class="row-help">Tip: use the long <b>API Read Access Token</b>. It's sent privately in a header instead of in the web address.</span>
+      </div>
+      <label class="row">
+        <span>Remember key on this device<br><small class="muted">Off: forgotten when you close the tab</small></span>
+        <input type="checkbox" class="switch" id="optRemember">
+      </label>
+      <div class="row">
+        <span class="muted">Remove the key from this browser</span>
+        <button class="pill" type="button" id="forgetKey">Forget Key</button>
       </div>
     </div>
     <span class="section-label">Naming</span>
@@ -192,12 +219,50 @@
         <input type="checkbox" class="switch" id="optIds">
       </label>
       <label class="row">
+        <span>Show posters<br><small class="muted">Off: no images are downloaded at all</small></span>
+        <input type="checkbox" class="switch" id="optPosters">
+      </label>
+      <label class="row">
         <span>Add year to show names<br><small class="muted">Doctor Who (2005) — useful for remakes</small></span>
         <input type="checkbox" class="switch" id="optShowYear">
       </label>
     </div>
     <div class="sheet-actions">
       <button class="pill pill-primary" type="submit" value="done">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Privacy sheet -->
+<dialog class="sheet" id="privacySheet" aria-labelledby="privacyTitle">
+  <form method="dialog">
+    <div class="about">
+      <div class="shield" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+      <h2 id="privacyTitle">Private by design</h2>
+      <p class="muted">Shelf is built so it knows as little about you as possible.</p>
+    </div>
+    <span class="section-label">Stays on your computer, always</span>
+    <div class="group">
+      <div class="fact"><span>Your video files</span><span>Never uploaded</span></div>
+      <div class="fact"><span>Original file names and folders</span><span>Never sent</span></div>
+      <div class="fact"><span>Your file list</span><span>Gone when you close the tab</span></div>
+      <div class="fact"><span>The rename script</span><span>Made on your computer</span></div>
+    </div>
+    <span class="section-label">The only things that leave</span>
+    <div class="group">
+      <div class="fact"><span>Movie title + year</span><span>to TMDB</span></div>
+      <div class="fact"><span>Show title + episode number</span><span>to TVmaze</span></div>
+      <div class="fact"><span>Posters (optional)</span><span>from TMDB / TVmaze</span></div>
+    </div>
+    <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB and TVmaze can see your internet address when Shelf asks them something.</p>
+    <span class="section-label">Never</span>
+    <div class="group">
+      <div class="fact"><span>Accounts, cookies, tracking or analytics</span><span>None</span></div>
+      <div class="fact"><span>Code or fonts from other websites</span><span>None, blocked by the page</span></div>
+    </div>
+    <div class="sheet-actions">
+      <button class="pill danger-pill" type="button" id="eraseAll">Erase All Shelf Data</button>
+      <button class="pill pill-primary" type="submit">Done</button>
     </div>
   </form>
 </dialog>
@@ -212,14 +277,14 @@
     </div>
     <div class="group credits">
       <div class="credit">
-        <a href="https://www.themoviedb.org" target="_blank" rel="noopener">
-          <img src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="The Movie Database (TMDB)" width="120" height="16">
+        <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
+          <img src="assets/tmdb-logo.svg" alt="The Movie Database (TMDB)" width="120" height="16">
         </a>
         <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       </div>
       <div class="credit">
         <a href="https://www.tvmaze.com" target="_blank" rel="noopener" class="tvmaze">TVmaze</a>
-        <p>TV information provided by <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a>, licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>.</p>
+        <p>TV information provided by <a href="https://www.tvmaze.com" target="_blank" rel="noopener noreferrer">TVmaze</a>, licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>.</p>
       </div>
     </div>
     <p class="muted small center">Not affiliated with Plex Inc. Shelf only reads file names; your videos are never uploaded.</p>
