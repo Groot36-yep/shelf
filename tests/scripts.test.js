@@ -18,7 +18,7 @@ const WIN = process.platform === 'win32';
 const SOURCES = WIN ? [
   // Windows forbids | > " * ? in names, so use every other trick.
   "it's $(touch PWNED) `touch PWNED2`.mkv",
-  'semi;colon & amp $env:PATH.mkv',
+  'semi;colon & amp $HOME %PATH% $(x).mkv',
   '[YTS] The Matrix (1999) [720p].mkv',
   'quote‘curly’ ’single‚ ‛.mkv',
   'Amélie (2001) 日本.mkv',
