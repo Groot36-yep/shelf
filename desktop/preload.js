@@ -6,14 +6,26 @@
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+let dropListener = null;
+window.addEventListener('drop', (e) => {
+  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+  if (!files.length || !dropListener) return;
+  const paths = files.map((f) => { try { return webUtils.getPathForFile(f); } catch (err) { return ''; } }).filter(Boolean);
+  const fn = dropListener;
+  fn({ state: 'start', count: files.length });
+  ipcRenderer.invoke('shelf:expandDropped', paths)
+    .then((list) => fn({ state: 'done', list, asked: files.length, found: paths.length }))
+    .catch((err) => fn({ state: 'error', message: String((err && err.message) || err) }));
+}, true);
+
 contextBridge.exposeInMainWorld('shelfNative', {
   platform: process.platform,
   version: () => ipcRenderer.invoke('shelf:version'),
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),
   pickFolder: () => ipcRenderer.invoke('shelf:pickFolder'),
-  expandDropped: (files) => ipcRenderer.invoke('shelf:expandDropped', Array.from(files || []).map((f) => {
-    try { return webUtils.getPathForFile(f); } catch (e) { return ''; }
-  }).filter(Boolean)),
+  // Dropped files: their locations are read here, where the real File objects are (a File handed
+  // across to the page loses its location). The page just gets told what was added.
+  onDropFiles: (fn) => { dropListener = typeof fn === 'function' ? fn : null; },
   getLibrary: () => ipcRenderer.invoke('shelf:getLibrary'),
   pickLibrary: () => ipcRenderer.invoke('shelf:pickLibrary'),
   rename: (ops, mode) => ipcRenderer.invoke('shelf:rename', ops, mode),

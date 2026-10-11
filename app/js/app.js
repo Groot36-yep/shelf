@@ -715,12 +715,20 @@
   }
 
   // ---------- Files in ----------
+  // The drop itself is read by the app bridge (see preload.js); here we only stop the browser
+  // from opening the file, and show what happened.
   function handleDrop(e) {
     e.preventDefault();
+    dragDepth = 0;
     document.body.classList.remove('dragging');
-    var dt = e.dataTransfer;
-    native.expandDropped(dt.files).then(addFiles);
   }
+  native.onDropFiles(function (r) {
+    if (r.state === 'start') { toast('Adding ' + (r.count === 1 ? 'what you dropped' : r.count + ' items') + '…'); return; }
+    if (r.state === 'error') { toast('Couldn’t add those: ' + r.message); return; }
+    var list = Array.isArray(r.list) ? r.list : [];
+    if (!list.length) { toast(r.found ? 'No videos or subtitles in what you dropped.' : 'Couldn’t read where those files are. Try Choose Files… instead.'); return; }
+    addFiles(list);
+  });
 
   // ---------- Sheets ----------
   function openSheet(name) {
@@ -1054,7 +1062,8 @@
   var dragDepth = 0;
   window.addEventListener('dragenter', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0) { dragDepth++; document.body.classList.add('dragging'); } });
   window.addEventListener('dragleave', function () { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
-  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('dragover', function (e) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('dragend', function () { dragDepth = 0; document.body.classList.remove('dragging'); });
   window.addEventListener('drop', function (e) { dragDepth = 0; handleDrop(e); });
 
   // Keyboard shortcuts
