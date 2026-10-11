@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Privacy & security: the page may only talk to TMDB, TheTVDB and TVmaze, load nothing from anywhere else,
      run no inline or third-party code, and never tell other sites where you came from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
 <meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
@@ -136,22 +136,39 @@
 
   <aside class="inspector" id="inspector" aria-label="Details" hidden>
     <div class="titlebar-space" aria-hidden="true"></div>
-    <div class="insp-poster" id="inspPoster"></div>
-    <div class="insp-head">
-      <h2 id="inspTitle"></h2>
-      <span id="inspMeta" class="muted"></span>
+    <div class="insp-hero">
+      <div class="insp-poster" id="inspPoster"></div>
+      <div class="insp-head">
+        <h2 id="inspTitle"></h2>
+        <span id="inspMeta" class="muted"></span>
+      </div>
     </div>
-    <div class="insp-section ep-card-wrap" id="inspEpWrap" hidden>
-      <span class="section-label" id="inspEpLabel">Shelf thinks this file is</span>
-      <div class="ep-card" id="inspEpList"></div>
-      <p class="ep-why" id="inspEpWhy"></p>
-      <div class="scan-row">
-        <button class="pill pill-primary" type="button" id="checkEps" title="Open the video to see which episodes it holds, check them, or split it">Check Episodes…</button>
-        <button class="pill" type="button" id="changeEp" data-opens-browser="1">Change…</button>
-        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
+    <!-- A problem Shelf found, in plain words, with what you can do about it. -->
+    <div class="insp-issue" id="inspIssue" hidden role="status">
+      <span class="issue-icon" aria-hidden="true">!</span>
+      <div class="issue-body">
+        <b id="issueTitle"></b>
+        <p id="issueText"></p>
+        <div class="issue-actions" id="issueActions"></div>
       </div>
     </div>
     <p class="insp-error" id="inspError" hidden></p>
+    <section class="insp-card" id="inspEpWrap" hidden>
+      <div class="insp-card-head"><span class="section-label" id="inspEpLabel">In this file</span><span class="ep-badge" id="inspEpBadge"></span></div>
+      <div class="ep-card" id="inspEpList"></div>
+      <p class="ep-why" id="inspEpWhy"></p>
+      <div class="insp-card-foot">
+        <button class="pill small-pill" type="button" id="checkEps" title="Open the video to see which episodes it holds, check them, or split it">Check Episodes…</button>
+        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
+        <span class="foot-flex"></span>
+        <span id="inspLookWrap" class="look-wrap" hidden>
+          <button class="link-btn" type="button" id="readCards" hidden title="Reads the title cards inside this show’s videos, here on this computer (Shelf asks first)">Read Title Cards</button>
+          <button class="link-btn" type="button" id="checkLengths" title="Reads only how long each video is (Shelf asks first)">Check Lengths</button>
+          <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
+        </span>
+      </div>
+      <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
+    </section>
     <p class="insp-note" id="inspNote" hidden></p>
     <div class="insp-section" id="inspSegWrap" hidden>
       <span class="section-label">Shelf isn’t sure: each file of this show is…</span>
@@ -160,18 +177,6 @@
         <button type="button" data-mode="halfhours" aria-pressed="false" title="A half-hour with 2 or 3 cartoons in it">A half-hour</button>
       </div>
     </div>
-    <div class="insp-section" id="inspLookWrap" hidden>
-      <span class="section-label">Look inside the videos</span>
-      <div class="scan-row">
-        <button class="pill small-pill" type="button" id="checkLengths" title="Reads only how long each video is">Check Lengths</button>
-        <button class="pill small-pill" type="button" id="readCards" hidden title="Reads the title cards inside the videos">Read Title Cards</button>
-        <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
-      </div>
-      <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
-      <span class="row-help">Shelf asks first, and everything stays on this computer.</span>
-    </div>
-    <div class="group" id="inspFacts"></div>
-
     <div class="insp-section" id="inspCandWrap" hidden>
       <span class="section-label">Is this the right one?</span>
       <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
@@ -182,6 +187,11 @@
       <div class="crumbs" id="inspCrumbs"></div>
       <div class="mono-box" id="inspFile"></div>
     </div>
+
+    <details class="insp-more" id="inspMore">
+      <summary>Details</summary>
+      <div class="group" id="inspFacts"></div>
+    </details>
 
     <form class="insp-section" id="searchForm">
       <label class="section-label" for="searchInput">Search by title</label>
@@ -490,6 +500,27 @@
     <button class="pill" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next</button>
     <button class="pill pill-primary" type="button" id="edSave">Use This Name</button>
   </footer>
+</dialog>
+
+<!-- Resolve: see the title cards Shelf read, fix the names, and settle the problem in one place. -->
+<dialog class="sheet resolve-sheet" id="resolveSheet" aria-labelledby="rsTitle">
+  <div class="rs-head">
+    <span class="rs-icon" id="rsIcon" aria-hidden="true">!</span>
+    <div class="rs-titles">
+      <h2 id="rsTitle" class="sheet-title">Resolve</h2>
+      <p id="rsFile"></p>
+    </div>
+    <button class="rs-x" type="button" id="rsClose" aria-label="Close">✕</button>
+  </div>
+  <p class="rs-lead" id="rsLead"></p>
+  <div class="rs-parts" id="rsParts"></div>
+  <div class="rs-verdict" id="rsVerdict" role="status" aria-live="polite"></div>
+  <div class="rs-actions">
+    <button class="link-btn" type="button" id="rsEditor">Open in Check Episodes…</button>
+    <span class="foot-flex"></span>
+    <button class="pill" type="button" id="rsAlt" hidden></button>
+    <button class="pill pill-primary" type="button" id="rsMain"></button>
+  </div>
 </dialog>
 
 <!-- Episode browser -->

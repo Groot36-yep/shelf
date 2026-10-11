@@ -357,6 +357,35 @@ if (gotLock) app.whenReady().then(() => {
     return out;
   });
 
+  // Videos you agreed Shelf may look inside (to read title cards), this session only. For these,
+  // Shelf can also show you the frame of a title card it read, and find where to split.
+  const lookApproved = new Set();
+  // The frame of a title card Shelf read (a small JPEG, straight to this window; never saved).
+  handle('shelf:cardFrame', async (p, t, w) => {
+    const f = path.resolve(String(p));
+    if (!lookApproved.has(f) || !pickedVideos([f]).length) return null;
+    const jpg = await frameLane(null, () => frameJpeg(f, Math.max(0, Number(t) || 0), Math.min(640, Math.max(160, Math.round((Number(w) || 320) / 2) * 2))));
+    return jpg && jpg.length ? new Uint8Array(jpg) : null;
+  });
+  // Where to split a video Shelf already looked inside (hints as in splitSuggest). Asks first otherwise.
+  handle('shelf:suggestCuts', async (p, hints) => {
+    const files = pickedVideos([p]);
+    if (!files.length || !Array.isArray(hints)) throw new Error('Not a video you picked');
+    const f = files[0];
+    if (!lookApproved.has(f) && !approvedMedia.has(f)) {
+      const yes = await askFirst([f], 'Find where to split this video?', 'Shelf looks for the black, silent moment between the episodes, here on this computer. Nothing is changed until you click Rename Now, and your original file is always kept.', 'Find Split');
+      if (!yes) return null;
+      lookApproved.add(f);
+    }
+    const split = require('./split');
+    const out = [];
+    for (const h of hints.slice(0, 5)) {
+      if (h && Number.isFinite(h.card)) out.push(Object.assign({ from: 'card' }, await split.cutBefore(f, h.card)));
+      else if (h && Number.isFinite(h.est)) out.push(Object.assign({ from: 'estimate' }, await split.cutNear(f, h.est)));
+      else out.push(null);
+    }
+    return { cuts: out, secs: await probe.duration(f) };
+  });
   let cardCancel = false;
   handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
   // jobs: [{ path, titles: [episode titles of that show] }]
@@ -368,6 +397,7 @@ if (gotLock) app.whenReady().then(() => {
     const yes = await askFirst(files, 'Read the title cards of ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + '?',
       'Shelf looks at a few still frames from each video and reads the words on them, here on this computer, to find out which episodes it holds. Nothing is uploaded, and the frames are deleted straight away. It takes roughly 5–30 seconds per video.', 'Read Title Cards');
     if (!yes) return null;
+    files.forEach((f) => lookApproved.add(f)); // you said yes to Shelf looking inside these
     const scan = require('./scan'); // loaded only when you use it
     cardCancel = false;
     const send = (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', msg); };

@@ -763,7 +763,7 @@
         var g = halfHourGroups(seasonEntries(list, found[0].season)).filter(function (gg) { return found.every(function (e) { return gg.indexOf(e) >= 0; }); })[0];
         // One title card at the start, and none further in although Shelf looked there: one long
         // episode (a special like "SpongeBob's Last Stand"), not a half-hour with a second cartoon.
-        var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && parts > 1 && file.cards.some(function (c) { return c.part >= 1; }) &&
+        var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && file.parts > 1 &&
           // ...unless Shelf saw another cartoon start further in (a card between two black fades,
           // or its opening credits).
           !file.cards.some(function (c) { return c.part >= 1 && c.boundary; });
