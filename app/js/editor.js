@@ -155,10 +155,16 @@
     $('edBusy').hidden = true;
     video = $('edVideo');
     video.hidden = false; $('edFrame').hidden = true; $('edQuick').hidden = true; $('edFallback').hidden = true;
+    seeking = false; pendingSeek = null;
+    $('edPlay').disabled = false; $('edAround').disabled = false; document.querySelectorAll('#edSpeed button').forEach(function (b) { b.disabled = false; b.setAttribute('aria-pressed', b.dataset.rate === '1' ? 'true' : 'false'); });
     video.playbackRate = 1;
     video.src = 'shelf-media://v/' + st.token;
     video.onerror = function () { useFrames('this video format can’t play inside Shelf'); };
-    video.onloadedmetadata = function () { if (video.videoWidth === 0) useFrames('this video’s picture can’t play inside Shelf'); else seek(st.t); };
+    video.onloadedmetadata = function () {
+      if (!st) return;
+      if (video.videoWidth === 0) { useFrames('this video’s picture can’t play inside Shelf'); return; }
+      seeking = false; pendingSeek = null; doSeek(st.t);
+    };
     video.onseeked = function () { seeking = false; if (pendingSeek != null) { var t = pendingSeek; pendingSeek = null; doSeek(t); } };
     video.onplay = video.onpause = syncPlay;
     $('edOvStrip').src = 'shelf-media://s/' + st.token + '?from=0&to=' + st.secs.toFixed(1) + '&n=48&w=96&key=1';
@@ -186,24 +192,34 @@
     st.playable = false;
     video.hidden = true; $('edFrame').hidden = false; $('edQuick').hidden = false;
     $('edFallback').hidden = false; $('edFallback').textContent = 'Frame preview: ' + why;
-    $('edPlay').disabled = true; document.querySelectorAll('#edSpeed button').forEach(function (b) { b.disabled = true; });
+    $('edPlay').disabled = true; $('edAround').disabled = true; $('edAround').title = 'Can’t play this video inside Shelf; scrub or step through it instead';
+    document.querySelectorAll('#edSpeed button').forEach(function (b) { b.disabled = true; });
     seek(st.t);
   }
 
   // ---- Playhead ----
-  function doSeek(t) { seeking = true; video.currentTime = t; }
+  // Ask the player to jump; only one jump at a time (the latest wins), and never before the video
+  // has loaded (a jump then is silently ignored and would never report back).
+  var seekStarted = 0;
+  function doSeek(t) {
+    if (video.readyState < 1) { pendingSeek = t; return; }
+    seeking = true; seekStarted = Date.now();
+    video.currentTime = t;
+  }
   function seek(t) {
     if (!st) return;
     t = clamp(t, 0, Math.max(0, st.secs - 0.04));
     st.t = t;
-    if (st.playable) { if (seeking) pendingSeek = t; else doSeek(t); }
+    // A jump that never reported back (rare) doesn't block the next one.
+    if (seeking && Date.now() - seekStarted > 1500) seeking = false;
+    if (st.playable) { if (seeking || video.readyState < 1) pendingSeek = t; else doSeek(t); }
     else showFrame(t);
     keepInView(t);
     drawHead();
   }
   // Without the player: show the nearest strip frame at once, then the exact frame when you pause.
   function showFrame(t) {
-    var tl = st.tlStrip;
+    var tl = st.scrub && t >= st.scrub.a && t <= st.scrub.b ? st.scrub : st.tlStrip;
     if (tl && t >= tl.a && t <= tl.b) {
       var i = clamp(Math.round((t - tl.a) / (tl.b - tl.a) * tl.n - 0.5), 0, tl.n - 1);
       var q = $('edQuick'); q.style.backgroundImage = 'url("' + tl.url + '")';
@@ -337,6 +353,16 @@
       };
       box.classList.add('is-loading');
       img.src = url;
+      // Without the player: a dense strip (2 frames a second) for instant scrubbing in this view.
+      if (!st.playable) {
+        var dn = clamp(Math.round(span * 2), 8, 160), dkey = span > 120 ? 1 : 0;
+        var durl = 'shelf-media://s/' + st.token + '?from=' + v.a.toFixed(2) + '&to=' + v.b.toFixed(2) + '&n=' + dn + '&w=192&key=' + dkey;
+        if (!st.scrub || st.scrub.url !== durl) {
+          var dimg = new Image();
+          dimg.onload = function () { if (st) { st.scrub = { url: durl, a: v.a, b: v.b, n: dn }; showFrame(st.t); } };
+          dimg.src = durl;
+        }
+      }
     }, 140);
   }
 

@@ -585,3 +585,5 @@ html.os-win32 .inspector { padding-top: 22px; }
 .ep-card-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-why { margin: 0; font-size: 12px; line-height: 1.4; color: var(--orange-text); }
 .ep-why.is-sure { color: var(--green-text); }
+
+.segmented button:disabled { opacity: 0.4; cursor: default; }

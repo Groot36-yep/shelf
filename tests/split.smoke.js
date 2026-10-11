@@ -127,6 +127,9 @@ function fakeSingle(file) {
   assert.strictEqual(s.cuts[0], cut0, 'scrubbing does not move the cut');
   const v = s.view; const want = v.a + (v.b - v.a) * 0.8;
   assert.ok(Math.abs(s.t - want) < (v.b - v.a) * 0.03, 'playhead followed the drag: ' + s.t + ' vs ' + want);
+  await sleep(600);
+  const vt = await win.evaluate(() => document.getElementById('edVideo').currentTime);
+  assert.ok(Math.abs(vt - s.t) < 0.6, 'the picture followed the scrub too: video at ' + vt + ', playhead ' + s.t);
 
   // Zoom (#2.8)
   const span0 = s.view.b - s.view.a;
