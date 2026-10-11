@@ -26,6 +26,17 @@ Each file's details panel shows exactly what was shared for that file.
 Like any website, TMDB and TVmaze can see your internet (IP) address when Shelf asks them
 something. Shelf sends no cookies and no "referrer", so they don't learn which page asked.
 
+## The Windows app
+
+- It renames files itself, on your computer. It can only touch files you picked, and only put
+  them inside the library folder you chose.
+- Your TMDB key is encrypted with your Windows account (DPAPI) before it is saved.
+- No telemetry, no automatic update checks, no crash reports, and no spell-check downloads.
+- The app asks for no permissions (camera, microphone, location, notifications) and can't open
+  other websites inside its window. Links open in your normal browser.
+- Settings and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase All Shelf Data**
+  removes them.
+
 ## Your TMDB key
 
 - It is stored only in your browser on this device, and only sent to TMDB.

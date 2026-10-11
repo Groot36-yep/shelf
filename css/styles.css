@@ -372,3 +372,7 @@ button.side-foot svg { width: 15px; height: 15px; flex: none; color: var(--green
 .danger-pill { color: var(--red-text); margin-right: auto; }
 .sheet .section-label { margin-bottom: -6px; padding-left: 4px; }
 @media (max-width: 760px) { button.side-foot { display: none; } }
+
+/* desktop app vs website */
+html:not(.native) .app-only, html.native .web-only { display: none !important; }
+.mono-small { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }

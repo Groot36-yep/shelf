@@ -12,7 +12,16 @@ let pass = 0, fail = 0;
 function ok(cond, msg) { if (cond) pass++; else { fail++; console.log('FAIL', msg); } }
 
 // Hostile names: shell metacharacters, quotes of every kind, wildcards, unicode.
-const SOURCES = [
+const WIN = process.platform === 'win32';
+const SOURCES = WIN ? [
+  // Windows forbids | > " * ? in names, so use every other trick.
+  "it's $(touch PWNED) `touch PWNED2`.mkv",
+  'semi;colon & amp $env:PATH.mkv',
+  '[YTS] The Matrix (1999) [720p].mkv',
+  'quote‘curly’ ’single‚ ‛.mkv',
+  'Amélie (2001) 日本.mkv',
+  'sub/folder/nested [a-z] star.mkv'
+] : [
   "it's $(touch PWNED) `touch PWNED2`.mkv",
   'semi;colon & amp | pipe > out.mkv',
   '[YTS] The Matrix (1999) [720p].mkv',
@@ -50,7 +59,8 @@ function run(platform, shell, mode) {
   const home = path.join(root, 'home');
   fs.mkdirSync(home);
   const items = setup(work);
-  const lib = platform === 'windows' ? '~/Library Plex' : '~/Library Plex';
+  // On Windows, test an absolute library path (D:\...), elsewhere the "~" home shortcut.
+  const lib = WIN ? path.join(home, 'Library Plex') : '~/Library Plex';
   const out = P.buildScript(items, { platform, mode, library: lib });
   const scriptPath = path.join(work, 'shelf-rename.' + out.ext);
   const undoPath = path.join(work, 'shelf-undo.' + out.ext);
@@ -59,7 +69,7 @@ function run(platform, shell, mode) {
   const env = { ...process.env, HOME: home };
   const exec = (file) => shell === 'bash'
     ? execFileSync('bash', [file], { env, cwd: root, input: '\n' }).toString()
-    : execFileSync(PWSH, ['-NoProfile', '-File', file], { env, cwd: root, input: '\n' }).toString();
+    : execFileSync(PWSH, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], { env, cwd: root, input: '\n' }).toString();
   const label = platform + '/' + mode;
 
   const log1 = exec(scriptPath);
@@ -85,8 +95,9 @@ function run(platform, shell, mode) {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
-for (const mode of ['move', 'copy', 'link']) run('mac', 'bash', mode);
-if (PWSH) for (const mode of ['move', 'copy']) run('windows', 'pwsh', mode); // hard links use a Windows-only API
+if (!process.env.SKIP_BASH) for (const mode of ['move', 'copy', 'link']) run('mac', 'bash', mode);
+// Hard links in the PowerShell script use a Windows API, so that mode is only tested on Windows.
+if (PWSH) for (const mode of WIN ? ['move', 'copy', 'link'] : ['move', 'copy']) run('windows', 'pwsh', mode);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

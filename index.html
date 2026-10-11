@@ -72,6 +72,8 @@
       <button class="pill" type="button" id="addBtn" hidden>
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add
       </button>
+      <button class="pill app-only" type="button" id="undoBar" hidden>Undo Rename</button>
+      <button class="pill" type="button" id="retryBtn" hidden>Try Again</button>
       <button class="pill" type="button" id="clearBtn" hidden>Clear</button>
       <button class="pill pill-primary" type="button" id="renameBtn" disabled>Rename…</button>
     </header>
@@ -152,7 +154,7 @@
       </div>
     </div>
     <div class="group">
-      <div class="row">
+      <div class="row web-only">
         <span>My computer</span>
         <div class="segmented small" role="group" aria-label="My computer" id="osSeg">
           <button type="button" data-os="mac" aria-pressed="true">Mac</button>
@@ -168,13 +170,17 @@
         </div>
       </div>
       <p class="row-help" id="modeHelp"></p>
-      <div class="row">
+      <div class="row web-only">
         <label for="libInput">Library folder</label>
         <input id="libInput" class="text" type="text" spellcheck="false" value="~/Media">
       </div>
+      <div class="row app-only">
+        <span>Library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
+        <button class="pill" type="button" id="pickLib">Choose…</button>
+      </div>
       <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
     </div>
-    <div class="callout">
+    <div class="callout web-only">
       <b>How it works.</b> For your safety a web page can't touch files on your computer, so Shelf gives you a small script that does the renaming. You can open it in any text editor to see exactly what it will do.
       <span id="scriptWhere"></span>
       <span id="howTo"></span>
@@ -182,8 +188,11 @@
     </div>
     <div class="sheet-actions">
       <button class="pill" type="submit" value="cancel">Cancel</button>
-      <button class="pill" type="button" id="dlUndo">Download Undo Script</button>
-      <button class="pill pill-primary" type="button" id="dlScript">Download Rename Script</button>
+      <button class="pill web-only" type="button" id="dlUndo">Download Undo Script</button>
+      <button class="pill pill-primary web-only" type="button" id="dlScript">Download Rename Script</button>
+      <button class="pill app-only" type="button" id="undoNow" hidden>Undo Last Rename</button>
+      <button class="pill app-only" type="button" id="openLib">Open Library</button>
+      <button class="pill pill-primary app-only" type="button" id="renameNow">Rename Now</button>
     </div>
   </form>
 </dialog>
@@ -203,7 +212,7 @@
         <span class="row-help" id="keyStatus">Only ever sent to TMDB.</span>
         <span class="row-help">Tip: use the long <b>API Read Access Token</b>. It's sent privately in a header instead of in the web address.</span>
       </div>
-      <label class="row">
+      <label class="row web-only">
         <span>Remember key on this device<br><small class="muted">Off: forgotten when you close the tab</small></span>
         <input type="checkbox" class="switch" id="optRemember">
       </label>
@@ -246,7 +255,9 @@
       <div class="fact"><span>Your video files</span><span>Never uploaded</span></div>
       <div class="fact"><span>Original file names and folders</span><span>Never sent</span></div>
       <div class="fact"><span>Your file list</span><span>Gone when you close the tab</span></div>
-      <div class="fact"><span>The rename script</span><span>Made on your computer</span></div>
+      <div class="fact web-only"><span>The rename script</span><span>Made on your computer</span></div>
+      <div class="fact app-only"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
+      <div class="fact app-only"><span>Your TMDB key</span><span>Encrypted with your computer account</span></div>
     </div>
     <span class="section-label">The only things that leave</span>
     <div class="group">

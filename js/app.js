@@ -17,6 +17,10 @@
   }
   function forget(key, kind) { try { store(kind || 'localStorage').removeItem('shelf.' + key); } catch (e) { /* ignore */ } }
 
+  // Running as the desktop app? Then files are renamed directly, and the key is kept encrypted.
+  var native = window.shelfNative || null;
+  if (native) document.documentElement.classList.add('native');
+
   var isWindows = /win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
   var settings = {
     rememberKey: load('rememberKey', true),
@@ -32,6 +36,12 @@
 
   function saveKey(key) {
     settings.tmdbKey = key;
+    if (native) {
+      native.setKey(key).then(function (stored) {
+        if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
+      });
+      return;
+    }
     forget('tmdbKey'); forget('tmdbKey', 'sessionStorage');
     if (key) save('tmdbKey', key, settings.rememberKey ? 'localStorage' : 'sessionStorage');
   }
@@ -109,11 +119,11 @@
   }
 
   // ---------- Items ----------
-  function makeItem(name, relPath, size) {
+  function makeItem(name, relPath, size, fullPath) {
     var parsed = P.parseFilename(name);
     var ok = parsed.isVideo || parsed.isSubtitle;
     return {
-      id: nextId++, name: name, relPath: relPath || name, size: size || 0, parsed: parsed,
+      id: nextId++, name: name, relPath: relPath || name, size: size || 0, parsed: parsed, fullPath: fullPath || null,
       kind: parsed.kind === 'episode' ? 'episode' : 'movie',
       status: ok ? 'pending' : 'skipped',
       error: ok ? '' : 'Not a video or subtitle file',
@@ -147,8 +157,9 @@
     var added = 0;
     list.forEach(function (f) {
       if (/^\./.test(f.name) || /^(thumbs\.db|desktop\.ini)$/i.test(f.name)) return; // hidden/system files
-      if (items.some(function (i) { return i.relPath === f.relPath; })) return;
-      var it = makeItem(f.name, f.relPath, f.size);
+      var keyOf = f.fullPath || f.relPath;
+      if (items.some(function (i) { return (i.fullPath || i.relPath) === keyOf; })) return;
+      var it = makeItem(f.name, f.relPath, f.size, f.fullPath);
       if (it.status === 'skipped' && !/\.(nfo|txt|jpg|jpeg|png|url)$/i.test(f.name)) { items.push(it); added++; return; }
       if (it.status === 'skipped') return; // quietly ignore artwork / nfo files
       items.push(it); added++;
@@ -174,13 +185,14 @@
 
   // ---------- Matching ----------
   var running = 0;
+  var networkWarned = false;
   function matchAll() {
     items.filter(function (i) { return i.status === 'pending'; }).forEach(function (i) { matchItem(i); });
   }
 
   function matchItem(item, query) {
     item.status = 'matching'; item.error = ''; item.confirmed = false;
-    running++; render();
+    running++; scheduleRender();
     var parsed = item.parsed;
     var title = query || parsed.title;
     var year = query ? null : parsed.year;
@@ -215,8 +227,9 @@
       item.status = 'error';
       item.error = err.message || 'Lookup failed';
       if (err.code === 'nokey' || err.code === 'auth') item.needsKey = true;
+      if (err.code === 'network' && !networkWarned) { networkWarned = true; toast(err.message); }
     }).then(function () {
-      running--; render();
+      running--; scheduleRender();
     });
   }
 
@@ -231,6 +244,12 @@
         item.error = 'Season ' + s + ', episode ' + e + ' isn\'t listed for ' + c.title + ' on TVmaze.';
       }
     }).catch(function () { item.episode = null; });
+  }
+
+  function retryFailed() {
+    networkWarned = false;
+    items.forEach(function (i) { if (i.status === 'error' && !i.needsKey) i.status = 'pending'; });
+    matchAll();
   }
 
   function choose(item, index) {
@@ -257,6 +276,7 @@
       case 'review': t = item.confirmed ? el('span', { class: 'tag tag-ok', text: 'Confirmed' }) : el('span', { class: 'tag tag-warn', text: 'Review' }); break;
       case 'nomatch': t = el('span', { class: 'tag tag-warn', text: 'No match' }); break;
       case 'skipped': t = el('span', { class: 'tag tag-wait', text: 'Skipped' }); break;
+      case 'done': t = el('span', { class: 'tag tag-ok', text: '✓ Renamed' }); break;
       default: t = el('span', { class: 'tag tag-err', text: item.needsKey ? 'Needs key' : 'Error' });
     }
     return t;
@@ -319,6 +339,10 @@
     var errBox = $('inspError');
     errBox.hidden = !item.error;
     errBox.textContent = item.error;
+    if (item.status === 'error' && !item.needsKey) {
+      errBox.appendChild(document.createTextNode(' '));
+      errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Try Again', onclick: retryFailed }));
+    }
     if (item.needsKey) {
       errBox.appendChild(document.createTextNode(' '));
       errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Open Settings', onclick: function () { openSheet('settings'); } }));
@@ -373,6 +397,14 @@
     si.placeholder = item.parsed.title ? 'e.g. ' + item.parsed.title : 'Movie or show name';
   }
 
+  var renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    // At most ~8 redraws a second while lots of lookups finish at once.
+    setTimeout(function () { renderQueued = false; render(); }, 120);
+  }
+
   function render() {
     var has = items.length > 0;
     $('dropZone').hidden = has;
@@ -383,10 +415,14 @@
     var ready = items.filter(isReady).length;
     var review = items.filter(needsReview).length;
     $('renameBtn').disabled = ready === 0;
+    $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('reviewCount').textContent = review;
     $('navCount').hidden = !has;
     $('navCount').textContent = items.length;
-    $('subtitle').textContent = has ? items.length + ' item' + (items.length === 1 ? '' : 's') + (running ? ' · matching…' : '') : 'No items';
+    var busy = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
+    var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - busy;
+    var total = items.filter(function (i) { return i.status !== 'skipped'; }).length;
+    $('subtitle').textContent = has ? items.length + ' item' + (items.length === 1 ? '' : 's') + (busy ? ' · matching ' + done + ' of ' + total + '…' : '') : 'No items';
     $('statusText').textContent = has ? ready + ' ready to rename' + (review ? ' · ' + review + ' need' + (review === 1 ? 's' : '') + ' a look' : '') : '';
     document.querySelectorAll('#filterSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.filter === filter ? 'true' : 'false'); });
 
@@ -434,6 +470,7 @@
     e.preventDefault();
     document.body.classList.remove('dragging');
     var dt = e.dataTransfer;
+    if (native) { native.expandDropped(dt.files).then(addFiles); return; }
     if (dt.items && dt.items.length && dt.items[0].webkitGetAsEntry) {
       var out = [];
       var entries = Array.prototype.map.call(dt.items, function (it) { return it.webkitGetAsEntry(); }).filter(Boolean);
@@ -453,7 +490,7 @@
       $('optShowYear').checked = settings.showYear;
       $('optRemember').checked = settings.rememberKey;
       $('optPosters').checked = settings.posters;
-      $('keyStatus').textContent = 'Saved only in this browser. Never sent anywhere except TMDB.';
+      $('keyStatus').textContent = native ? 'Stored encrypted with your computer account. Only ever sent to TMDB.' : 'Saved only in this browser. Only ever sent to TMDB.';
     }
     if (d.showModal) d.showModal(); else d.setAttribute('open', '');
   }
@@ -477,6 +514,11 @@
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '');
     syncPlatform();
     syncMode();
+    if (native) {
+      native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
+      native.canUndo().then(function (yes) { $('undoNow').hidden = !yes; });
+      $('renameNow').textContent = 'Rename ' + r.length + ' Now';
+    }
   }
 
   function libKey() { return settings.platform === 'windows' ? 'libraryWin' : 'libraryMac'; }
@@ -494,13 +536,7 @@
   }
 
   function syncMode() {
-    document.querySelectorAll('#osSeg button').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var k = libKey(); settings[k] = $('libInput').value.trim() || settings[k]; save(k, settings[k]);
-      settings.platform = b.dataset.os; save('platform', settings.platform); syncPlatform();
-    });
-  });
-  document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === settings.mode ? 'true' : 'false'); });
+    document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === settings.mode ? 'true' : 'false'); });
     $('modeHelp').textContent = MODE_HELP[settings.mode];
   }
 
@@ -525,13 +561,69 @@
   // ---------- Events ----------
   function on(id, ev, fn) { $(id).addEventListener(ev, fn); }
 
+  // In the desktop app, use the system's own file pickers (they hand Shelf real file locations).
+  if (native) {
+    ['fileInput', 'folderInput'].forEach(function (id) {
+      on(id, 'click', function (e) {
+        e.preventDefault();
+        (id === 'fileInput' ? native.pickFiles() : native.pickFolder()).then(addFiles);
+      });
+    });
+    on('pickLib', 'click', function () {
+      native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('renameNow').disabled = !readyItems().length; } });
+    });
+    on('renameNow', 'click', function () {
+      var ready = readyItems();
+      var real = ready.filter(function (i) { return i.fullPath; });
+      if (!real.length) { toast('Sample files are just examples. Choose your own files to rename them.'); return; }
+      var byPath = {};
+      var ops = real.map(function (i) { var p = plexFor(i); byPath[i.fullPath] = i; return { source: i.fullPath, folder: p.folder, file: p.file }; });
+      var btn = $('renameNow');
+      btn.disabled = true;
+      var stop = native.onProgress(function (p) { btn.textContent = 'Renaming ' + p.done + ' of ' + p.total + '…'; });
+      native.rename(ops, settings.mode).then(function (results) {
+        var ok = 0, skipped = 0, failed = 0;
+        results.forEach(function (r) {
+          var item = byPath[r.source];
+          if (!item) return;
+          if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; }
+          else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
+          else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
+        });
+        $('renameSheet').close();
+        $('undoBar').hidden = !ok;
+        render();
+        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.');
+      }).catch(function (err) {
+        toast(err.message || 'Renaming failed.');
+      }).then(function () { stop(); btn.disabled = false; prepareRename(); });
+    });
+    function undoLast() {
+      native.undo().then(function (r) {
+        $('undoBar').hidden = true;
+        if (r.nothing) { toast('Nothing to undo.'); return; }
+        items.forEach(function (i) {
+          if (i.status === 'done') { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; }
+        });
+        $('renameSheet').close();
+        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
+        render();
+      });
+    }
+    on('undoNow', 'click', undoLast);
+    on('undoBar', 'click', undoLast);
+    native.canUndo().then(function (yes) { $('undoBar').hidden = !yes; });
+    on('openLib', 'click', function () { native.showLibrary(); });
+  }
+
   on('fileInput', 'change', function (e) { addFiles(fromFileList(e.target.files)); e.target.value = ''; });
   on('folderInput', 'change', function (e) { addFiles(fromFileList(e.target.files)); e.target.value = ''; });
   on('sampleBtn', 'click', function () {
     addFiles(SAMPLES.map(function (n) { return { name: n, relPath: n, size: 0 }; }));
     if (!settings.tmdbKey) toast('Movies need a free TMDB key — add it in Settings. TV works right away.');
   });
-  on('addBtn', 'click', function () { $('fileInput').click(); });
+  on('addBtn', 'click', function () { if (native) native.pickFiles().then(addFiles); else $('fileInput').click(); });
+  on('retryBtn', 'click', retryFailed);
   on('clearBtn', 'click', function () { items = []; selectedId = null; filter = 'all'; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
   on('removeBtn', 'click', function () {
@@ -550,6 +642,12 @@
   });
   document.querySelectorAll('#modeSeg button').forEach(function (b) {
     b.addEventListener('click', function () { settings.mode = b.dataset.mode; save('mode', settings.mode); syncMode(); });
+  });
+  document.querySelectorAll('#osSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var k = libKey(); settings[k] = $('libInput').value.trim() || settings[k]; save(k, settings[k]);
+      settings.platform = b.dataset.os; save('platform', settings.platform); syncPlatform();
+    });
   });
 
   on('dlScript', 'click', function () {
@@ -596,6 +694,7 @@
   });
   on('eraseAll', 'click', function () {
     eraseEverything();
+    if (native) native.eraseAll();
     items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.posters = true; settings.rememberKey = true;
     $('privacySheet').close();
@@ -627,6 +726,13 @@
     var next = shown[Math.max(0, Math.min(shown.length - 1, idx + (e.key === 'ArrowDown' ? 1 : -1)))];
     if (next) { e.preventDefault(); select(next.id); }
   });
+
+  window.addEventListener('error', function (e) { toast('Something went wrong: ' + (e.message || 'unknown error')); });
+  window.addEventListener('unhandledrejection', function (e) { toast('Something went wrong: ' + ((e.reason && e.reason.message) || 'unknown error')); });
+
+  if (native) {
+    native.getKey().then(function (k) { settings.tmdbKey = k || ''; render(); });
+  }
 
   render();
   window.Shelf = { addFiles: addFiles, items: function () { return items; } }; // handy for testing

@@ -17,7 +17,20 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 > folders and file list never leave your computer. No accounts, cookies or tracking. See
 > [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
-## Try it
+## Get Shelf for Windows
+
+**[Download the latest version](https://github.com/Groot36-yep/shelf/releases/latest)**. Pick `Shelf-Setup-….exe` to install it, or
+`Shelf-Portable-….exe` to run it without installing.
+
+The Windows app renames your files directly: choose your videos, check the matches, and press
+**Rename Now**. **Undo Rename** puts everything back. Your TMDB key is stored encrypted with your
+Windows account.
+
+> Windows will say the app is from an "unknown publisher", because it isn't code-signed yet.
+> Click **More info → Run anyway**. Every installer is built automatically by GitHub from the code
+> in this repository, after the safety tests pass on Windows.
+
+## Try it in your browser
 
 Open the live demo: **https://groot36-yep.github.io/shelf/**
 
@@ -72,10 +85,13 @@ css/styles.css    macOS-style look, light and dark mode
 js/parser.js      filename parsing, match scoring, Plex names, script builder (no network)
 js/sources.js     TMDB and TVmaze lookups
 js/app.js         the interface
-tests/            node tests/parser.test.js and node tests/scripts.test.js
+desktop/          the Windows app: window, file renaming engine (fileops.js), locked-down bridge
+tests/            npm test, plus tests/app.smoke.js for the desktop app
 ```
 
-No build step and no dependencies. Open `index.html`, or serve the folder with any static web server.
+The website has no build step and no dependencies. Open `index.html`, or serve the folder with any static web server.
+
+To run the desktop app from source: `npm install` then `npm start`. To build the Windows installer: `npm run dist:win`.
 
 ## Credits
 

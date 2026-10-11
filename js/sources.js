@@ -16,30 +16,71 @@
   }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  // Small polite queue so we never hammer either service.
-  var queue = Promise.resolve();
-  var GAP_MS = 260; // ~4 requests/second, well under TVmaze's 20 per 10 s.
-  function enqueue(fn) {
-    var p = queue.then(fn);
-    queue = p.catch(function () {}).then(function () { return wait(GAP_MS); });
-    return p;
+  // One polite line per service, so a slow or blocked service never holds up the other.
+  // TMDB allows ~40 requests/second; TVmaze allows 20 per 10 seconds.
+  var limits = {
+    'api.themoviedb.org': { parallel: 6, gapMs: 25, active: 0, waiting: [], last: 0 },
+    'api.tvmaze.com': { parallel: 2, gapMs: 520, active: 0, waiting: [], last: 0 }
+  };
+  function slot(host) {
+    var L = limits[host];
+    return new Promise(function (resolve) { L.waiting.push(resolve); pump(L); });
+  }
+  function pump(L) {
+    if (!L.waiting.length || L.active >= L.parallel) return;
+    var delay = Math.max(0, L.last + L.gapMs - Date.now());
+    if (delay) { if (!L.timer) L.timer = setTimeout(function () { L.timer = null; pump(L); }, delay); return; }
+    L.active++; L.last = Date.now();
+    var go = L.waiting.shift();
+    go(function release() { L.active--; pump(L); });
+    pump(L);
   }
 
-  function getJSON(url, headers, attempt) {
-    attempt = attempt || 0;
+  var TIMEOUT_MS = 15000;
+  var inflight = {}; // the same request asked twice at once is only sent once
+
+  function friendlyNetworkError(host, err) {
+    var name = host.indexOf('tvmaze') >= 0 ? 'TVmaze' : 'TMDB';
+    var why = err && err.name === 'AbortError' ? 'it took too long to answer' : 'the connection was blocked or failed';
+    var e = new Error('Couldn’t reach ' + name + ' (' + why + '). Check your internet, or whether an ad-blocker, antivirus or firewall is blocking ' + host + '.');
+    e.code = 'network';
+    return e;
+  }
+
+  function fetchWithTimeout(url, headers) {
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TIMEOUT_MS);
+    // No cookies, no referrer: the services learn nothing about where the request came from.
+    return fetch(url, { headers: headers || {}, credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors', signal: ctrl ? ctrl.signal : undefined })
+      .then(function (res) {
+        if (!res.ok) return { status: res.status };
+        return res.json().then(function (j) { return { status: res.status, json: j }; });
+      })
+      .then(function (r) { clearTimeout(timer); return r; }, function (err) { clearTimeout(timer); throw err; });
+  }
+
+  function getJSON(url, headers) {
     if (cache[url]) return Promise.resolve(cache[url]);
-    return enqueue(function () {
-      // No cookies, no referrer: the services learn nothing about where the request came from.
-      return fetch(url, { headers: headers || {}, credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors' });
-    }).then(function (res) {
-      if (res.status === 429 && attempt < 3) {
-        return wait(1500 * (attempt + 1)).then(function () { return getJSON(url, headers, attempt + 1); });
-      }
-      if (res.status === 404) return null;
-      if (res.status === 401) { var e = new Error('TMDB rejected the key. Check it in Settings.'); e.code = 'auth'; throw e; }
-      if (!res.ok) throw new Error('Lookup failed (' + res.status + ')');
-      return res.json().then(function (j) { cache[url] = j; return j; });
-    });
+    if (inflight[url]) return inflight[url];
+    var host = url.split('/')[2];
+    var p = (function attempt(n) {
+      return slot(host).then(function (release) {
+        return fetchWithTimeout(url, headers).then(function (r) { release(); return r; }, function (err) { release(); throw err; });
+      }).then(function (r) {
+        if (r.status === 429 && n < 3) return wait(2000 * (n + 1)).then(function () { return attempt(n + 1); });
+        if (r.status === 404) return null;
+        if (r.status === 401) { var e = new Error('TMDB rejected the key. Check it in Settings.'); e.code = 'auth'; throw e; }
+        if (r.status >= 400 || !r.json) { var e2 = new Error('Lookup failed (error ' + r.status + '). Try again in a moment.'); e2.code = 'server'; throw e2; }
+        cache[url] = r.json;
+        return r.json;
+      }, function (err) {
+        if (n < 1) return wait(1000).then(function () { return attempt(n + 1); }); // one retry for a blip
+        throw friendlyNetworkError(host, err);
+      });
+    })(0);
+    inflight[url] = p;
+    p.then(function () { delete inflight[url]; }, function () { delete inflight[url]; });
+    return p;
   }
 
   // ---------- TMDB ----------
@@ -75,20 +116,17 @@
 
   function searchMovies(title, year, key) {
     if (!key) { var e = new Error('Add your free TMDB key in Settings to match movies.'); e.code = 'nokey'; return Promise.reject(e); }
-    return tmdbRequest('/search/movie', { query: title, primary_release_year: year || '', include_adult: 'false' }, key)
+    // Fast path: ONE search without the year returns every version (originals and remakes),
+    // and Shelf picks the year itself. Only if the year isn't among them, ask once more with it.
+    return tmdbRequest('/search/movie', { query: title, include_adult: 'false' }, key)
       .then(function (j) {
         var results = (j && j.results) || [];
-        if (!results.length && year) {
-          return tmdbRequest('/search/movie', { query: title, include_adult: 'false' }, key).then(function (j2) { return (j2 && j2.results) || []; });
-        }
-        // Also fetch the no-year search so remakes show up as alternatives.
-        if (year) {
-          return tmdbRequest('/search/movie', { query: title, include_adult: 'false' }, key).then(function (j2) {
-            var seen = {};
-            return results.concat((j2 && j2.results) || []).filter(function (m) { if (seen[m.id]) return false; seen[m.id] = 1; return true; });
-          });
-        }
-        return results;
+        var hasYear = !year || results.some(function (m) { return Math.abs(parseInt((m.release_date || '').slice(0, 4), 10) - year) <= 1; });
+        if (hasYear) return results;
+        return tmdbRequest('/search/movie', { query: title, primary_release_year: year, include_adult: 'false' }, key).then(function (j2) {
+          var seen = {};
+          return ((j2 && j2.results) || []).concat(results).filter(function (m) { if (seen[m.id]) return false; seen[m.id] = 1; return true; });
+        });
       })
       .then(function (results) { return results.slice(0, 12).map(tmdbToCandidate); });
   }
@@ -123,8 +161,11 @@
   }
 
   function getEpisode(showId, season, episode) {
-    return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodebynumber?season=' + parseInt(season, 10) + '&number=' + parseInt(episode, 10))
-      .then(function (ep) {
+    // One request per show (cached), then every episode file is looked up locally.
+    return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodes?specials=1')
+      .then(function (list) {
+        var s = parseInt(season, 10), n = parseInt(episode, 10);
+        var ep = (list || []).filter(function (e) { return e.season === s && e.number === n; })[0];
         if (!ep) return null;
         return { name: String(ep.name || ''), airdate: ep.airdate };
       });
