@@ -176,8 +176,21 @@ withFile('SpongeBob.S01E02.mkv', { minutes: 11 }, 'S1E2');
 withFile('SpongeBob.S01E02.mkv', { minutes: 44 }, 'S1E4-E7');
 withFile('SpongeBob.S01E09.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Plankton!') }, 'S1E6-E7');
 withFile('SpongeBob.S01E01.mkv', { minutes: 22, parts: 2, cards: cards('Help Wanted', 'Tea at the Treedome') }, 'S1E1-E3');
-withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Hall Monitor') }, 'S1E6-E7'); // second card unreadable
-withFile('SpongeBob.S01E07.mkv', { minutes: 22, parts: 2, cards: cards('Pickles', 'Hall Monitor') }, 'S1E12-E13 ?');
+// Second card unreadable: only the first one read, nothing further in → one episode, but Shelf asks.
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Hall Monitor') }, 'S1E6 ?');
+withFile('SpongeBob.S01E07.mkv', { minutes: 22, parts: 2, cards: cards('Pickles', 'Hall Monitor') }, 'S1E13 ?');
+// Only the second card read: a cartoon starts mid-way, so there's one before it (what aired with it).
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: OCR['Plankton!'] }] }, 'S1E6-E7');
+check('a long special read from its one title card is one episode, for sure', () => {
+  const list = [{ season: 7, number: 31, name: "The Play's the Thing", runtime: 11 }, { season: 7, number: 32, name: "SpongeBob's Last Stand", runtime: 22 }, { season: 7, number: 33, name: 'Enchanted Tiki Dreams', runtime: 11 }];
+  const f = { minutes: 23.8, parts: 2, cards: [{ part: 0, t: 53, texts: ["~ os Gt aN ShONGERDE'S sTanD", 'a 3 (\\ CBOE LAST BL'] }, { part: 1, t: 800, texts: ['=n Ne PE BY Fy'] }] };
+  const r = P.resolveEpisode(P.parseFilename('SpongeBob_SquarePants_S07E11_720p.mkv'), list, { segmented: true, file: f });
+  assert.strictEqual(r.number + (r.end ? '-' + r.end : '') + (r.sure ? '' : '?'), '32');
+  list[1].runtime = 11; // the episode list doesn't know it's long: still one episode, but Shelf asks
+  const r2 = P.resolveEpisode(P.parseFilename('SpongeBob_SquarePants_S07E11_720p.mkv'), list, { segmented: true, file: f });
+  assert.strictEqual(r2.number + (r2.end ? '-' + r2.end : '') + (r2.sure ? '' : '?'), '32?');
+  assert.match(r2.note, /one long episode/);
+});
 withFile('SpongeBob.S01E05.mkv', { minutes: 22, parts: 2, cards: cards('Pizza Delivery', 'Pickles') }, 'S1E10 ?');
 
 // Naming

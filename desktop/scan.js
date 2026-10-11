@@ -100,7 +100,52 @@ function brightOnly(plane, keep) {
   const out = new Uint8Array(plane.length); for (let k = 0; k < plane.length; k++) out[k] = plane[k] > cut ? 0 : 255;
   return out;
 }
-async function frameVariants(file, t) {
+// Black-on-white image of pixels at or below a darkness cut (black lettering with coloured outlines).
+function darkOnly(plane, keep) {
+  const hist = new Uint32Array(256); for (let k = 0; k < plane.length; k++) hist[plane[k]]++;
+  let acc = 0, cut = 0; const target = plane.length * keep;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= target) { cut = v; break; } }
+  cut = Math.min(cut, 110);
+  const out = new Uint8Array(plane.length); for (let k = 0; k < plane.length; k++) out[k] = plane[k] <= cut ? 0 : 255;
+  return out;
+}
+// Strongly coloured pixels (red, blue, green lettering) as black on white.
+function colourful(r, g, b, keep) {
+  const n = r.length, sat = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { const mx = Math.max(r[k], g[k], b[k]), mn = Math.min(r[k], g[k], b[k]); sat[k] = mx > 40 ? ((mx - mn) * 255 / mx) | 0 : 0; }
+  return brightOnly(sat, keep);
+}
+// Each main colour of the frame on its own, as black on white: title lettering is usually one flat colour.
+function colourLayers(r, g, b, K) {
+  const n = r.length, step = Math.max(1, Math.floor(n / 6000));
+  const c = [];
+  for (let i = 0; i < K; i++) { const j = Math.floor((i + 0.5) / K * n); c.push([r[j], g[j], b[j]]); }
+  for (let it = 0; it < 8; it++) {
+    const sum = c.map(() => [0, 0, 0, 0]);
+    for (let k = 0; k < n; k += step) {
+      let bi = 0, bd = 1e9;
+      for (let q = 0; q < K; q++) { const d = (r[k] - c[q][0]) ** 2 + (g[k] - c[q][1]) ** 2 + (b[k] - c[q][2]) ** 2; if (d < bd) { bd = d; bi = q; } }
+      sum[bi][0] += r[k]; sum[bi][1] += g[k]; sum[bi][2] += b[k]; sum[bi][3]++;
+    }
+    sum.forEach((v, q) => { if (v[3]) c[q] = [v[0] / v[3], v[1] / v[3], v[2] / v[3]]; });
+  }
+  const lab = new Uint8Array(n), count = new Uint32Array(K);
+  for (let k = 0; k < n; k++) {
+    let bi = 0, bd = 1e9;
+    for (let q = 0; q < K; q++) { const d = (r[k] - c[q][0]) ** 2 + (g[k] - c[q][1]) ** 2 + (b[k] - c[q][2]) ** 2; if (d < bd) { bd = d; bi = q; } }
+    lab[k] = bi; count[bi]++;
+  }
+  const out = [];
+  // Lettering covers a small-to-medium share of the frame; skip the background and specks.
+  const order = Array.from({ length: K }, (_, q) => q).filter((q) => count[q] / n >= 0.03 && count[q] / n <= 0.5).sort((x, y) => count[x] - count[y]);
+  for (const q of order) { const m = new Uint8Array(n); for (let k = 0; k < n; k++) m[k] = lab[k] === q ? 0 : 255; out.push(m); }
+  return out;
+}
+/**
+ * Versions of one frame for the text reader, most useful first. full: also the slower ones
+ * (used only on the few frames most likely to be the title card).
+ */
+async function frameVariants(file, t, full) {
   const W = 960;
   const raw = await runCapture(ffmpegPath(), [
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-ss', String(Math.max(0, t)), '-i', file,
@@ -111,7 +156,12 @@ async function frameVariants(file, t) {
   const g = raw.subarray(0, plane), b = raw.subarray(plane, 2 * plane), r = raw.subarray(2 * plane, 3 * plane);
   const y = new Uint8Array(plane); for (let k = 0; k < plane; k++) y[k] = (r[k] * 77 + g[k] * 150 + b[k] * 29) >> 8;
   // Tried in this order; Shelf stops as soon as one reads as a known title.
-  const out = [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18))];
+  const out = [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, darkOnly(y, 0.2))];
+  if (full) {
+    out.push(pgm(W, h, colourful(r, g, b, 0.2)));
+    for (const m of colourLayers(r, g, b, 6)) out.push(pgm(W, h, m));
+    out.push(pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18)));
+  }
   out.preview = preview(W, h, r, g, b);
   return out;
 }
@@ -230,7 +280,8 @@ async function scanFile(file, secs, opts) {
       frames++;
       report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
       const read = [];
-      const imgs = await frameVariants(file, run.t);
+      // The likeliest few frames get every version of the picture; the rest only the quick ones.
+      const imgs = await frameVariants(file, run.t, k <= 4);
       if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
       let hit = null;
       for (const img of imgs) {

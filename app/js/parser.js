@@ -521,25 +521,104 @@
     }
     return best;
   }
+  // Words of a title or a reading, lower-case, without accents or apostrophes ("SpongeBob's" → "spongebobs").
+  function cardWords(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, ' and ').replace(/['’`]/g, '')
+      .split(/[^a-z0-9]+/).filter(Boolean);
+  }
+  function editDist(a, b, cap) {
+    if (Math.abs(a.length - b.length) > cap) return cap + 1;
+    var prev = [], cur = [];
+    for (var i = 0; i <= b.length; i++) prev[i] = i;
+    for (var x = 1; x <= a.length; x++) {
+      cur = [x]; var low = x;
+      for (var y = 1; y <= b.length; y++) {
+        cur[y] = Math.min(prev[y] + 1, cur[y - 1] + 1, prev[y - 1] + (a[x - 1] === b[y - 1] ? 0 : 1));
+        if (cur[y] < low) low = cur[y];
+      }
+      if (low > cap) return cap + 1;
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+  var CARD_STOP = { the: 1, a: 1, an: 1, of: 1, and: 1, in: 1, to: 1, for: 1, on: 1, at: 1, or: 1, not: 1 };
+  // How much of a title's words appear in what was read (each word allowed a few OCR slips, more for long words).
+  // Readings of the same frame are pooled: one version may catch "SPONGEBOB'S", another "LAST", another "STAND".
+  // How a word of a title shows up in a set of words read: 1 = clearly, 0 < x < 1 = a near miss
+  // of a long word, 'weak' = a 4-letter word with one wrong letter (only trusted next to another word).
+  function wordHit(w, tokens, blob) {
+    if (tokens.indexOf(w) >= 0) return 1;
+    if (w.length <= 5) {
+      // Short words: exact, or (5 letters) one wrong letter in the same place. Anything looser is
+      // too easy to fake by chance in a busy picture ("ine" isn't "Mine", "wary" isn't "Gary").
+      var one = function (t) { return t.length === w.length && editDist(w, t, 1) <= 1; };
+      if (w.length === 5 && tokens.some(one)) return 1;
+      if (w.length === 4 && tokens.some(one)) return 'weak';
+      return 0;
+    }
+    var cap = w.length <= 8 ? 2 : 3, bestD = 99;
+    tokens.forEach(function (t) { if (Math.abs(t.length - w.length) <= cap + 1) bestD = Math.min(bestD, editDist(w, t, cap + 1)); });
+    // Words the reader ran together ("garyinlove"): look inside the joined text too.
+    if (blob) bestD = Math.min(bestD, fuzzyFind(w, blob) + 1);
+    // Long words: a near miss earns part of the credit ("ShONGERDE'S" ≈ "SpongeBob's").
+    return bestD <= cap ? 1 : bestD <= Math.floor(w.length * 0.45) ? 1 - bestD / w.length : 0;
+  }
+  // How much of a title's words appear in what was read. Readings of the same frame are pooled: one
+  // version may catch "SPONGEBOB'S", another "LAST", another "STAND".
+  function wordScore(title, tokens, blob, perReading) {
+    var ws = cardWords(title).filter(function (w, i, a) { return a.indexOf(w) === i; }); // "Mine … Mine" counts once
+    var hit = ws.map(function (w) { return wordHit(w, tokens, blob); });
+    // A 4-letter word with one wrong letter only counts when another word of the title was read
+    // clearly in the same reading ("ROBEO DALE" is Rodeo Daze; "wary" here and "LONE" there isn't).
+    hit = hit.map(function (h, i) {
+      if (h !== 'weak') return h;
+      return perReading.some(function (rt) {
+        return wordHit(ws[i], rt) === 'weak' && ws.some(function (o, k) { return k !== i && !CARD_STOP[o] && o.length >= 4 && wordHit(o, rt) === 1; });
+      }) ? 1 : 0;
+    });
+    var total = 0, got = 0, strong = false, words = 0, hits = 0;
+    ws.forEach(function (w, i) {
+      var stop = !!CARD_STOP[w], weight = stop ? 1 : w.length, credit = hit[i];
+      total += weight;
+      if (!stop) words++;
+      if (credit >= 1 && !stop && w.length >= 4) strong = true;
+      if (credit >= 0.5 && !stop) hits++;
+      got += credit * weight;
+    });
+    // A title with two or more real words needs at least two of them; and one of them read cleanly.
+    if (!total || !strong || hits < Math.min(2, words)) return 0;
+    return got / total;
+  }
   /**
    * Which listed episode a title card's text shows. texts: OCR readings of one card (several
    * versions of the frame). Returns { entry, score } or null if nothing is clearly it.
    */
   function matchCardText(texts, entries, near) {
-    var s = (Array.isArray(texts) ? texts : [texts]).map(squash).filter(function (x) { return x.length >= 3; });
+    var all = (Array.isArray(texts) ? texts : [texts]);
+    var s = all.map(squash).filter(function (x) { return x.length >= 3; });
     if (!s.length) return null;
+    var tokens = [], seenTok = {};
+    var perReading = all.map(function (x) { return cardWords(x).filter(function (w) { return w.length >= 2; }); });
+    perReading.forEach(function (ws) { ws.forEach(function (w) { if (!seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
+    var blob = s.join(' ');
     var scored = [];
     (entries || []).forEach(function (e) {
       if (e.number == null) return;
       var t = squash(e.name);
       if (t.length < 4) return;
-      var best = 0;
+      // Letters in a row, spaces ignored: only trusted when it's a near-perfect fit (long garbage can
+      // otherwise look like a long title), else the word-by-word score decides.
+      var sub = 0;
       s.forEach(function (x) {
         var d = fuzzyFind(t, x);
         var sc = 1 - d / t.length;
         if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact
-        if (sc > best) best = sc;
+        if (sc > sub) sub = sc;
       });
+      // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
+      // score counts as before. Anywhere else the words themselves have to show up.
+      var nearOne = near && near.indexOf(e) >= 0;
+      var best = Math.max(sub >= 0.8 || nearOne ? sub : 0, wordScore(e.name, tokens, blob, perReading));
       scored.push({ entry: e, score: best });
     });
     scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
@@ -660,6 +739,13 @@
         var together = found.every(function (e) { return e.season === found[0].season; }) && cnums.every(function (x, i) { return i === 0 || x === cnums[i - 1] + 1; });
         // The half-hour these cartoons originally aired in, if they all belong to one.
         var g = halfHourGroups(seasonEntries(list, found[0].season)).filter(function (gg) { return found.every(function (e) { return gg.indexOf(e) >= 0; }); })[0];
+        // One title card at the start, and none further in although Shelf looked there: one long
+        // episode (a special like "SpongeBob's Last Stand"), not a half-hour with a second cartoon.
+        var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && parts > 1 && file.cards.some(function (c) { return c.part >= 1; });
+        if (onlyFirst) {
+          var long1 = found[0].runtime && found[0].runtime >= 18;
+          return out(found, 'card', !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
+        }
         if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
           // Only trust that guess if the file's own number points at the same half-hour.
           var agrees = exp.length && exp.every(function (e) { return g.indexOf(e) >= 0; });
