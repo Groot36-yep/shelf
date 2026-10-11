@@ -1,7 +1,7 @@
 {
   "name": "shelf",
   "productName": "Shelf",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Rename your movie and TV files so Plex recognizes them. Private by design.",
   "author": "Groot36-yep",
   "license": "MIT",
@@ -54,7 +54,8 @@
       "artifactName": "Shelf-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "Shelf-Portable-${version}.exe"
+      "artifactName": "Shelf-Portable-${version}.exe",
+      "splashImage": "build/splash.bmp"
     },
     "publish": null
   },

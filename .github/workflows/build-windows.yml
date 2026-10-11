@@ -41,6 +41,40 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Check that Shelf really opens (installed and portable)
+        shell: pwsh
+        run: |
+          function Wait-ShelfWindow([int]$seconds) {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt $seconds) {
+              if (Get-Process | Where-Object { $_.MainWindowTitle -like '*Shelf*' }) { return [math]::Round($sw.Elapsed.TotalSeconds, 1) }
+              Start-Sleep -Milliseconds 500
+            }
+            return $null
+          }
+          function Stop-Shelf { Get-Process | Where-Object { $_.ProcessName -match 'shelf' } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep 3 }
+          $bad = 0
+
+          $setup = Get-ChildItem dist -Filter 'Shelf-Setup-*.exe' | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $installed = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Shelf.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $installed) { Write-Host "::error::Setup did not install Shelf.exe"; $bad++ }
+          else {
+            Start-Process $installed.FullName
+            $t = Wait-ShelfWindow 60
+            if ($t -eq $null) { Write-Host "::error::Installed Shelf did not open a window"; $bad++ } else { Write-Host "::notice::Installed Shelf opened in $t s" }
+            $log = Join-Path $env:APPDATA 'Shelf\startup.log'
+            if (Test-Path $log) { Get-Content $log | Write-Host }
+            Stop-Shelf
+          }
+
+          $portable = Get-ChildItem dist -Filter 'Shelf-Portable-*.exe' | Select-Object -First 1
+          Start-Process $portable.FullName
+          $t = Wait-ShelfWindow 120
+          if ($t -eq $null) { Write-Host "::error::Portable Shelf did not open a window"; $bad++ } else { Write-Host "::notice::Portable Shelf opened in $t s" }
+          Stop-Shelf
+          exit $bad
+
       - uses: actions/upload-artifact@v4
         with:
           name: Shelf-Windows

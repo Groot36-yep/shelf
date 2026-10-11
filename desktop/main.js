@@ -16,12 +16,36 @@ const APP_ROOT = path.join(__dirname, '..', 'app');
 const ORIGIN = 'app://shelf';
 const SERVED = new Set(['index.html', 'css', 'js', 'assets']); // the only things the window can load
 
+// A tiny local log of startup steps and errors (never file names or keys), so a launch that
+// fails can be diagnosed: %APPDATA%\Shelf\startup.log. It is overwritten on every launch.
+let logLines = [];
+function log(msg) {
+  logLines.push(new Date().toISOString() + ' ' + msg);
+  try {
+    const p = path.join(app.getPath('userData'), 'startup.log');
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, logLines.slice(-200).join('\r\n') + '\r\n');
+  } catch (e) { /* logging must never stop the app */ }
+}
+function fatal(where, err) {
+  const text = (err && (err.stack || err.message)) || String(err);
+  log('ERROR ' + where + ': ' + text);
+  try {
+    dialog.showErrorBox('Shelf couldn’t start', 'Something went wrong while opening Shelf (' + where + ').\n\n' +
+      String((err && err.message) || err).slice(0, 400) + '\n\nDetails were saved to:\n' + path.join(app.getPath('userData'), 'startup.log'));
+  } catch (e) { /* ignore */ }
+}
+process.on('uncaughtException', (e) => fatal('main', e));
+process.on('unhandledRejection', (e) => fatal('main', e));
+log('Starting Shelf ' + app.getVersion() + ' on ' + process.platform + ' ' + process.getSystemVersion() + ' (Electron ' + process.versions.electron + ')');
+
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false } }
 ]);
 
-// Only one copy of Shelf at a time.
-if (!app.requestSingleInstanceLock()) app.quit();
+// Only one copy of Shelf at a time. A second launch brings the first window to the front.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) { log('Another copy is already running; asking it to come to the front.'); app.exit(0); }
 
 let win = null;
 const allowedSources = new Set(); // files the user picked; nothing else can be touched
@@ -61,9 +85,23 @@ function createWindow() {
       devTools: !app.isPackaged
     }
   });
-  win.once('ready-to-show', () => win.show());
+  // Show the window as soon as it's painted — and no matter what after 4 seconds,
+  // so Shelf can never be running invisibly.
+  const reveal = (why) => {
+    if (win && !win.isDestroyed() && !win.isVisible()) { log('Showing window (' + why + ')'); win.show(); win.focus(); }
+  };
+  win.once('ready-to-show', () => reveal('ready'));
+  setTimeout(() => reveal('timeout'), 4000);
+  win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
+    if (isMain) { log('Page failed to load: ' + code + ' ' + desc); reveal('load failed'); }
+  });
+  win.webContents.on('render-process-gone', (e, d) => {
+    log('Window process stopped: ' + d.reason + ' (' + d.exitCode + ')');
+    if (d.reason !== 'clean-exit' && win && !win.isDestroyed()) win.reload();
+  });
+  win.webContents.on('did-finish-load', () => log('Page loaded'));
   if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayColors()); });
-  win.loadURL(ORIGIN + '/index.html');
+  win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
 
   // Never navigate away; open approved web links in the normal browser instead.
   const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|creativecommons\.org|github\.com)\//;
@@ -87,7 +125,8 @@ function handle(channel, fn) {
   });
 }
 
-app.whenReady().then(() => {
+if (gotLock) app.whenReady().then(() => {
+  log('Electron ready');
   Menu.setApplicationMenu(null);
 
   // Serve the app's own files, and only those.
@@ -178,12 +217,15 @@ app.whenReady().then(() => {
   });
 
   createWindow();
-});
+  log('Window created');
+}).catch((e) => fatal('startup', e));
 
 function remember(list) {
   list.forEach((f) => allowedSources.add(path.resolve(f.fullPath)));
   return list;
 }
 
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+app.on('second-instance', () => {
+  if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+});
 app.on('window-all-closed', () => app.quit());
