@@ -554,20 +554,15 @@
     $('inspTitle').textContent = title;
     var meta = [];
     if (item.kind === 'episode') {
-      var epInfo = item.episode && item.episode.number != null ? item.episode : null;
-      if (item.parsed.airdate && !epInfo) meta.push('Aired ' + item.parsed.airdate);
-      else {
-        var sN = epInfo ? epInfo.season : item.parsed.season != null ? item.parsed.season : 1;
-        var eN = epInfo ? epInfo.number : item.parsed.episode || 1;
-        var eEnd = epInfo ? epInfo.end : item.parsed.episodeEnd;
-        meta.push((sN === 0 ? 'Special' : 'Season ' + sN + ',') + (eEnd ? ' Episodes ' + eN + '–' + eEnd : ' Episode ' + eN));
-      }
-      if (item.episode && item.episode.name) meta.push('“' + item.episode.name + '”');
+      // The show; the episode card below says which episode(s).
+      if (c) meta.push(['TV show', c.year, c.network].filter(Boolean).join(' · '));
     } else if (c && c.year) meta.push(String(c.year));
     $('inspMeta').textContent = meta.join(' · ');
 
     var errBox = $('inspError');
-    errBox.hidden = !item.error;
+    var src1 = linkedVideo(item) || item;
+    // Episode questions are explained in the episode card; don't say them twice.
+    errBox.hidden = !item.error || !!src1.split || !!(src1.episode && (src1.episode.needsSplit || item.epBlock)) || item.status === 'done';
     errBox.textContent = item.error;
     if (item.status === 'error' && !item.needsKey) {
       errBox.appendChild(document.createTextNode(' '));
@@ -581,8 +576,11 @@
     var note = $('inspNote');
     note.hidden = !item.epNote || item.epNote === item.error;
     note.textContent = item.epNote || '';
+    // The cartoon/half-hour switch only when Shelf isn't sure (or you've used it for this show).
     var segWrap = $('inspSegWrap');
-    segWrap.hidden = !(item.kind === 'episode' && item.segmented);
+    var showId0 = current(linkedVideo(item) || item) ? showIdKey(current(linkedVideo(item) || item)) : '';
+    segWrap.hidden = !(item.kind === 'episode' && item.segmented && !item.split && (!item.numberSure || numbering[showId0]));
+    $('inspLookWrap').hidden = !(item.kind === 'episode' && item.segmented && (linkedVideo(item) || item).fullPath);
     $('readCards').hidden = !settings.cardScan;
     $('checkLengths').disabled = $('readCards').disabled = scanning || !item.fullPath;
     document.querySelectorAll('#inspSeg button').forEach(function (b) {
@@ -643,7 +641,8 @@
     var src = linkedVideo(item) || item;
     if (src.minutes) fact('Length', Math.round(src.minutes) + ' min');
     if (src.cards) {
-      var readNames = item.episode && item.episode.how === 'card' ? item.episode.name : '';
+      var ep1 = src.episode;
+      var readNames = ep1 && ep1.how === 'card' ? (ep1.entries && ep1.entries.length ? ep1.entries.filter(function (e) { return e.card != null; }).map(function (e) { return e.name; }).join(', ') || ep1.name : ep1.name) : '';
       fact('Title cards', readNames ? 'Read: ' + readNames : src.cards.length ? 'Couldn’t read them clearly' : 'None found');
     }
     var ql = P.qualityLabel(linkedVideo(item) ? linkedVideo(item).parsed : item.parsed);

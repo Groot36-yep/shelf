@@ -134,18 +134,21 @@
     <p class="insp-error" id="inspError" hidden></p>
     <p class="insp-note" id="inspNote" hidden></p>
     <div class="insp-section" id="inspSegWrap" hidden>
-      <span class="section-label">Each file of this show is…</span>
+      <span class="section-label">Shelf isn’t sure: each file of this show is…</span>
       <div class="segmented small" role="group" aria-label="Each file is" id="inspSeg">
         <button type="button" data-mode="segments" aria-pressed="false">One cartoon</button>
         <button type="button" data-mode="halfhours" aria-pressed="false" title="A half-hour with 2 or 3 cartoons in it">A half-hour</button>
       </div>
-      <span class="row-help">Not sure? Let Shelf look (it asks first, and everything stays on this computer):</span>
+    </div>
+    <div class="insp-section" id="inspLookWrap" hidden>
+      <span class="section-label">Look inside the videos</span>
       <div class="scan-row">
-        <button class="pill" type="button" id="checkLengths" title="Reads only how long each video is">Check Lengths</button>
-        <button class="pill" type="button" id="readCards" hidden title="Reads the title cards inside the videos">Read Title Cards</button>
+        <button class="pill small-pill" type="button" id="checkLengths" title="Reads only how long each video is">Check Lengths</button>
+        <button class="pill small-pill" type="button" id="readCards" hidden title="Reads the title cards inside the videos">Read Title Cards</button>
         <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
       </div>
       <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
+      <span class="row-help">Shelf asks first, and everything stays on this computer.</span>
     </div>
     <div class="group" id="inspFacts"></div>
 

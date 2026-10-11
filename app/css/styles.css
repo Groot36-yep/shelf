@@ -587,3 +587,5 @@ html.os-win32 .inspector { padding-top: 22px; }
 .ep-why.is-sure { color: var(--green-text); }
 
 .segmented button:disabled { opacity: 0.4; cursor: default; }
+#inspLookWrap .row-help, #inspSegWrap .row-help { padding: 0; margin: 0; }
+#inspLookWrap .scan-row { margin-bottom: 2px; }
