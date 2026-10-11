@@ -17,24 +17,33 @@
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   // One polite line per service, so a slow or blocked service never holds up the other.
-  // TMDB allows ~40 requests/second; TVmaze allows 20 per 10 seconds.
+  // Each follows the service's published limit exactly: at most `max` requests in any
+  // `windowMs` stretch. Small batches go out at once; big ones run at full allowed speed.
+  // TVmaze: 20 per 10 seconds. TMDB: about 40 per second.
   var limits = {
-    'api.themoviedb.org': { parallel: 6, gapMs: 25, active: 0, waiting: [], last: 0 },
-    'api.tvmaze.com': { parallel: 2, gapMs: 520, active: 0, waiting: [], last: 0 }
+    'api.themoviedb.org': { parallel: 8, max: 35, windowMs: 1000, margin: 60 },
+    'api.tvmaze.com': { parallel: 4, max: 19, windowMs: 10000, margin: 400 }
   };
+  Object.keys(limits).forEach(function (h) { var L = limits[h]; L.active = 0; L.waiting = []; L.sent = []; L.pauseUntil = 0; });
   function slot(host) {
     var L = limits[host];
     return new Promise(function (resolve) { L.waiting.push(resolve); pump(L); });
   }
   function pump(L) {
-    if (!L.waiting.length || L.active >= L.parallel) return;
-    var delay = Math.max(0, L.last + L.gapMs - Date.now());
-    if (delay) { if (!L.timer) L.timer = setTimeout(function () { L.timer = null; pump(L); }, delay); return; }
-    L.active++; L.last = Date.now();
-    var go = L.waiting.shift();
-    go(function release() { L.active--; pump(L); });
-    pump(L);
+    var now = Date.now();
+    // (+ a small margin, because the service's clock starts when the request arrives, not when it's sent)
+    while (L.sent.length && now - L.sent[0] >= L.windowMs + L.margin) L.sent.shift();
+    while (L.waiting.length && L.active < L.parallel && L.sent.length < L.max && now >= L.pauseUntil) {
+      L.sent.push(now); L.active++;
+      L.waiting.shift()(function release() { L.active--; pump(L); });
+    }
+    if (L.waiting.length && L.active < L.parallel && !L.timer) {
+      var wait = Math.max(L.pauseUntil - now, L.sent.length >= L.max ? L.sent[0] + L.windowMs + L.margin - now : 0);
+      L.timer = setTimeout(function () { L.timer = null; pump(L); }, Math.max(5, wait + 5));
+    }
   }
+  // Told to slow down (HTTP 429): pause that service for a moment.
+  function backOff(host) { var L = limits[host]; if (L) L.pauseUntil = Math.max(L.pauseUntil, Date.now() + 2000); }
 
   var TIMEOUT_MS = 15000;
   var inflight = {}; // the same request asked twice at once is only sent once
@@ -67,7 +76,7 @@
       return slot(host).then(function (release) {
         return fetchWithTimeout(url, headers).then(function (r) { release(); return r; }, function (err) { release(); throw err; });
       }).then(function (r) {
-        if (r.status === 429 && n < 3) return wait(2000 * (n + 1)).then(function () { return attempt(n + 1); });
+        if (r.status === 429 && n < 3) { backOff(host); return wait(1500 * (n + 1)).then(function () { return attempt(n + 1); }); }
         if (r.status === 404) return null;
         if (r.status === 401) { var e = new Error('TMDB rejected the key. Check it in Settings.'); e.code = 'auth'; throw e; }
         if (r.status >= 400 || !r.json) { var e2 = new Error('Lookup failed (error ' + r.status + '). Try again in a moment.'); e2.code = 'server'; throw e2; }
@@ -148,6 +157,8 @@
       altTitle: '',
       year: year,
       popularity: (show.weight || 0) + (searchScore || 0) * 10,
+      weight: typeof show.weight === 'number' ? show.weight : null,
+      country: ((show.network && show.network.country) || (show.webChannel && show.webChannel.country) || {}).code || null,
       poster: show.image ? safeUrl(show.image.medium || show.image.original, ['https://static.tvmaze.com/']) : null,
       overview: (show.summary || '').replace(/<[^>]+>/g, ''),
       network: (show.network && show.network.name) || (show.webChannel && show.webChannel.name) || '',
@@ -156,18 +167,46 @@
   }
 
   function searchShows(title) {
-    return getJSON(TVMAZE + '/search/shows?q=' + encodeURIComponent(title))
+    // "The Office", "the office" and "THE OFFICE" are one request, shared by every episode.
+    var q = String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return getJSON(TVMAZE + '/search/shows?q=' + encodeURIComponent(q))
       .then(function (j) { return (j || []).slice(0, 8).map(function (r) { return showToCandidate(r.show, r.score); }); });
   }
 
-  function getEpisode(showId, season, episode) {
-    // One request per show (cached), then every episode file is looked up locally.
+  /**
+   * Find one episode. One request per show (cached), then every episode file of that show
+   * is looked up locally, so a whole season costs a single request.
+   * want: { season, episode } or { airdate: 'YYYY-MM-DD' }. Season 0 = specials, in air order.
+   */
+  function getEpisode(showId, want) {
     return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodes?specials=1')
       .then(function (list) {
-        var s = parseInt(season, 10), n = parseInt(episode, 10);
-        var ep = (list || []).filter(function (e) { return e.season === s && e.number === n; })[0];
+        list = list || [];
+        var ep = null;
+        if (want.airdate) {
+          ep = list.filter(function (e) { return e.airdate === want.airdate && e.number != null; })[0] ||
+               list.filter(function (e) { return e.airdate === want.airdate; })[0];
+        } else {
+          var s = parseInt(want.season, 10), n = parseInt(want.episode, 10);
+          if (s === 0) {
+            var specials = list.filter(function (e) { return e.number == null || e.season === 0; });
+            ep = specials.filter(function (e) { return e.season === 0 && e.number === n; })[0] || specials[n - 1] || null;
+            if (ep) return { name: String(ep.name || ''), airdate: ep.airdate, season: 0, number: n };
+          } else {
+            ep = list.filter(function (e) { return e.season === s && e.number === n; })[0];
+          }
+        }
         if (!ep) return null;
-        return { name: String(ep.name || ''), airdate: ep.airdate };
+        var out = { name: String(ep.name || ''), airdate: ep.airdate, season: ep.season, number: ep.number };
+        if (want.episodeEnd) {
+          var last = list.filter(function (e) { return e.season === ep.season && e.number === parseInt(want.episodeEnd, 10); })[0];
+          if (last && last.name && last.name !== ep.name) {
+            // "Part 1" + "Part 2" → "Title"; otherwise "First & Second"
+            var a = out.name.replace(/\s*\(\d+\)$|,?\s*Part\s*(\d+|One|I)$/i, ''), b = last.name.replace(/\s*\(\d+\)$|,?\s*Part\s*(\d+|Two|II)$/i, '');
+            out.name = a === b ? a : out.name + ' & ' + last.name;
+          }
+        }
+        return out;
       });
   }
 

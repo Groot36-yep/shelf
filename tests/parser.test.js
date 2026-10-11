@@ -31,10 +31,39 @@ parses('Metropolis.mkv', { kind: 'movie', title: 'Metropolis', year: null });
 
 // TV
 parses('bonanza.s01e01.a.rose.for.lotta.mkv', { kind: 'episode', title: 'Bonanza', season: 1, episode: 1, episodeTitle: 'A Rose for Lotta' });
-parses('The.Office.US.S02E03.720p.HDTV.x264.mkv', { kind: 'episode', title: 'The Office US', season: 2, episode: 3, episodeTitle: '', resolution: '720p' });
+parses('The.Office.US.S02E03.720p.HDTV.x264.mkv', { kind: 'episode', title: 'The Office', country: 'US', season: 2, episode: 3, episodeTitle: '', resolution: '720p', source: 'HDTV' });
 parses('Doctor Who (2005) - 1x01 - Rose.avi', { kind: 'episode', title: 'Doctor Who', year: 2005, season: 1, episode: 1, episodeTitle: 'Rose' });
 parses('Show Name Season 2 Episode 10.mp4', { kind: 'episode', title: 'Show Name', season: 2, episode: 10 });
 parses('Breaking Bad - S05E14 - Ozymandias.mkv', { kind: 'episode', title: 'Breaking Bad', season: 5, episode: 14, episodeTitle: 'Ozymandias' });
+
+// TV: harder cases
+parses('This.Is.Us.S01E01.1080p.WEB-DL.mkv', { title: 'This Is Us', country: null, source: 'WEB-DL', resolution: '1080p' });
+parses('Shameless (UK) - 1x01.mkv', { title: 'Shameless', country: 'GB', season: 1, episode: 1 });
+parses('The.Dark.Web.S01E01.mkv', { title: 'The Dark Web', source: null });
+parses('show.s01e01e02.1080p.bluray.x264.mkv', { episode: 1, episodeEnd: 2, source: 'BluRay' });
+parses('Show.S03E09-E10.mkv', { episode: 9, episodeEnd: 10 });
+parses('The.Daily.Show.2024.01.15.Guest.Night.720p.WEB.h264.mkv', { kind: 'episode', title: 'The Daily Show', airdate: '2024-01-15', episodeTitle: 'Guest Night', source: 'WEB' });
+function inFolder(file, folders, expect) {
+  check(folders.join('/') + '/' + file, () => {
+    const r = P.parsePath(file, folders);
+    for (const k of Object.keys(expect)) assert.deepStrictEqual(r[k], expect[k], `${k}: got ${JSON.stringify(r[k])}`);
+  });
+}
+inFolder('E01.mkv', ['Breaking Bad (2008)', 'Season 1'], { kind: 'episode', title: 'Breaking Bad', year: 2008, season: 1, episode: 1 });
+inFolder('01 - Pilot.mkv', ['TV', 'Breaking Bad', 'Season 01'], { title: 'Breaking Bad', season: 1, episode: 1, episodeTitle: 'Pilot' });
+inFolder('Episode 5.mkv', ['The Office (US)', 'Season 2'], { title: 'The Office', country: 'US', season: 2, episode: 5 });
+inFolder('S01E01.mkv', ['Ghosts (2021)'], { title: 'Ghosts', year: 2021 });
+inFolder('ep03.mkv', ['Lost', 'Specials'], { title: 'Lost', season: 0, episode: 3 });
+inFolder('The.Office.S02E01.mkv', ['The.Office.US.S02.1080p.WEB-DL'], { title: 'The Office', country: 'US' });
+inFolder('charade.1963.mkv', ['Movies'], { kind: 'movie', title: 'Charade' });
+
+// Quality / source
+parses('Web.2013.1080p.WEBRip.mkv', { title: 'Web', year: 2013, source: 'WEBRip' });
+parses('Cam.2018.1080p.NF.WEB-DL.mkv', { title: 'Cam', source: 'WEB-DL' });
+parses('Movie.Title.2019.2160p.UHD.BluRay.REMUX.HDR.HEVC.mkv', { title: 'Movie Title', source: 'Remux', hdr: 'HDR', resolution: '2160p' });
+parses('Dune.Part.Two.2024.2160p.WEB-DL.DV.mkv', { source: 'WEB-DL', hdr: 'DV' });
+parses('His Girl Friday 1940 DVDRip.m4v', { source: 'DVD' });
+check('quality label', () => assert.strictEqual(P.qualityLabel(P.parseFilename('charade.1963.1080p.bluray.x264-GRP.mkv')), '1080p BluRay'));
 
 // Subtitles
 parses('bonanza.s01e01.a.rose.for.lotta.en.srt', { kind: 'episode', isSubtitle: true, lang: 'en', title: 'Bonanza', episodeTitle: 'A Rose for Lotta' });
@@ -61,6 +90,28 @@ check('rank flags same-title remakes without a year', () => {
   assert.strictEqual(r.ambiguous, true);
 });
 
+check('TV: far better-known show wins over an obscure namesake', () => {
+  const r = P.rankCandidates(P.parseFilename('bonanza.s01e01.mkv'), [
+    { type: 'episode', title: 'Bonanza', year: 1959, weight: 90, popularity: 100 },
+    { type: 'episode', title: 'Bonanza', year: 2020, weight: 6, popularity: 16 }
+  ]);
+  assert.strictEqual(r[0].year, 1959); assert.strictEqual(r.ambiguous, false);
+});
+check('TV: close namesakes still ask', () => {
+  const r = P.rankCandidates(P.parseFilename('the.office.s01e01.mkv'), [
+    { type: 'episode', title: 'The Office', year: 2005, weight: 99, country: 'US' },
+    { type: 'episode', title: 'The Office', year: 2001, weight: 95, country: 'GB' }
+  ]);
+  assert.strictEqual(r.ambiguous, true);
+});
+check('TV: country picks the right twin', () => {
+  const r = P.rankCandidates(P.parseFilename('The.Office.UK.S01E01.mkv'), [
+    { type: 'episode', title: 'The Office', year: 2005, weight: 99, country: 'US' },
+    { type: 'episode', title: 'The Office', year: 2001, weight: 95, country: 'GB' }
+  ]);
+  assert.strictEqual(r[0].year, 2001); assert.strictEqual(r.ambiguous, false);
+});
+
 // Naming
 check('movie name', () => {
   const p = P.parseFilename('charade.1963.1080p.mkv');
@@ -73,6 +124,16 @@ check('colon titles', () => {
   const p = P.parseFilename('star.wars.1977.mkv');
   const n = P.plexName(p, { type: 'movie', title: 'Star Wars: A New Hope', year: 1977 }, {});
   assert.strictEqual(n.file, 'Star Wars - A New Hope (1977).mkv');
+});
+check('quality in names', () => {
+  const p = P.parseFilename('charade.1963.1080p.bluray.mkv');
+  const n = P.plexName(p, { type: 'movie', title: 'Charade', year: 1963 }, { quality: '1080p BluRay' });
+  assert.deepStrictEqual(n, { folder: ['Movies', 'Charade (1963)'], file: 'Charade (1963) - 1080p BluRay.mkv' });
+  const e = P.plexName(P.parseFilename('x.s01e01e02.en.srt'), { type: 'episode', show: 'Lost', season: 1, episode: 1, episodeEnd: 2, episodeTitle: 'Pilot' }, { quality: '720p BluRay' });
+  assert.strictEqual(e.file, 'Lost - S01E01-E02 - Pilot - 720p BluRay.en.srt');
+  const bad = P.plexName(p, { type: 'movie', title: 'Charade', year: 1963 }, { quality: '../x/{y}' });
+  assert.ok(!/[\\/{}]/.test(bad.file), bad.file);
+  assert.deepStrictEqual(P.plexName(P.parseFilename('a.s00e01.mkv'), { type: 'episode', show: 'Lost', season: 0, episode: 1 }, {}).folder, ['TV Shows', 'Lost', 'Specials']);
 });
 check('episode + subtitle name', () => {
   const p = P.parseFilename('bonanza.s01e01.a.rose.for.lotta.en.srt');

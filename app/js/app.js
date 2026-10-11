@@ -20,6 +20,7 @@
   var settings = {
     movieIds: load('movieIds', false),
     showYear: load('showYear', false),
+    quality: load('quality', false),
     posters: load('posters', true),
     mode: load('mode', 'move'),
     tmdbKey: '' // loaded from the encrypted store at start-up
@@ -99,8 +100,9 @@
   }
 
   // ---------- Items ----------
-  function makeItem(name, relPath, size, fullPath) {
-    var parsed = P.parseFilename(name);
+  function makeItem(name, relPath, size, fullPath, parents) {
+    var folders = Array.isArray(parents) ? parents.map(String) : String(relPath || '').split('/').slice(0, -1);
+    var parsed = P.parsePath(name, folders);
     var ok = parsed.isVideo || parsed.isSubtitle;
     return {
       id: nextId++, name: name, relPath: relPath || name, size: size || 0, parsed: parsed, fullPath: fullPath || null,
@@ -117,17 +119,29 @@
     var c = current(item);
     if (!c) return null;
     if (item.kind === 'movie') return { type: 'movie', title: c.title, year: c.year, id: c.id };
+    var ep = item.episode;
+    var season = ep && ep.season != null ? ep.season : item.parsed.season != null ? item.parsed.season : 1;
     return {
       type: 'episode', show: c.title, showYear: c.year, id: c.id,
-      season: item.parsed.season || 1, episode: item.parsed.episode || 1,
-      episodeTitle: item.episode ? item.episode.name : item.parsed.episodeTitle
+      season: season, episode: ep && ep.number != null ? ep.number : item.parsed.episode || 1,
+      episodeEnd: item.parsed.episodeEnd,
+      episodeTitle: ep ? ep.name : item.parsed.episodeTitle,
+      // Two shows share this name (The Office 2001 / 2005): put the year in the folder so Plex can tell.
+      needsYear: item.candidates.some(function (o) { return o !== c && o.id !== c.id && P.titleSimilarity(o.title, c.title) >= 0.99 && o.year !== c.year; })
     };
+  }
+
+  // A subtitle uses its video's quality, so the two names still line up for Plex.
+  function qualityFor(item) {
+    if (!settings.quality) return '';
+    var v = linkedVideo(item);
+    return P.qualityLabel(v ? v.parsed : item.parsed);
   }
 
   function plexFor(item) {
     var m = matchFor(item);
     if (!m) return null;
-    return P.plexName(item.parsed, m, { movieIds: settings.movieIds, showYear: settings.showYear });
+    return P.plexName(item.parsed, m, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(item) });
   }
 
   function isReady(item) { return item.status === 'matched' || (item.status === 'review' && item.confirmed); }
@@ -139,7 +153,7 @@
       if (/^\./.test(f.name) || /^(thumbs\.db|desktop\.ini)$/i.test(f.name)) return; // hidden/system files
       var keyOf = f.fullPath || f.relPath;
       if (items.some(function (i) { return (i.fullPath || i.relPath) === keyOf; })) return;
-      var it = makeItem(f.name, f.relPath, f.size, f.fullPath);
+      var it = makeItem(f.name, f.relPath, f.size, f.fullPath, f.parents);
       if (it.status === 'skipped' && !/\.(nfo|txt|jpg|jpeg|png|url)$/i.test(f.name)) { items.push(it); added++; return; }
       if (it.status === 'skipped') return; // quietly ignore artwork / nfo files
       items.push(it); added++;
@@ -160,21 +174,31 @@
     if (item.parsed.isSubtitle) for (var k = 0; k < 3; k++) base = base.replace(/\.(?:[a-z]{2,3}|forced|sdh|cc|hi)$/i, '');
     return (dir + '/' + base).toLowerCase();
   }
+  var subsOf = {}; // video id → its subtitles
   function linkSubtitles() {
     var videos = {};
+    subsOf = {};
     items.forEach(function (i) { if (i.parsed.isVideo) videos[stemKey(i)] = i; });
     items.forEach(function (i) {
       if (!i.parsed.isSubtitle || i.unlinked) return;
       var v = videos[stemKey(i)];
       i.linkTo = v ? v.id : null;
+      if (v) (subsOf[v.id] = subsOf[v.id] || []).push(i);
     });
   }
+  // Fast lookup by id (rebuilt only when the list changes), so big folders stay quick.
+  var index = {}, indexOf = null, indexLen = -1;
+  function itemById(id) {
+    if (indexOf !== items || indexLen !== items.length) {
+      index = {}; items.forEach(function (i) { index[i.id] = i; }); indexOf = items; indexLen = items.length;
+    }
+    return index[id] || null;
+  }
   function linkedVideo(item) {
-    if (!item.linkTo) return null;
-    return items.filter(function (v) { return v.id === item.linkTo; })[0] || null;
+    return item.linkTo ? itemById(item.linkTo) : null;
   }
   function followVideo(video) {
-    items.forEach(function (sub) {
+    (subsOf[video.id] || []).forEach(function (sub) {
       if (sub.linkTo !== video.id || sub.status === 'done') return;
       sub.kind = video.kind;
       sub.candidates = video.candidates;
@@ -200,6 +224,14 @@
     var parsed = item.parsed;
     var title = query || parsed.title;
     var year = query ? null : parsed.year;
+    if (!title) {
+      item.status = 'nomatch';
+      item.error = item.kind === 'episode'
+        ? 'Couldn’t tell which show this is from its name or folder. Type the show name below.'
+        : 'Couldn’t read a title from this name. Type it below.';
+      running--; scheduleRender();
+      return Promise.resolve();
+    }
     item.sent = { to: item.kind === 'movie' ? 'TMDB' : 'TVmaze', text: title + (item.kind === 'movie' && year ? ' · ' + year : '') };
     var lookup;
     if (item.kind === 'movie') {
@@ -209,6 +241,15 @@
     }
     return lookup.then(function (cands) {
       var ranked = P.rankCandidates(query ? { title: query, year: null } : parsed, cands);
+      // Already picked this show for another episode? Use the same one.
+      var known = !query && item.kind === 'episode' && showChoices[showKey(parsed)];
+      if (known) {
+        var at = ranked.findIndex(function (r) { return r.id === known.id; });
+        if (at < 0) { ranked.unshift(known); at = 0; }
+        else ranked.unshift(ranked.splice(at, 1)[0]);
+        ranked.ambiguous = false;
+        item.confirmed = true;
+      }
       item.candidates = ranked.slice(0, 6);
       item.choice = 0;
       if (!ranked.length) {
@@ -217,13 +258,15 @@
         return;
       }
       var top = ranked[0];
-      var status = top.score >= 78 && !ranked.ambiguous ? 'matched' : 'review';
+      var status = known ? 'review' : top.score >= 78 && !ranked.ambiguous ? 'matched' : 'review';
       var error = ranked.ambiguous ? 'A few titles look alike. Pick the right one below.'
         : status === 'review' ? 'Not sure about this one. Check it below.' : '';
       if (query) { status = 'review'; error = ''; }
       var finish = function () {
-        // loadEpisode may already have flagged a missing episode.
-        if (item.status !== 'review') { item.status = status; item.error = error; }
+        // loadEpisode may already have flagged a missing episode — but if the show itself is
+        // unclear, say that instead (the episode is probably in one of the other shows).
+        if (ranked.ambiguous && !known) { item.status = 'review'; item.error = error; }
+        else if (item.status !== 'review') { item.status = status; item.error = error; }
       };
       if (item.kind === 'episode') return loadEpisode(item).then(finish);
       finish();
@@ -240,12 +283,14 @@
   function loadEpisode(item) {
     var c = current(item);
     if (!c) return Promise.resolve();
-    var s = item.parsed.season || 1, e = item.parsed.episode || 1;
-    return S.getEpisode(c.id, s, e).then(function (ep) {
+    var p = item.parsed;
+    var s = p.season != null ? p.season : 1, e = p.episode || 1;
+    var want = p.airdate ? { airdate: p.airdate } : { season: s, episode: e, episodeEnd: p.episodeEnd };
+    return S.getEpisode(c.id, want).then(function (ep) {
       item.episode = ep;
       if (!ep) {
         item.status = 'review';
-        item.error = 'Season ' + s + ', episode ' + e + ' isn\'t listed for ' + c.title + ' on TVmaze.';
+        item.error = (p.airdate ? 'No episode aired on ' + p.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on TVmaze.';
       }
     }).catch(function () { item.episode = null; });
   }
@@ -256,6 +301,12 @@
     matchAll();
   }
 
+  // Episodes of one show share a key, so picking the show once fixes every episode.
+  var showChoices = {};
+  function showKey(parsed) {
+    return [String(parsed.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(), parsed.year || '', parsed.country || ''].join('|');
+  }
+
   function choose(item, index) {
     if (item.linkTo) { item.linkTo = null; item.unlinked = true; } // picking for a subtitle on its own
     item.choice = index;
@@ -263,9 +314,30 @@
     item.status = 'review';
     item.error = '';
     if (item.kind === 'episode') {
-      item.episode = null;
+      var picked = item.candidates[index];
+      var key = showKey(item.parsed);
+      if (picked && item.parsed.title) showChoices[key] = picked;
+      // Every other episode of the same show (not picked by hand) follows.
+      var siblings = items.filter(function (o) {
+        return o !== item && o.kind === 'episode' && !o.linkTo && !o.handPicked && o.status !== 'done' && o.status !== 'skipped' &&
+          o.parsed.title && showKey(o.parsed) === key;
+      });
+      item.handPicked = true;
+      [item].concat(siblings).forEach(function (o) {
+        if (o !== item) {
+          var at = o.candidates.findIndex(function (cd) { return cd.id === picked.id; });
+          if (at < 0) { o.candidates = [picked].concat(o.candidates).slice(0, 6); at = 0; }
+          o.choice = at; o.confirmed = true; o.status = 'review'; o.error = '';
+        }
+        o.episode = null;
+      });
       render();
-      loadEpisode(item).then(function () { item.confirmed = true; followVideo(item); render(); });
+      Promise.all([item].concat(siblings).map(function (o) {
+        return loadEpisode(o).then(function () { o.confirmed = true; followVideo(o); });
+      })).then(function () {
+        if (siblings.length) toast('Used ' + picked.title + (picked.year ? ' (' + picked.year + ')' : '') + ' for ' + (siblings.length + 1) + ' episodes');
+        render();
+      });
     } else {
       followVideo(item);
       render();
@@ -290,11 +362,23 @@
 
   function renderList() {
     var list = $('list');
-    list.textContent = '';
     var shown = items.filter(function (i) { return filter === 'all' || needsReview(i); });
+    var nodes = [];
+    var keep = {};
     shown.forEach(function (item) {
       var c = current(item);
       var plex = plexFor(item);
+      // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
+      var sig = [item.status, item.confirmed, item.needsKey, c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title].join('|');
+      var cached = rowCache[item.id];
+      keep[item.id] = 1;
+      if (cached && cached.sig === sig) {
+        var on = item.id === selectedId;
+        cached.node.classList.toggle('is-selected', on);
+        cached.node.setAttribute('aria-selected', on ? 'true' : 'false');
+        nodes.push(cached.node);
+        return;
+      }
       var title = c ? c.title : item.parsed.title || item.name;
       var newName = plex ? plex.file : (item.status === 'skipped' ? '—' : item.status === 'matching' || item.status === 'pending' ? 'Looking up “' + (item.parsed.title || item.name) + '”…' : 'Not matched yet');
       var where = plex ? plex.folder.join(' › ') : (item.parsed.kind === 'episode' ? 'TV episode' : item.parsed.isVideo ? 'Movie' : '');
@@ -306,7 +390,7 @@
         posterNode('thumb', c && c.poster, title),
         el('div', { class: 'cell orig-cell' }, [
           el('span', { class: 'orig', text: item.name, title: item.relPath }),
-          el('span', { class: 'sub', text: [fmtSize(item.size), item.parsed.resolution, item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
+          el('span', { class: 'sub', text: [fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
         ]),
         svgArrow(),
         el('div', { class: 'cell new-cell' }, [
@@ -315,15 +399,18 @@
         ]),
         el('div', { class: 'match-cell' }, [tagFor(item)])
       ]);
-      list.appendChild(row);
+      rowCache[item.id] = { sig: sig, node: row };
+      nodes.push(row);
     });
+    Object.keys(rowCache).forEach(function (id) { if (!keep[id] && !itemById(+id)) delete rowCache[id]; });
     if (!shown.length && items.length) {
-      list.appendChild(el('p', { class: 'muted center', style: 'padding:40px 0', text: 'Nothing needs review. Everything is matched.' }));
+      nodes.push(el('p', { class: 'muted center', style: 'padding:40px 0', text: 'Nothing needs review. Everything is matched.' }));
     }
+    list.replaceChildren.apply(list, nodes);
   }
 
   function renderInspector() {
-    var item = items.filter(function (i) { return i.id === selectedId; })[0];
+    var item = itemById(selectedId);
     $('inspector').hidden = !item;
     if (!item) return;
     var c = current(item);
@@ -337,7 +424,13 @@
     $('inspTitle').textContent = title;
     var meta = [];
     if (item.kind === 'episode') {
-      meta.push('Season ' + (item.parsed.season || 1) + ', Episode ' + (item.parsed.episode || 1));
+      var epInfo = item.episode && item.episode.number != null ? item.episode : null;
+      if (item.parsed.airdate && !epInfo) meta.push('Aired ' + item.parsed.airdate);
+      else {
+        var sN = epInfo ? epInfo.season : item.parsed.season != null ? item.parsed.season : 1;
+        var eN = epInfo ? epInfo.number : item.parsed.episode || 1;
+        meta.push((sN === 0 ? 'Special' : 'Season ' + sN + ',') + ' Episode ' + eN + (item.parsed.episodeEnd ? '–' + item.parsed.episodeEnd : ''));
+      }
       if (item.episode && item.episode.name) meta.push('“' + item.episode.name + '”');
     } else if (c && c.year) meta.push(String(c.year));
     $('inspMeta').textContent = meta.join(' · ');
@@ -364,7 +457,8 @@
       var col = c.score >= 78 ? 'var(--green)' : 'var(--orange)';
       fact('Confidence', el('span', {}, [el('span', { class: 'bar' }, [el('i', { style: 'width:' + c.score + '%;background:' + col })]), c.score + '%']));
     }
-    if (item.parsed.resolution) fact('Quality', item.parsed.resolution);
+    var ql = P.qualityLabel(linkedVideo(item) ? linkedVideo(item).parsed : item.parsed);
+    if (ql) fact('Quality', ql);
     if (item.sent) fact('Shared with ' + item.sent.to, '“' + item.sent.text + '”');
     if (linkedVideo(item)) fact('Match', 'Follows its video');
     fact('Original', el('span', { style: 'font-family:var(--mono);font-size:11px;overflow-wrap:anywhere', text: item.relPath }));
@@ -382,7 +476,7 @@
         posterNode('cand-thumb', cd.poster, cd.title),
         el('span', { class: 'cand-text' }, [
           el('b', { text: cd.title + (cd.year ? ' (' + cd.year + ')' : '') }),
-          el('span', { text: (cd.network ? cd.network + ' · ' : '') + cd.score + '% match' })
+          el('span', { text: [cd.network, cd.country === 'GB' ? 'UK' : cd.country, cd.score + '% match'].filter(Boolean).join(' · ') })
         ])
       ]));
     });
@@ -441,9 +535,15 @@
     else $('inspector').hidden = true;
   }
 
+  var rowCache = {};
   function select(id) {
+    // Just move the highlight and refresh the side panel; the list itself doesn't change.
+    var old = document.querySelector('.row-item.is-selected');
+    if (old) { old.classList.remove('is-selected'); old.setAttribute('aria-selected', 'false'); }
     selectedId = id;
-    render();
+    var now = document.querySelector('.row-item[data-id="' + id + '"]');
+    if (now) { now.classList.add('is-selected'); now.setAttribute('aria-selected', 'true'); }
+    renderInspector();
     var row = document.querySelector('.row-item[data-id="' + id + '"]');
     if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
   }
@@ -464,6 +564,7 @@
       $('keyInput').value = settings.tmdbKey;
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
+      $('optQuality').checked = settings.quality;
       $('optPosters').checked = settings.posters;
       $('keyStatus').textContent = 'Stored encrypted with your computer account. Only ever sent to TMDB.';
     }
@@ -560,7 +661,7 @@
   });
   on('addBtn', 'click', pickFiles);
   on('retryBtn', 'click', retryFailed);
-  on('clearBtn', 'click', function () { items = []; selectedId = null; filter = 'all'; render(); });
+  on('clearBtn', 'click', function () { items = []; showChoices = {}; selectedId = null; filter = 'all'; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
   on('removeBtn', 'click', function () {
     var idx = items.findIndex(function (i) { return i.id === selectedId; });
@@ -581,7 +682,7 @@
   });
   on('searchForm', 'submit', function (e) {
     e.preventDefault();
-    var item = items.filter(function (i) { return i.id === selectedId; })[0];
+    var item = itemById(selectedId);
     var q = $('searchInput').value.trim();
     if (!item || !q) return;
     item.kind = $('searchKind').value;
@@ -610,13 +711,14 @@
   on('eraseAll', 'click', function () {
     native.eraseAll();
     items = []; selectedId = null; filter = 'all';
-    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.posters = true; settings.mode = 'move';
+    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
   });
   on('optIds', 'change', function (e) { settings.movieIds = e.target.checked; save('movieIds', settings.movieIds); render(); });
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
+  on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('settingsSheet', 'close', function () {
     // Retry anything that failed for lack of a key.
     if (!settings.tmdbKey) return;

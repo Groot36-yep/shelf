@@ -46,8 +46,17 @@
     }).join(' ');
   }
 
+  // "The Office US" / "Shameless (UK)" → title + country. Lower-case "us" is left alone,
+  // so "This Is Us" stays "This Is Us".
+  var COUNTRY = { US: 'US', UK: 'GB', GB: 'GB', AU: 'AU', NZ: 'NZ', CA: 'CA', IE: 'IE' };
+  function splitCountry(title) {
+    var m = title.match(/^(.+?)\s+\(?(US|UK|GB|AU|NZ|CA|IE|uk|au|nz)\)?$/);
+    if (!m || !/\S/.test(m[1])) return { title: title, country: null };
+    return { title: cleanSpaces(m[1]), country: COUNTRY[m[2].toUpperCase()] };
+  }
+
   // Cut a string at the first release-junk word. Returns { text, resolution }.
-  function stripJunk(s) {
+  function stripJunk(s, keepFirst) {
     var words = s.split(' ');
     var out = [];
     var resolution = null;
@@ -55,7 +64,9 @@
       var w = words[i].toLowerCase().replace(/[\[\]()]/g, '');
       if (/^(2160|1080|720|576|480|360)[pi]$/.test(w) && !resolution) resolution = w.replace('i', 'p');
       if (w === '4k' && !resolution) resolution = '2160p';
-      if (JUNK_SET[w] || /^-?[a-z0-9]+$/.test(w) && /^(x|h)\.?26[45]$/.test(w)) break;
+      // (Never the first word: a film can be called "Web" or "Cam".)
+      var junk = JUNK_SET[w] || /^(x|h)\.?26[45]$/.test(w);
+      if (junk && (i > 0 || !keepFirst || /^(\d{3,4}[pi]|4k)$/.test(w))) break;
       out.push(words[i]);
     }
     // Pick up a resolution even if it appears after the cut.
@@ -64,6 +75,49 @@
       if (m) resolution = m[1] + 'p';
     }
     return { text: out.join(' '), resolution: resolution };
+  }
+
+  // Where the video came from, read from release words like "BluRay", "WEB-DL", "HDTV".
+  // Checked in order: the first that fits wins.
+  var SOURCES = [
+    [/\b(?:bd|blu-?ray|br)?\s?remux\b/i, 'Remux'],
+    [/\b(?:blu-?ray|blu ray|bdrip|brrip|bd25|bd50|bluray)\b/i, 'BluRay'],
+    [/\b(?:web-?dl|web dl)\b/i, 'WEB-DL'],
+    [/\b(?:web-?rip|web rip)\b/i, 'WEBRip'],
+    [/\b(?:hdtv|pdtv|sdtv|dsr|tvrip)\b/i, 'HDTV'],
+    [/\b(?:dvd-?rip|dvdr|dvd5|dvd9|dvd)\b/i, 'DVD'],
+    [/\bhd-?rip\b/i, 'HDRip'],
+    [/\bweb\b/i, 'WEB'],
+    [/\bvhs(?:rip)?\b/i, 'VHS']
+  ];
+  function detectSource(tail) {
+    for (var i = 0; i < SOURCES.length; i++) if (SOURCES[i][0].test(tail)) return SOURCES[i][1];
+    return null;
+  }
+  function detectHdr(tail) {
+    if (/\b(?:dv|dovi|dolby vision)\b/i.test(tail)) return 'DV';
+    if (/\bhdr(?:10\+?|10plus)?\b/i.test(tail)) return 'HDR';
+    return null;
+  }
+
+  /** "1080p BluRay", "2160p WEB-DL HDR", or '' if the name doesn't say. */
+  function qualityLabel(parsed) {
+    if (!parsed) return '';
+    return [parsed.resolution, parsed.source, parsed.hdr].filter(Boolean).join(' ');
+  }
+
+  // For a show name (before S01E01) junk is rare and only ever at the end: "Show 1080p S01E01".
+  // So "The Dark Web" keeps its last word.
+  function stripTrailingJunk(s) {
+    var words = s.split(' ');
+    var resolution = null;
+    while (words.length > 1) {
+      var w = words[words.length - 1].toLowerCase().replace(/[\[\]()]/g, '');
+      if (!/^((2160|1080|720|576|480|360)[pi]|4k|uhd|[xh]\.?26[45]|hevc|avc|xvid|10bit|hdr|bluray|web-dl|webrip|hdtv)$/.test(w)) break;
+      if (/^(2160|1080|720|576|480|360)[pi]$/.test(w)) resolution = w.replace('i', 'p');
+      words.pop();
+    }
+    return { text: words.join(' '), resolution: resolution };
   }
 
   function splitExt(name) {
@@ -109,37 +163,68 @@
       .replace(/\s+/g, ' ')
       .trim();
     // Release group at the end: "... x264-GROUP"
-    s = s.replace(/-[A-Za-z0-9]+$/, function (m) { return /\d{3,4}p/i.test(m) ? m : ''; });
+    s = s.replace(/-[A-Za-z0-9]+$/, function (m) { return /\d{3,4}p/i.test(m) || /^-(dl|rip|ray|hd|e?\d{1,3})$/i.test(m) ? m : ''; });
 
     var result = {
-      kind: 'unknown', title: '', year: null, season: null, episode: null, episodeTitle: '',
-      resolution: null, ext: ext, isSubtitle: isSubtitle, lang: lang, subFlags: subFlags,
+      kind: 'unknown', title: '', year: null, season: null, episode: null, episodeEnd: null, episodeTitle: '',
+      airdate: null, country: null, resolution: null, source: null, hdr: null,
+      ext: ext, isSubtitle: isSubtitle, lang: lang, subFlags: subFlags,
       isVideo: VIDEO_EXT.indexOf(ext) >= 0
     };
+    // Quality words are only read from the part AFTER the title, so a film called "Web" stays a title.
+    function setQuality(tail) {
+      result.source = result.source || detectSource(tail);
+      result.hdr = result.hdr || detectHdr(tail);
+    }
+    function showPart(before) {
+      var yearIn = before.match(/\(?\b(19[2-9]\d|20[0-4]\d)\b\)?\s*$/);
+      if (yearIn) { result.year = parseInt(yearIn[1], 10); before = before.slice(0, yearIn.index); }
+      var showJ = stripTrailingJunk(cleanSpaces(before.replace(/[()]/g, ' ')));
+      setQuality(cleanSpaces(before.replace(/[()]/g, ' ')).slice(showJ.text.length));
+      var c = splitCountry(cleanSpaces(showJ.text));
+      result.country = c.country;
+      result.title = titleCase(c.title);
+      return showJ;
+    }
 
     // --- TV patterns -------------------------------------------------------
     var tvPatterns = [
-      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:\s?-?\s?E?\d{1,3})?\b/i, // S01E02, S01 E02, S01E02E03
-      /\b(\d{1,2})x(\d{2,3})\b/i,                                   // 1x02
-      /\bSeason\s?(\d{1,2})\s?[-,]?\s?Episode\s?(\d{1,3})\b/i       // Season 1 Episode 2
+      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:\s?-?\s?E(\d{1,3})|-(\d{1,3})\b)?\b/i, // S01E02, S01 E02, S01E02E03, S01E02-03
+      /\b(\d{1,2})x(\d{2,3})(?:-?(?:\d{1,2}x)?(\d{2,3}))?\b/i,                   // 1x02, 1x02-03
+      /\bSeason\s?(\d{1,2})\s?[-,]?\s?Episode\s?(\d{1,3})\b/i                    // Season 1 Episode 2
     ];
     for (var t = 0; t < tvPatterns.length; t++) {
       var m = s.match(tvPatterns[t]);
       if (m) {
         var before = s.slice(0, m.index).replace(/[\s\-–]+$/, '');
         var after = s.slice(m.index + m[0].length);
-        var yearIn = before.match(/\(?\b(19[2-9]\d|20[0-4]\d)\b\)?\s*$/);
-        if (yearIn) { result.year = parseInt(yearIn[1], 10); before = before.slice(0, yearIn.index); }
-        var showJ = stripJunk(cleanSpaces(before.replace(/[()]/g, ' ')));
-        var epJ = stripJunk(cleanSpaces(after.replace(/^\s*[-–]\s*/, '')));
+        var showJ = showPart(before);
+        var epText = cleanSpaces(after.replace(/^\s*[-–]\s*/, ''));
+        var epJ = stripJunk(epText);
+        setQuality(epText.slice(epJ.text.length));
         result.kind = 'episode';
-        result.title = titleCase(cleanSpaces(showJ.text));
         result.season = parseInt(m[1], 10);
         result.episode = parseInt(m[2], 10);
+        var end = parseInt(m[3] || m[4], 10);
+        if (end > result.episode && end - result.episode < 10) result.episodeEnd = end;
         result.episodeTitle = titleCase(cleanSpaces(epJ.text));
         result.resolution = epJ.resolution || showJ.resolution;
         return result;
       }
+    }
+
+    // Daily shows: "The Daily Show 2024.01.15"
+    var dm = s.match(/\b((?:19|20)\d{2})[ .-](0[1-9]|1[0-2])[ .-](0[1-9]|[12]\d|3[01])\b/);
+    if (dm && dm.index > 0) {
+      var dShow = showPart(s.slice(0, dm.index).replace(/[\s\-–]+$/, ''));
+      var dRest = cleanSpaces(s.slice(dm.index + dm[0].length).replace(/^\s*[-–]\s*/, ''));
+      var dJ = stripJunk(dRest);
+      setQuality(dRest.slice(dJ.text.length));
+      result.kind = 'episode';
+      result.airdate = dm[1] + '-' + dm[2] + '-' + dm[3];
+      result.episodeTitle = titleCase(cleanSpaces(dJ.text));
+      result.resolution = dJ.resolution || dShow.resolution;
+      return result;
     }
 
     // --- Movie -------------------------------------------------------------
@@ -158,8 +243,11 @@
       titlePart = s.slice(0, lastYear.index);
       var rest = stripJunk(s.slice(lastYear.index + 4));
       result.resolution = rest.resolution;
+      setQuality(s.slice(lastYear.index + 4));
     }
-    var tj = stripJunk(cleanSpaces(titlePart.replace(/[()]/g, ' ')));
+    var cleanTitlePart = cleanSpaces(titlePart.replace(/[()]/g, ' '));
+    var tj = stripJunk(cleanTitlePart, true);
+    setQuality(cleanTitlePart.slice(tj.text.length));
     result.title = titleCase(cleanSpaces(tj.text));
     result.resolution = result.resolution || tj.resolution;
     if (!result.resolution) {
@@ -168,6 +256,66 @@
     }
     result.kind = result.title ? 'movie' : 'unknown';
     return result;
+  }
+
+  /**
+   * Like parseFilename, but also looks at the folders the file sits in (nearest last), for
+   * libraries like "Breaking Bad (2008)/Season 1/01 - Pilot.mkv".
+   */
+  var SEASON_DIR = /^(?:season|series|saison|staffel|temporada)[\s._-]*(\d{1,3})\b|^s(\d{1,2})$|^(specials?|extras)$/i;
+  function parsePath(fileName, folders) {
+    var r = parseFilename(fileName);
+    folders = (folders || []).filter(function (f) { return f && !/^[a-z]:$/i.test(f); });
+    if (!folders.length || !(r.isVideo || r.isSubtitle)) return r;
+
+    var seasonAt = -1, folderSeason = null;
+    for (var i = folders.length - 1; i >= 0 && i >= folders.length - 2; i--) {
+      var sm = folders[i].trim().match(SEASON_DIR);
+      if (sm) { seasonAt = i; folderSeason = sm[3] ? 0 : parseInt(sm[1] || sm[2], 10); break; }
+    }
+    var showDir = seasonAt > 0 ? folders[seasonAt - 1] : seasonAt === -1 ? folders[folders.length - 1] : null;
+
+    // "Season 2/E05.mkv", "Season 2/05 - Title.mkv", "Season 2/Episode 5.mkv"
+    if (r.kind !== 'episode' && seasonAt >= 0) {
+      var base = splitExt(fileName).base;
+      if (r.isSubtitle) for (var k = 0; k < 3; k++) base = base.replace(/\.(?:[a-z]{2,3}|forced|sdh|cc|hi)$/i, '');
+      base = base.replace(/[._]+/g, ' ').trim();
+      var em = base.match(/^(?:e|ep|episode)\s*(\d{1,3})\b/i) || base.match(/\b(?:e|ep|episode)\s*(\d{1,3})\b/i) || base.match(/^(\d{1,3})(?=$|\s|-)/);
+      if (em) {
+        var restEp = cleanSpaces(base.slice(em.index + em[0].length).replace(/^\s*[-–]\s*/, ''));
+        var rj = stripJunk(restEp);
+        r.kind = 'episode';
+        r.title = '';
+        r.year = null;
+        r.season = folderSeason;
+        r.episode = parseInt(em[1], 10);
+        r.episodeTitle = titleCase(cleanSpaces(rj.text));
+        r.resolution = r.resolution || rj.resolution;
+      }
+    }
+    if (r.kind !== 'episode' || !showDir) return r;
+
+    // The show folder fills in what the file name doesn't say: the title, year or country.
+    // Release folders like "The.Office.US.S02.1080p.WEB-DL" → "The.Office.US"
+    var dirName = showDir.replace(/[\s._-]+(?:S\d{1,2}(?:E\d+)?|Season[\s._]?\d{1,2})(?:[\s._-].*)?$/i, '');
+    var sp = parseFilename(dirName + '.mkv');
+    if (!sp.title) return r;
+    var c = splitCountry(cleanSpaces(sp.title));
+    if (!c.country) c = splitCountry(cleanSpaces(dirName.replace(/[._]+/g, ' ').replace(/\s*\(?(?:19|20)\d{2}\)?\s*$/, '')));
+    var showTitle = c.country ? titleCase(c.title) : sp.title;
+    if (!r.title) {
+      r.title = showTitle;
+      r.titleFromFolder = true;
+      r.year = r.year || sp.year;
+      r.country = r.country || c.country;
+    } else if (titleSimilarity(r.title, showTitle) >= 0.9 || titleSimilarity(r.title, sp.title) >= 0.9) {
+      r.year = r.year || sp.year;
+      r.country = r.country || c.country;
+    }
+    if (r.season === null && folderSeason !== null) r.season = folderSeason;
+    if (!r.source) r.source = sp.source;
+    if (!r.resolution) r.resolution = sp.resolution;
+    return r;
   }
 
   // --- Similarity -----------------------------------------------------------
@@ -217,6 +365,9 @@
     return d === 0 ? 1 : d === 1 ? 0.75 : d <= 3 ? 0.3 : 0;
   }
 
+  // How well known a show/movie is (TVmaze "weight" 0-100, else the popularity number).
+  function fame(c) { return c.weight != null ? c.weight : (c.popularity || 0); }
+
   /**
    * Score a list of candidates [{ title, altTitle, year, popularity }] for a parsed file.
    * Returns the same items sorted, each with `score` 0..100, plus `ambiguous` on the array.
@@ -228,14 +379,33 @@
       var ys = yearScore(parsed.year, c.year);
       var pop = (c.popularity || 0) / maxPop;
       var score = parsed.year ? sim * 0.68 + ys * 0.27 + pop * 0.05 : sim * 0.82 + pop * 0.12 + 0.03;
-      return Object.assign({}, c, { score: Math.round(Math.min(1, score) * 100), _sim: sim });
-    }).sort(function (a, b) { return b.score - a.score; });
+      // "The Office US": the US show wins, the UK one drops back.
+      if (parsed.country && c.country) score += c.country === parsed.country ? 0.06 : -0.2;
+      return Object.assign({}, c, { score: Math.round(Math.max(0, Math.min(1, score)) * 100), _sim: sim });
+    }).sort(function (a, b) { return b.score - a.score || (b.popularity || 0) - (a.popularity || 0); });
     var ambiguous = ranked.length > 1 && ranked[0].score - ranked[1].score < 6 && ranked[1].score >= 60;
-    // Same title, different years (remakes) and the file doesn't say which: always ask.
+    // Same title, different years (remakes) and the file doesn't say which.
     if (!parsed.year) {
+      var twins = ranked.filter(function (c) { return c._sim >= 0.95 && (!parsed.country || c.country === parsed.country); });
       var years = {};
-      ranked.forEach(function (c) { if (c._sim >= 0.95) years[c.year || '?'] = 1; });
-      if (Object.keys(years).length > 1) ambiguous = true;
+      twins.forEach(function (c) { years[c.year || '?'] = 1; });
+      if (Object.keys(years).length > 1) {
+        ambiguous = true;
+        // TV only: if one show is far better known than every other show with that name,
+        // that's the one (e.g. "Bonanza" 1959 vs an obscure namesake). Movies always ask.
+        var tv = twins[0].type === 'episode';
+        var byPop = twins.slice().sort(function (a, b) { return fame(b) - fame(a); });
+        if (tv && fame(byPop[0]) >= 3 * Math.max(1, fame(byPop[1]))) {
+          var fav = byPop[0];
+          ranked.splice(ranked.indexOf(fav), 1);
+          ranked.unshift(fav);
+          fav.score = Math.max(fav.score, 80);
+          ambiguous = false;
+        }
+      }
+    } else if (ranked.length > 1 && ranked[0]._sim >= 0.95 && ranked[1]._sim >= 0.95 && ranked[0].year === ranked[1].year &&
+               ranked[0].type === 'episode' && fame(ranked[0]) >= 3 * Math.max(1, fame(ranked[1]))) {
+      ambiguous = false; // same name, same year, but one is far better known
     }
     ranked.ambiguous = ambiguous;
     return ranked;
@@ -267,7 +437,7 @@
   /**
    * Build the Plex path for a matched file.
    * match: movie { title, year, id } or episode { show, showYear, season, episode, episodeTitle, id }
-   * opts: { movieIds: bool, showYear: bool }
+   * opts: { movieIds: bool, showYear: bool, quality: '1080p BluRay' (added to the file name only) }
    * Returns { folder: [..segments], file }
    */
   function plexName(parsed, match, opts) {
@@ -277,27 +447,33 @@
     if (parsed.isSubtitle) {
       subSuffix = (parsed.lang ? '.' + parsed.lang : '') + (parsed.subFlags.length ? '.' + parsed.subFlags.join('.') : '');
     }
+    // Plex ignores text after " - " (e.g. "Pulp Fiction (1994) - 1080p.mkv"), so quality goes there.
+    var q = opts.quality ? safeName(String(opts.quality).replace(/[{}\[\]()]/g, '')).slice(0, 40) : '';
+    var qTag = q && q !== 'Unknown' ? ' - ' + q : '';
     if (match.type === 'movie') {
       var year = parseInt(match.year, 10);
       var name = safeName(match.title) + (year > 1800 ? ' (' + year + ')' : '');
       var tmdbId = parseInt(match.id, 10);
       var idTag = opts.movieIds && tmdbId > 0 ? ' {tmdb-' + tmdbId + '}' : '';
-      return { folder: ['Movies', name + idTag], file: name + idTag + subSuffix + '.' + ext };
+      return { folder: ['Movies', name + idTag], file: name + idTag + qTag + subSuffix + '.' + ext };
     }
     var showYear = parseInt(match.showYear, 10);
     var season = Math.max(0, parseInt(match.season, 10) || 0);
     var episode = Math.max(0, parseInt(match.episode, 10) || 0);
     var show = safeName(match.show) + (opts.showYear && showYear > 1800 ? ' (' + showYear + ')' : '');
-    var se = 'S' + pad2(season) + 'E' + pad2(episode);
+    var end = parseInt(match.episodeEnd, 10);
+    var se = 'S' + pad2(season) + 'E' + pad2(episode) + (end > episode ? '-E' + pad2(end) : '');
     var ep = match.episodeTitle ? ' - ' + safeName(match.episodeTitle) : '';
     return {
-      folder: ['TV Shows', show, 'Season ' + pad2(season)],
-      file: show + ' - ' + se + ep + subSuffix + '.' + ext
+      folder: ['TV Shows', show, season === 0 ? 'Specials' : 'Season ' + pad2(season)],
+      file: show + ' - ' + se + ep + qTag + subSuffix + '.' + ext
     };
   }
 
   var api = {
     parseFilename: parseFilename,
+    parsePath: parsePath,
+    qualityLabel: qualityLabel,
     titleSimilarity: titleSimilarity,
     rankCandidates: rankCandidates,
     plexName: plexName,

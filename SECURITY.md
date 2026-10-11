@@ -40,6 +40,7 @@ removes the original.
 ```
 npm test                         # filename parsing + the file engine on hostile names
 xvfb-run -a node tests/app.smoke.js   # end-to-end: pick, match, Rename Now, Undo
+xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season folders, dates, quality
 ```
 
 The Windows build on GitHub runs `npm test` on Windows before building the installer.

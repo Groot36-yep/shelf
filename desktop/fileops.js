@@ -44,7 +44,10 @@ async function expand(paths) {
         name: path.basename(full),
         relPath: path.relative(base, full).split(path.sep).join('/'),
         size: st.size,
-        fullPath: full
+        fullPath: full,
+        // The three folders it sits in (names only), e.g. ["TV", "Lost", "Season 1"],
+        // so "Season 1/E02.mkv" can still be matched to its show.
+        parents: path.dirname(full).split(/[\\/]+/).filter(Boolean).slice(-3)
       });
     }
   }
