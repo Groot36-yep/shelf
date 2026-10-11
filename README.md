@@ -57,6 +57,21 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
   cartoon titles in the file name (`S01E02 Bubblestand Ripped Pants` → `S01E04-E05`). Without titles it
   works out from your files whether they're numbered by cartoon or by half-hour, and asks once if it
   can't tell. DVD numbering is fixed the same way, by title.
+- Names like `SpongeBob SquarePants - Reef Blower` with no episode number: Shelf checks that show's
+  episode list for the title (and keeps it a movie if there's no such episode).
+
+## Looking inside videos (only when you ask)
+
+Shelf never reads a video's contents on its own. For shows split into short cartoons, two buttons
+appear on a file that needs a look, and each one shows a Windows prompt naming the files first:
+
+- **Check Lengths** reads only the small part of each file that says how long it is (MP4, MKV, AVI).
+  About 11 minutes means one cartoon, about 22 means a half-hour.
+- **Read Title Cards** (turn on in Settings → Advanced) finds the moments where the picture holds
+  still and reads the text there with an OCR engine built into Shelf, then compares it with the
+  show's real episode titles. On 16 real SpongeBob title cards it identified 12 and got none wrong;
+  when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
+  uploaded or downloaded, and no pictures are saved. Takes roughly 5–30 seconds per video.
 
 ## Settings
 
@@ -65,6 +80,7 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 - **Episode order**: The Movie Database (Plex's default), TheTVDB (Aired) or TheTVDB (DVD). Pick the
   one your Plex uses (in Plex: open the show → Edit → Advanced → Episode ordering).
 - **Add show ID to folder names** (on by default): `SpongeBob SquarePants {tmdb-387}`, so Plex picks the right show.
+- **Read title cards** (Advanced, off by default): see above.
 - **Add quality to file names**: `Charade (1963) - 1080p BluRay.mkv`, and `[1080p BluRay]` for episodes.
 - **Move, Copy or Hard Link**: hard links use no extra disk space, which is handy for files you keep seeding.
 - **Show posters**: turn off to download no images at all.

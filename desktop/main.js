@@ -11,6 +11,8 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const fileops = require('./fileops');
+const probe = require('./probe');
+const P = require('../app/js/parser.js');
 
 const APP_ROOT = path.join(__dirname, '..', 'app');
 const ORIGIN = 'app://shelf';
@@ -27,9 +29,11 @@ function log(msg) {
     fs.writeFileSync(p, logLines.slice(-200).join('\r\n') + '\r\n');
   } catch (e) { /* logging must never stop the app */ }
 }
+let started = false; // after the window is up, problems are logged, not shown as "couldn't start"
 function fatal(where, err) {
   const text = (err && (err.stack || err.message)) || String(err);
   log('ERROR ' + where + ': ' + text);
+  if (started) return;
   try {
     dialog.showErrorBox('Shelf couldn’t start', 'Something went wrong while opening Shelf (' + where + ').\n\n' +
       String((err && err.message) || err).slice(0, 400) + '\n\nDetails were saved to:\n' + path.join(app.getPath('userData'), 'startup.log'));
@@ -194,6 +198,72 @@ if (gotLock) app.whenReady().then(() => {
     (r.restored || []).forEach((p) => allowedSources.add(path.resolve(p))); // files put back can be renamed again
     return { undone: r.undone, kept: r.kept, nothing: !!r.nothing };
   });
+  // ---- Looking inside videos: only files you picked, only after you say yes in a system prompt ----
+  function pickedVideos(paths) {
+    if (!Array.isArray(paths)) return [];
+    const seen = new Set();
+    return paths.map((p) => (typeof p === 'string' ? path.resolve(p) : ''))
+      .filter((p) => p && allowedSources.has(p) && P.VIDEO_EXT.includes(path.extname(p).slice(1).toLowerCase()) && !seen.has(p) && seen.add(p))
+      .slice(0, 2000);
+  }
+  async function askFirst(files, title, detail, okLabel) {
+    const names = files.slice(0, 12).map((f) => '•  ' + path.basename(f)).join('\n') + (files.length > 12 ? '\n…and ' + (files.length - 12) + ' more' : '');
+    const r = await dialog.showMessageBox(win, {
+      type: 'question', buttons: [okLabel, 'Cancel'], defaultId: 1, cancelId: 1, noLink: true,
+      title: 'Shelf', message: title, detail: detail + '\n\n' + names
+    });
+    return r.response === 0;
+  }
+
+  handle('shelf:checkLengths', async (paths) => {
+    const files = pickedVideos(paths);
+    if (!files.length) return {};
+    const yes = await askFirst(files, 'Check how long ' + (files.length === 1 ? 'this video is' : 'these ' + files.length + ' videos are') + '?',
+      'Shelf reads only the small part of each file that says how long it is, not the picture or sound. Nothing leaves this computer.', 'Check Lengths');
+    if (!yes) return null;
+    const out = {};
+    for (let i = 0; i < files.length; i += 8) {
+      const chunk = files.slice(i, i + 8);
+      const secs = await Promise.all(chunk.map((f) => probe.duration(f)));
+      chunk.forEach((f, k) => { out[f] = secs[k]; });
+    }
+    return out;
+  });
+
+  let cardCancel = false;
+  handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
+  // jobs: [{ path, titles: [episode titles of that show] }]
+  handle('shelf:readCards', async (jobs) => {
+    if (!Array.isArray(jobs)) return {};
+    const titlesFor = new Map(jobs.filter((j) => j && typeof j.path === 'string').map((j) => [path.resolve(j.path), Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
+    const files = pickedVideos([...titlesFor.keys()]);
+    if (!files.length) return {};
+    const yes = await askFirst(files, 'Read the title cards of ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + '?',
+      'Shelf looks at a few still frames from each video and reads the words on them, here on this computer, to find out which episodes it holds. Nothing is uploaded, and the frames are deleted straight away. It takes roughly 5–30 seconds per video.', 'Read Title Cards');
+    if (!yes) return null;
+    const scan = require('./scan'); // loaded only when you use it
+    cardCancel = false;
+    const out = {};
+    try {
+      for (let i = 0; i < files.length && !cardCancel; i++) {
+        const f = files[i];
+        const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1 }));
+        const secs = await probe.duration(f);
+        if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', { done: i, total: files.length, file: path.basename(f) });
+        try {
+          const r = await scan.scanFile(f, secs, { isMatch: (texts) => !!P.matchCardText(texts, entries), cancelled: () => cardCancel });
+          out[f] = { secs, parts: scan.windowsFor(secs).length, texts: r.texts };
+        } catch (e) {
+          out[f] = { secs, error: String(e.message || e).slice(0, 200) };
+        }
+      }
+    } finally {
+      await scan.stopOcr();
+      if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', { done: files.length, total: files.length });
+    }
+    return out;
+  });
+
   handle('shelf:showInFolder', async () => { const lib = readPrefs().library; if (lib) shell.openPath(lib); });
 
   // Keys (TMDB, TheTVDB) are encrypted with your Windows account (DPAPI) / macOS Keychain before they're saved.
@@ -221,6 +291,7 @@ if (gotLock) app.whenReady().then(() => {
   });
 
   createWindow();
+  started = true;
   log('Window created');
 }).catch((e) => fatal('startup', e));
 

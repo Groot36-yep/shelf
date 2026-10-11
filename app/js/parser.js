@@ -255,6 +255,17 @@
       if (rm) result.resolution = rm[1] + 'p';
     }
     result.kind = result.title ? 'movie' : 'unknown';
+    // "Show - Episode Title" with no episode number: could be a TV episode. Shelf checks that
+    // show's episode list for that title before treating it as one (so "Mission: Impossible -
+    // Fallout" stays a movie).
+    var dash = cleanTitlePart.split(/\s[-–—]\s/);
+    if (dash.length >= 2) {
+      var left = cleanSpaces(dash[0]), right = stripJunk(cleanSpaces(dash.slice(1).join(' - '))).text;
+      if (left.length >= 2 && cleanSpaces(right).length >= 2) {
+        var lc = splitCountry(left);
+        result.altTv = { show: titleCase(lc.title), country: lc.country, episodeTitle: titleCase(cleanSpaces(right)) };
+      }
+    }
     return result;
   }
 
@@ -490,6 +501,65 @@
     return { season: season, entries: inSeason.map(function (h) { return h.e; }), contiguous: contiguous, coverage: coverage };
   }
 
+  // --- Title cards read from the video (on this computer) ----------------------
+  // OCR on cartoon lettering is messy ("JeliFistNg", "RipPap Pants"), but Shelf only has to
+  // pick from the show's own episode titles, so a close-enough match is enough.
+  function squash(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '');
+  }
+  // Fewest edits to turn `t` into some stretch of `s` (approximate substring search).
+  function fuzzyFind(t, s) {
+    var prev = new Array(t.length + 1), cur = new Array(t.length + 1), best = t.length;
+    for (var i = 0; i <= t.length; i++) prev[i] = i;
+    for (var j = 1; j <= s.length; j++) {
+      cur[0] = 0; // a match may start anywhere in s
+      for (var k = 1; k <= t.length; k++) {
+        cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + (t[k - 1] === s[j - 1] ? 0 : 1));
+      }
+      if (cur[t.length] < best) best = cur[t.length];
+      var tmp = prev; prev = cur; cur = tmp;
+    }
+    return best;
+  }
+  /**
+   * Which listed episode a title card's text shows. texts: OCR readings of one card (several
+   * versions of the frame). Returns { entry, score } or null if nothing is clearly it.
+   */
+  function matchCardText(texts, entries, near) {
+    var s = (Array.isArray(texts) ? texts : [texts]).map(squash).filter(function (x) { return x.length >= 3; });
+    if (!s.length) return null;
+    var scored = [];
+    (entries || []).forEach(function (e) {
+      if (e.number == null) return;
+      var t = squash(e.name);
+      if (t.length < 4) return;
+      var best = 0;
+      s.forEach(function (x) {
+        var d = fuzzyFind(t, x);
+        var sc = 1 - d / t.length;
+        if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact
+        if (sc > best) best = sc;
+      });
+      scored.push({ entry: e, score: best });
+    });
+    scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
+    var top = scored[0], next = scored[1];
+    if (!top) return null;
+    // "Mermaid Man and Barnacle Boy" vs "... II": same words; prefer the one the text fits best,
+    // but don't call it a win if a different title is about as good.
+    var rival = next && squash(top.entry.name).indexOf(squash(next.entry.name)) < 0 && squash(next.entry.name).indexOf(squash(top.entry.name)) < 0 ? next : scored.filter(function (o) {
+      return o !== top && squash(top.entry.name).indexOf(squash(o.entry.name)) < 0 && squash(o.entry.name).indexOf(squash(top.entry.name)) < 0;
+    })[0];
+    // Titles near where this file should be (by its number) need less; anywhere else, more.
+    var isNear = near && near.indexOf(top.entry) >= 0;
+    var long = squash(top.entry.name).length >= 10;
+    var need = isNear ? (long ? 0.5 : 0.62) : (long ? 0.6 : 0.7);
+    var margin = isNear ? 0.08 : 0.15;
+    if (top.score < need) return null;
+    if (rival && top.score - rival.score < margin && top.score < 0.9) return null;
+    return { entry: top.entry, score: Math.round(top.score * 100) / 100 };
+  }
+
   /**
    * Decide how files of one show+season are numbered: one number per cartoon ("segments"),
    * or one per half-hour ("halfhours", as on DVDs and streaming services).
@@ -502,6 +572,7 @@
     var half = 0, seg = 0, maxEp = 0;
     var eps = {};
     files.forEach(function (p) {
+      if (p.numberFromTitle) return;
       if (p.episode) { maxEp = Math.max(maxEp, p.episodeEnd || p.episode); eps[p.episode] = 1; }
       if (!p.episodeTitle || !p.episode) return;
       var m = matchByTitle(p.episodeTitle, list, season);
@@ -532,14 +603,22 @@
    * Returns { season, number, end, name, how: 'title'|'number'|'halfhour'|'date', sure, note } or null.
    */
   function resolveEpisode(parsed, list, ctx) {
-    ctx = ctx || {};
+    ctx = Object.assign({}, ctx || {});
     var season = parsed.season != null ? parsed.season : 1;
+    var file = ctx.file || {};
+    // The video's own length settles "one cartoon or a half-hour" for this file.
+    var hour = false;
+    if (ctx.segmented && file.minutes) {
+      ctx.mode = file.minutes <= 15 ? 'segments' : 'halfhours';
+      hour = file.minutes > 36;
+      ctx.sure = true;
+    }
     var said = parsed.airdate ? parsed.airdate : 'S' + pad2(season) + 'E' + pad2(parsed.episode || 1) + (parsed.episodeEnd ? '-E' + pad2(parsed.episodeEnd) : '');
     function out(entries, how, sure, note) {
       var first = entries[0], last = entries[entries.length - 1];
       var r = { season: first.season, number: first.number, end: last.number > first.number ? last.number : null, name: joinNames(entries), how: how, sure: sure, note: note || '' };
       var now = 'S' + pad2(r.season) + 'E' + pad2(r.number) + (r.end ? '-E' + pad2(r.end) : '');
-      if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'halfhour' ? ' (a half-hour holding ' + entries.length + ' cartoons)' : '') + '.';
+      if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'card' ? ' (read from its title cards)' : how === 'halfhour' ? ' (' + (hour ? 'an hour' : 'a half-hour') + ' holding ' + entries.length + ' cartoons)' : '') + '.';
       return r;
     }
     if (parsed.airdate) {
@@ -550,10 +629,47 @@
       }
       return null;
     }
+    var seasonList = seasonEntries(list, season);
+    var groupsAll = halfHourGroups(seasonList);
+    // Where the file's number points (used to judge title cards): its cartoon or half-hour.
+    function expected() {
+      var n0 = parsed.episode || 1;
+      if (ctx.mode === 'halfhours') return [].concat(groupsAll[n0 - 1] || [], hour ? groupsAll[n0] || [] : []);
+      return seasonList.filter(function (e) { return e.number === n0; });
+    }
+    // 0. Title cards read from the video beat everything else.
+    if (file.cards && file.cards.length) {
+      var exp = expected();
+      var pool = (list || []).filter(function (e) { return e.number != null; });
+      var near = seasonList.filter(function (e) { return exp.some(function (x) { return Math.abs(x.number - e.number) <= 6; }); });
+      var best = {};
+      file.cards.forEach(function (c) {
+        var mm = matchCardText(c.texts, pool, near);
+        if (mm && (!best[c.part] || mm.score > best[c.part].score)) best[c.part] = mm;
+      });
+      var found = Object.keys(best).sort(function (a, b) { return a - b; }).map(function (k) { return best[k].entry; })
+        .filter(function (e, i, arr) { return arr.indexOf(e) === i; })
+        .sort(function (a, b) { return a.season - b.season || a.number - b.number; });
+      if (found.length) {
+        var parts = file.parts || found.length;
+        var cnums = found.map(function (e) { return e.number; });
+        var together = found.every(function (e) { return e.season === found[0].season; }) && cnums.every(function (x, i) { return i === 0 || x === cnums[i - 1] + 1; });
+        // The half-hour these cartoons originally aired in, if they all belong to one.
+        var g = halfHourGroups(seasonEntries(list, found[0].season)).filter(function (gg) { return found.every(function (e) { return gg.indexOf(e) >= 0; }); })[0];
+        if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
+          // Only trust that guess if the file's own number points at the same half-hour.
+          var agrees = exp.length && exp.every(function (e) { return g.indexOf(e) >= 0; });
+          return out(g, 'card', !!agrees, 'Read ' + found.length + ' of ' + g.length + ' title cards (' + joinNames(found) + '); the rest is what aired with ' + (found.length === 1 ? 'it' : 'them') + '.' +
+            (agrees ? '' : ' The file’s number points somewhere else, so check this one.'));
+        }
+        if (together) return out(found, 'card', true);
+        return out([found[0]], 'card', false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so check this one.');
+      }
+    }
     // 1. Titles beat numbers.
     if (parsed.episodeTitle) {
       var m = matchByTitle(parsed.episodeTitle, list, season);
-      if (m && m.contiguous && ctx.mode === 'halfhours' && m.season === season) {
+      if (m && m.contiguous && ctx.mode === 'halfhours' && m.season === season && !parsed.numberFromTitle) {
         // Files here are half-hours: a title naming one cartoon means the whole half-hour it's in.
         var hg = halfHourGroups(seasonEntries(list, season)).filter(function (g) { return g.indexOf(m.entries[0]) >= 0; })[0];
         if (hg && m.entries.every(function (e) { return hg.indexOf(e) >= 0; })) return out(hg, 'title', true);
@@ -563,7 +679,7 @@
     }
     // 2. Numbers, read the way this show's files are numbered.
     var entries = seasonEntries(list, season);
-    var n = parsed.episode || 1, end = parsed.episodeEnd || n;
+    var n = parsed.episode || 1, end = parsed.episodeEnd || (hour ? n + 1 : n);
     if (ctx.mode === 'halfhours') {
       var groups = halfHourGroups(entries);
       var g1 = groups[n - 1], g2 = groups[end - 1] || g1;
@@ -646,6 +762,8 @@
     parseFilename: parseFilename,
     parsePath: parsePath,
     resolveEpisode: resolveEpisode,
+    matchByTitle: matchByTitle,
+    matchCardText: matchCardText,
     detectNumbering: detectNumbering,
     halfHourGroups: halfHourGroups,
     qualityLabel: qualityLabel,

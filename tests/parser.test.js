@@ -147,6 +147,35 @@ check('numbering: a full season of half-hour files', () => {
   assert.deepStrictEqual(P.detectNumbering(files.slice(0, 2), normal, 1), { mode: 'segments', sure: true, segmented: false });
 });
 
+// Title cards: real OCR readings of SpongeBob title cards (tests/fixtures/spongebob-cards-ocr.json)
+const OCR = require('./fixtures/spongebob-cards-ocr.json').cards;
+check('title cards: right or not sure, never wrong', () => {
+  let right = 0;
+  for (const [title, texts] of Object.entries(OCR)) {
+    const want = SB.find((e) => e.name === title);
+    const season = SB.filter((e) => e.season === want.season);
+    const m = P.matchCardText(texts, season, season.filter((e) => Math.abs(e.number - want.number) <= 6));
+    if (m) { assert.strictEqual(m.entry.name, title, 'read ' + JSON.stringify(texts) + ' as ' + m.entry.name); right++; }
+  }
+  assert.ok(right >= 12, 'identified ' + right + ' of 16');
+  assert.strictEqual(P.matchCardText(['00:01:09.000 828 -n. Bo# RR PEE 8'], SB), null, 'noise is not a title');
+});
+function withFile(file, f, want) {
+  check('resolve ' + file + ' ' + JSON.stringify(Object.keys(f)), () => {
+    const r = P.resolveEpisode(P.parseFilename(file), SB, { segmented: true, file: f });
+    assert.strictEqual(r && ('S' + r.season + 'E' + r.number + (r.end ? '-E' + r.end : '') + (r.sure ? '' : ' ?')), want, JSON.stringify(r));
+  });
+}
+const cards = (...names) => names.map((n, i) => ({ part: i, texts: OCR[n] }));
+withFile('SpongeBob.S01E02.mkv', { minutes: 22 }, 'S1E4-E5');
+withFile('SpongeBob.S01E02.mkv', { minutes: 11 }, 'S1E2');
+withFile('SpongeBob.S01E02.mkv', { minutes: 44 }, 'S1E4-E7');
+withFile('SpongeBob.S01E09.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Plankton!') }, 'S1E6-E7');
+withFile('SpongeBob.S01E01.mkv', { minutes: 22, parts: 2, cards: cards('Help Wanted', 'Tea at the Treedome') }, 'S1E1-E3');
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Hall Monitor') }, 'S1E6-E7'); // second card unreadable
+withFile('SpongeBob.S01E07.mkv', { minutes: 22, parts: 2, cards: cards('Pickles', 'Hall Monitor') }, 'S1E12-E13 ?');
+withFile('SpongeBob.S01E05.mkv', { minutes: 22, parts: 2, cards: cards('Pizza Delivery', 'Pickles') }, 'S1E10 ?');
+
 // Naming
 check('movie name', () => {
   const p = P.parseFilename('charade.1963.1080p.mkv');

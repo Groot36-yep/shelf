@@ -237,6 +237,8 @@ button.side-source:hover { background: var(--fill); }
 .insp-note { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--fill); color: var(--text); font-size: 12px; line-height: 1.4; }
 #inspSegWrap .section-label { display: block; margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 12px; }
 #inspSeg button { flex: 1; }
+#inspSegWrap .row-help { display: block; margin: 8px 0 6px; }
+.scan-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .insp-error { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--orange-bg); color: var(--orange-text); font-size: 12px; }
 .insp-section { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-3); }

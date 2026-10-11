@@ -23,6 +23,14 @@ contextBridge.exposeInMainWorld('shelfNative', {
   getKey: (name) => ipcRenderer.invoke('shelf:getKey', String(name || 'tmdb')),
   setKey: (name, k) => ipcRenderer.invoke('shelf:setKey', String(name || 'tmdb'), k),
   eraseAll: () => ipcRenderer.invoke('shelf:eraseAll'),
+  checkLengths: (paths) => ipcRenderer.invoke('shelf:checkLengths', paths),
+  readCards: (jobs) => ipcRenderer.invoke('shelf:readCards', jobs),
+  cancelCards: () => ipcRenderer.invoke('shelf:cancelCards'),
+  onCardProgress: (fn) => {
+    const listener = (e, p) => fn({ done: Number(p.done) || 0, total: Number(p.total) || 0, file: String(p.file || '') });
+    ipcRenderer.on('shelf:cardProgress', listener);
+    return () => ipcRenderer.removeListener('shelf:cardProgress', listener);
+  },
   onProgress: (fn) => {
     const listener = (e, p) => fn({ done: Number(p.done) || 0, total: Number(p.total) || 0 });
     ipcRenderer.on('shelf:progress', listener);

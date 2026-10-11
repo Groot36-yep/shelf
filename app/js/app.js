@@ -23,6 +23,7 @@
     quality: load('quality', false),
     order: load('order', 'tmdb'),      // which episode order Plex uses: tmdb | tvdb | tvdbdvd
     showIds: load('showIds', true),    // {tmdb-387} in show folders
+    cardScan: load('cardScan', false), // Advanced: offer "Read Title Cards" (always asks first)
     tvdbKey: '', tvdbPin: '',
     posters: load('posters', true),
     mode: load('mode', 'move'),
@@ -233,10 +234,41 @@
     items.filter(function (i) { return linkedVideo(i); }).forEach(function (i) { followVideo(linkedVideo(i)); });
   }
 
+  // "SpongeBob SquarePants - Reef Blower" (no episode number): is it an episode of that show?
+  // Only if the show really has an episode with that title; otherwise it's matched as a movie.
+  function tryAsEpisode(alt) {
+    return S.searchShowsFor(alt.show, keys()).then(function (cands) {
+      var ranked = P.rankCandidates({ title: alt.show, year: null, country: alt.country }, cands);
+      var top = ranked[0];
+      if (!top || top._sim < 0.9) return null;
+      return listFor(top).then(function (list) {
+        var m = P.matchByTitle(alt.episodeTitle, list, null);
+        return m && m.coverage >= 0.7 ? m : null;
+      });
+    }).catch(function () { return null; });
+  }
+
   function matchItem(item, query) {
     item.status = 'matching'; item.error = ''; item.confirmed = false;
     running++; scheduleRender();
     var parsed = item.parsed;
+    if (!query && item.kind === 'movie' && parsed.altTv && !item.triedTv) {
+      item.triedTv = true;
+      var alt = parsed.altTv;
+      return tryAsEpisode(alt).then(function (m) {
+        if (m) {
+          var last = m.entries[m.entries.length - 1];
+          item.kind = 'episode';
+          item.parsed = Object.assign({}, parsed, {
+            kind: 'episode', title: alt.show, country: alt.country, year: null, episodeTitle: alt.episodeTitle,
+            season: m.season, episode: m.entries[0].number, episodeEnd: last.number > m.entries[0].number ? last.number : null,
+            numberFromTitle: true // not evidence of how this show's files are numbered
+          });
+        }
+        running--;
+        return matchItem(item);
+      });
+    }
     var title = query || parsed.title;
     var year = query ? null : parsed.year;
     if (!title) {
@@ -343,11 +375,13 @@
         var chosen = numbering[id];
         var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
         group.forEach(function (i) {
-          var r = P.resolveEpisode(i.parsed, list, ctx);
+          var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: i.cards || null, parts: i.cardParts || null } });
+          var r = P.resolveEpisode(i.parsed, list, fileCtx);
           var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
           i.showKeyId = id;
           i.segmented = !!ctx.segmented;
-          i.numberMode = ctx.mode; i.numberSure = ctx.sure !== false && !!(chosen || det.sure);
+          i.numberMode = i.minutes && ctx.segmented ? (i.minutes <= 15 ? 'segments' : 'halfhours') : ctx.mode;
+          i.numberSure = !!(i.minutes && ctx.segmented) || ctx.sure !== false && !!(chosen || det.sure);
           i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how } : null;
           i.epNote = r && r.sure ? r.note : '';
           i.epBlock = !!(r && !r.sure);
@@ -518,6 +552,8 @@
     note.textContent = item.epNote || '';
     var segWrap = $('inspSegWrap');
     segWrap.hidden = !(item.kind === 'episode' && item.segmented);
+    $('readCards').hidden = !settings.cardScan;
+    $('checkLengths').disabled = $('readCards').disabled = scanning || !item.fullPath;
     document.querySelectorAll('#inspSeg button').forEach(function (b) {
       b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
     });
@@ -531,6 +567,12 @@
       fact('Source', el('span', {}, [link]));
       var col = c.score >= 78 ? 'var(--green)' : 'var(--orange)';
       fact('Confidence', el('span', {}, [el('span', { class: 'bar' }, [el('i', { style: 'width:' + c.score + '%;background:' + col })]), c.score + '%']));
+    }
+    var src = linkedVideo(item) || item;
+    if (src.minutes) fact('Length', Math.round(src.minutes) + ' min');
+    if (src.cards) {
+      var readNames = item.episode && item.episode.how === 'card' ? item.episode.name : '';
+      fact('Title cards', readNames ? 'Read: ' + readNames : src.cards.length ? 'Couldn’t read them clearly' : 'None found');
     }
     var ql = P.qualityLabel(linkedVideo(item) ? linkedVideo(item).parsed : item.parsed);
     if (ql) fact('Quality', ql);
@@ -644,6 +686,7 @@
       $('optShowYear').checked = settings.showYear;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
+      $('optCardScan').checked = settings.cardScan;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
       $('tvdbPinInput').value = settings.tvdbPin;
@@ -795,7 +838,7 @@
     native.eraseAll();
     items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
-    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
+    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; settings.cardScan = false; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
@@ -804,6 +847,59 @@
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
+  on('optCardScan', 'change', function (e) { settings.cardScan = e.target.checked; save('cardScan', settings.cardScan); render(); });
+
+  // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
+  var scanning = false;
+  function showFiles(item) {
+    var v = linkedVideo(item) || item;
+    var c = current(v);
+    if (!c) return [];
+    var id = showIdKey(c);
+    return items.filter(function (i) {
+      var cc = current(i);
+      return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && cc && showIdKey(cc) === id && ['done', 'skipped'].indexOf(i.status) < 0;
+    });
+  }
+  function setScanStatus(text) { $('scanStatus').textContent = text || ''; }
+  on('checkLengths', 'click', function () {
+    var item = itemById(selectedId); if (!item || scanning) return;
+    var files = showFiles(item); if (!files.length) return;
+    scanning = true; setScanStatus('Waiting for your OK…');
+    native.checkLengths(files.map(function (i) { return i.fullPath; })).then(function (res) {
+      if (!res) { setScanStatus('Cancelled. Nothing was read.'); return; }
+      var got = 0;
+      files.forEach(function (i) { var secs = res[i.fullPath]; if (secs) { i.minutes = secs / 60; got++; } });
+      setScanStatus(got ? 'Checked ' + got + ' of ' + files.length + ' videos.' : 'Couldn’t tell the length of these videos (unusual format).');
+      return resolveShow(current(linkedVideo(item) || item));
+    }).catch(function (e) { setScanStatus('Couldn’t check: ' + e.message); })
+      .then(function () { scanning = false; render(); });
+  });
+  on('readCards', 'click', function () {
+    var item = itemById(selectedId); if (!item || scanning) return;
+    var files = showFiles(item); if (!files.length) return;
+    var c = current(linkedVideo(item) || item);
+    scanning = true; setScanStatus('Waiting for your OK…');
+    var stop = native.onCardProgress(function (p) {
+      if (p.done < p.total) { setScanStatus('Reading title cards: video ' + (p.done + 1) + ' of ' + p.total + '…'); $('cancelCards').hidden = false; }
+    });
+    listFor(c).then(function (list) {
+      var titles = list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; });
+      return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles }; }));
+    }).then(function (res) {
+      if (!res) { setScanStatus('Cancelled. No videos were read.'); return; }
+      var read = 0;
+      files.forEach(function (i) {
+        var r = res[i.fullPath]; if (!r) return;
+        if (r.secs) i.minutes = r.secs / 60;
+        if (r.texts) { i.cards = r.texts; i.cardParts = r.parts; read++; }
+      });
+      setScanStatus('Read ' + read + ' of ' + files.length + ' videos.');
+      return resolveShow(c);
+    }).catch(function (e) { setScanStatus('Couldn’t read the title cards: ' + e.message); })
+      .then(function () { stop(); scanning = false; $('cancelCards').hidden = true; render(); });
+  });
+  on('cancelCards', 'click', function () { native.cancelCards(); setScanStatus('Stopping…'); });
   function syncOrderHelp() {
     var svc = tvService();
     var want = settings.order === 'tmdb' ? 'The Movie Database' : 'TheTVDB';

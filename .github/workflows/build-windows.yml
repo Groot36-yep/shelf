@@ -35,6 +35,7 @@ jobs:
         run: |
           node tests/parser.test.js
           node tests/fileops.test.js
+          node tests/scan.test.js
 
       - name: Build installer
         run: npx electron-builder --win --publish never

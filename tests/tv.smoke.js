@@ -54,7 +54,11 @@ const EPISODES = {
     'SpongeBob SquarePants/Season 1/SpongeBob.SquarePants.S01E03.1080p.WEB-DL.mkv',
     // No titles, too few files to tell: Shelf must ask.
     'The Fairly OddParents/Season 2/The.Fairly.OddParents.S02E02.mkv',
-    'The Fairly OddParents/Season 2/The.Fairly.OddParents.S02E03.mkv'
+    'The Fairly OddParents/Season 2/The.Fairly.OddParents.S02E03.mkv',
+    // No episode number at all, just "Show - Episode Title" (like a real file we were sent).
+    'SpongeBob_SquarePants_-_Reef_Blower_1999.mp4',
+    // A movie with a dash in its name must stay a movie.
+    'Mission Impossible - Fallout (2018).mkv'
   ];
   for (const f of files) { fs.mkdirSync(path.dirname(path.join(dl, f)), { recursive: true }); fs.writeFileSync(path.join(dl, f), 'v'); }
   fs.mkdirSync(lib);
@@ -115,7 +119,10 @@ const EPISODES = {
   assert.ok(ready('bonanza.s01e01.a.rose.for.lotta.mkv'), 'Bonanza: obscure namesake should not block');
   assert.strictEqual(s['Doctor.Who.S01E01.mkv'].status, 'review', 'Doctor Who has three real versions: ask');
   const searches = requests.filter((r) => r.includes('search')).length;
-  assert.strictEqual(searches, 8, 'one search per show, got ' + searches);
+  assert.strictEqual(searches, 9, 'one search per show, got ' + searches);
+  const kinds = await win.evaluate(() => Object.fromEntries(window.Shelf.items().map((i) => [i.name, i.kind])));
+  assert.strictEqual(kinds['SpongeBob_SquarePants_-_Reef_Blower_1999.mp4'], 'episode', 'Show - Title becomes an episode');
+  assert.strictEqual(kinds['Mission Impossible - Fallout (2018).mkv'], 'movie', 'a movie stays a movie');
   assert.ok(ready('SpongeBob.SquarePants.S01E02.Bubblestand.Ripped.Pants.1080p.WEB-DL.mkv') && ready('SpongeBob.SquarePants.S01E03.1080p.WEB-DL.mkv'), 'SpongeBob half-hours');
   const fopA = 'The.Fairly.OddParents.S02E02.mkv';
   assert.strictEqual(s[fopA].status, 'review', 'unsure numbering must ask');
@@ -155,6 +162,7 @@ const EPISODES = {
     'TV Shows/The Office (2001)/Season 01/The Office (2001) - S01E02 - Work Experience [1080p WEB-DL].mkv',
     'TV Shows/The Office (2005)/Season 02/The Office (2005) - S02E03 - Office Olympics [720p HDTV].mkv',
     // The two-part cartoons, named the way Plex lists them:
+    'TV Shows/SpongeBob SquarePants {tvdb-75886}/Season 01/SpongeBob SquarePants - S01E02 - Reef Blower.mp4',
     'TV Shows/SpongeBob SquarePants {tvdb-75886}/Season 01/SpongeBob SquarePants - S01E04-E05 - Bubblestand & Ripped Pants [1080p WEB-DL].mkv',
     'TV Shows/SpongeBob SquarePants {tvdb-75886}/Season 01/SpongeBob SquarePants - S01E06-E07 - Jellyfishing & Plankton! [1080p WEB-DL].mkv',
     'TV Shows/The Fairly OddParents {tvdb-76372}/Season 02/The Fairly OddParents - S02E03-E04 - Boy Toys & Inspection Detection.mkv',

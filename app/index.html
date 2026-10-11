@@ -120,6 +120,13 @@
         <button type="button" data-mode="segments" aria-pressed="false">One cartoon</button>
         <button type="button" data-mode="halfhours" aria-pressed="false" title="A half-hour with 2 or 3 cartoons in it">A half-hour</button>
       </div>
+      <span class="row-help">Not sure? Let Shelf look (it asks first, and everything stays on this computer):</span>
+      <div class="scan-row">
+        <button class="pill" type="button" id="checkLengths" title="Reads only how long each video is">Check Lengths</button>
+        <button class="pill" type="button" id="readCards" hidden title="Reads the title cards inside the videos">Read Title Cards</button>
+        <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
+      </div>
+      <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
     </div>
 
     <div class="group" id="inspFacts"></div>
@@ -256,6 +263,13 @@
       <label class="row">
         <span>Add year to show names<br><small class="muted">Doctor Who (2005) — useful for remakes</small></span>
         <input type="checkbox" class="switch" id="optShowYear">
+      </label>
+    </div>
+    <span class="section-label">Advanced</span>
+    <div class="group">
+      <label class="row">
+        <span>Read title cards (on this computer)<br><small class="muted">For cartoons like SpongeBob: Shelf can look at a few still frames inside a video and read its title cards to find which episodes it holds. It always asks you first, nothing is uploaded, and the frames are deleted straight away. Takes about 5–30 seconds per video.</small></span>
+        <input type="checkbox" class="switch" id="optCardScan">
       </label>
     </div>
     <div class="sheet-actions">

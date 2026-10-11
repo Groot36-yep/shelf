@@ -36,6 +36,17 @@ something. Shelf sends no cookies and no "referrer".
 - Settings and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase All Shelf Data**
   removes them.
 
+## Looking inside your videos
+
+Shelf only reads a video's contents when you click **Check Lengths** or **Read Title Cards**, and
+only after a Windows prompt listing those files, where you choose OK or Cancel.
+
+- **Check Lengths** reads the few bytes of each file's header that hold its running time.
+- **Read Title Cards** (off unless you turn it on in Settings → Advanced) decodes still moments of
+  the video in memory and reads the words on them with an OCR engine that ships inside Shelf. No
+  pictures are written to disk, nothing is uploaded, and no data is downloaded for it.
+- What was read is kept only in memory until you close Shelf or clear the list.
+
 ## Your TMDB key
 
 - It is encrypted with your Windows account before it is saved, and only ever sent to TMDB.

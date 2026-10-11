@@ -33,6 +33,10 @@ removes the original.
 - Text from the internet is always shown as text, never as HTML.
 - Links and images from the lookup services are checked against an allow-list.
 
+**Reading inside videos only on request.** Video lengths and title cards are read in the app (not
+the window), only for files you picked, and only after a system prompt that lists the files. The
+bundled ffmpeg and OCR engine run offline; frames are handled in memory.
+
 **No surprises.** No telemetry, auto-update calls, crash reports or spell-check downloads.
 
 ## Tests
@@ -42,6 +46,8 @@ npm test                         # filename parsing + the file engine on hostile
 xvfb-run -a node tests/app.smoke.js   # end-to-end: pick, match, Rename Now, Undo
 xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season folders, dates, two-part cartoons
 xvfb-run -a node tests/sources.smoke.js   # TheTVDB and TMDB TV lookups
+node tests/scan.test.js               # bundled ffmpeg + OCR read a (made-up) title card
+xvfb-run -a node tests/cards.smoke.js # Check Lengths / Read Title Cards, including Cancel
 ```
 
 The Windows build on GitHub runs `npm test` on Windows before building the installer.
