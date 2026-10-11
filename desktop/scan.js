@@ -85,7 +85,9 @@ async function stills(file, from, len) {
 function rankRuns(runs, likely) {
   const blacks = runs.blacks || [];
   const afterBlack = (r) => blacks.some((b) => r.start >= b.b - 0.6 && r.start - b.b <= 25);
-  return runs.map((r) => ({ r, score: Math.abs(r.t - likely) / 30 - (afterBlack(r) ? 3 : 0) - Math.min(r.secs, 4) / 4 }))
+  // Straight out of a black moment (within 1.5 s): where a title card almost always is.
+  return runs.map((r) => { r.rightAfterBlack = blacks.some((b) => r.start >= b.b - 0.6 && r.start - b.b <= 1.5); return r; })
+    .map((r) => ({ r, score: Math.abs(r.t - likely) / 30 - (afterBlack(r) ? 3 : 0) - (r.rightAfterBlack ? 4 : 0) - Math.min(r.secs, 4) / 4 }))
     .sort((x, y) => x.score - y.score).map((x) => x.r);
 }
 
@@ -141,6 +143,25 @@ function colourLayers(r, g, b, K) {
   for (const q of order) { const m = new Uint8Array(n); for (let k = 0; k < n; k++) m[k] = lab[k] === q ? 0 : 255; out.push(m); }
   return out;
 }
+// White lettering: bright, colourless pixels (painted signs, "CLUB SPONGEBOB").
+function whiteOnly(r, g, b) {
+  const n = r.length, out = new Uint8Array(n);
+  for (let k = 0; k < n; k++) { const mn = Math.min(r[k], g[k], b[k]), mx = Math.max(r[k], g[k], b[k]); out[k] = mn >= 190 && mx - mn < 40 ? 0 : 255; }
+  return out;
+}
+// A half-size copy turned by a few degrees (bouncy, tilted lettering reads better straightened).
+function turnedHalf(plane, W, h, deg) {
+  const w2 = W >> 1, h2 = h >> 1, out = new Uint8Array(w2 * h2).fill(255);
+  const a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), cx = w2 / 2, cy = h2 / 2;
+  for (let y = 0; y < h2; y++) {
+    for (let x = 0; x < w2; x++) {
+      const dx = x - cx, dy = y - cy;
+      const sx = Math.round((ca * dx + sa * dy + cx) * 2), sy = Math.round((-sa * dx + ca * dy + cy) * 2);
+      if (sx >= 0 && sx < W && sy >= 0 && sy < h) out[y * w2 + x] = plane[sy * W + sx];
+    }
+  }
+  return { w: w2, h: h2, data: out };
+}
 /**
  * Versions of one frame for the text reader, most useful first. full: also the slower ones
  * (used only on the few frames most likely to be the title card).
@@ -158,6 +179,9 @@ async function frameVariants(file, t, full) {
   // Tried in this order; Shelf stops as soon as one reads as a known title.
   const out = [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, darkOnly(y, 0.2))];
   if (full) {
+    const white = whiteOnly(r, g, b);
+    out.push(pgm(W, h, white));
+    for (const deg of [5, -5]) { const t2 = turnedHalf(white, W, h, deg); out.push(pgm(t2.w, t2.h, t2.data)); }
     out.push(pgm(W, h, colourful(r, g, b, 0.2)));
     for (const m of colourLayers(r, g, b, 6)) out.push(pgm(W, h, m));
     out.push(pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18)));
@@ -254,6 +278,9 @@ function windowsFor(secs) {
   return out;
 }
 
+// Words from a cartoon's opening credits.
+const CREDITS = /story ?board|written|directors?\b|director|animation|supervising|producer|creative/i;
+
 /**
  * Read the title cards of one video.
  * opts.isMatch(texts) → true once the readings match a known title (Shelf then stops for that part).
@@ -274,14 +301,15 @@ async function scanFile(file, secs, opts) {
     report(i, 0.2);
     // Most likely spots first; at most 30 still moments per cartoon.
     const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
-    let k = 0;
+    let k = 0, found = false;
     for (const run of tryRuns) {
       if (opts.cancelled && opts.cancelled()) break;
       frames++;
       report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
       const read = [];
-      // The likeliest few frames get every version of the picture; the rest only the quick ones.
-      const imgs = await frameVariants(file, run.t, k <= 4);
+      // The likeliest few frames (and any straight after a black moment) get every version of the
+      // picture; the rest only the quick ones.
+      const imgs = await frameVariants(file, run.t, k <= 4 || run.rightAfterBlack);
       if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
       let hit = null;
       for (const img of imgs) {
@@ -291,7 +319,28 @@ async function scanFile(file, secs, opts) {
       }
       if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
-      if (hit) { if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
+      if (hit) { found = true; if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
+    }
+    // No card read for a later cartoon: is one starting here at all? A new cartoon shows its
+    // credits ("storyboard directors", "written by") a few seconds after a black moment; one long
+    // episode doesn't. Shelf notes what it sees so the file isn't wrongly called one episode.
+    if (i > 0 && !found && !(opts.cancelled && opts.cancelled())) {
+      // A short still moment between two black fades (black → card → black) is a title card even
+      // when its lettering can't be read: a new cartoon starts here.
+      const bl = runs.blacks || [];
+      const sandwich = bl.find((b1, j) => bl[j + 1] && bl[j + 1].a - b1.b >= 1 && bl[j + 1].a - b1.b <= 5);
+      if (sandwich) texts.push({ part: i, t: Math.round((sandwich.b + 0.5) * 10) / 10, start: sandwich.b, texts: [], boundary: true });
+    }
+    if (i > 0 && !found && !texts.some((x) => x.part === i && x.boundary) && !(opts.cancelled && opts.cancelled())) {
+      const gaps = (runs.blacks || []).filter((b) => b.b - b.a >= 0.4).sort((x, y) => Math.abs(x.b - wins[i].likely) - Math.abs(y.b - wins[i].likely)).slice(0, 3);
+      seek: for (const g of gaps) {
+        for (const dt of [3.5, 6, 9]) {
+          if (opts.cancelled && opts.cancelled()) break seek;
+          const imgs = await frameVariants(file, g.b + dt, false);
+          const text = imgs.length ? await readText(imgs[0]) : '';
+          if (CREDITS.test(text)) { texts.push({ part: i, t: Math.round((g.b + dt) * 10) / 10, start: Math.round(g.b * 10) / 10, texts: [text.slice(0, 300)], boundary: true }); break seek; }
+        }
+      }
     }
   }
   report(wins.length, 0);

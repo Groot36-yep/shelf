@@ -563,17 +563,30 @@
     // Long words: a near miss earns part of the credit ("ShONGERDE'S" ≈ "SpongeBob's").
     return bestD <= cap ? 1 : bestD <= Math.floor(w.length * 0.45) ? 1 - bestD / w.length : 0;
   }
+  // Read cleanly: exactly, or (5+ letters) with a single slip. Every match needs one such word.
+  function cleanHit(w, tokens) {
+    if (tokens.indexOf(w) >= 0) return true;
+    return w.length >= 5 && tokens.some(function (t) { return Math.abs(t.length - w.length) <= 1 && editDist(w, t, 1) <= 1; });
+  }
   // How much of a title's words appear in what was read. Readings of the same frame are pooled: one
   // version may catch "SPONGEBOB'S", another "LAST", another "STAND".
   function wordScore(title, tokens, blob, perReading) {
     var ws = cardWords(title).filter(function (w, i, a) { return a.indexOf(w) === i; }); // "Mine … Mine" counts once
     var hit = ws.map(function (w) { return wordHit(w, tokens, blob); });
+    // A title with only one short real word ("Not Normal", "Pickles") rests on that word alone,
+    // so it has to be read nearly right: at most one slip. (Long words are evidence enough.)
+    var real = ws.filter(function (w) { return !CARD_STOP[w]; });
+    if (real.length === 1 && real[0].length <= 8) {
+      var only = real[0], i0 = ws.indexOf(only);
+      var close = only.length <= 5 ? hit[i0] : tokens.some(function (t) { return Math.abs(t.length - only.length) <= 1 && editDist(only, t, 1) <= 1; }) || fuzzyFind(only, blob) <= 1;
+      if (!close || close === 'weak') hit[i0] = 0;
+    }
     // A 4-letter word with one wrong letter only counts when another word of the title was read
     // clearly in the same reading ("ROBEO DALE" is Rodeo Daze; "wary" here and "LONE" there isn't).
     hit = hit.map(function (h, i) {
       if (h !== 'weak') return h;
       return perReading.some(function (rt) {
-        return wordHit(ws[i], rt) === 'weak' && ws.some(function (o, k) { return k !== i && !CARD_STOP[o] && o.length >= 4 && wordHit(o, rt) === 1; });
+        return wordHit(ws[i], rt) === 'weak' && ws.some(function (o, k) { return k !== i && !CARD_STOP[o] && o.length >= 4 && cleanHit(o, rt); });
       }) ? 1 : 0;
     });
     var total = 0, got = 0, strong = false, words = 0, hits = 0;
@@ -581,7 +594,7 @@
       var stop = !!CARD_STOP[w], weight = stop ? 1 : w.length, credit = hit[i];
       total += weight;
       if (!stop) words++;
-      if (credit >= 1 && !stop && w.length >= 4) strong = true;
+      if (credit >= 1 && !stop && w.length >= 4 && (cleanHit(w, tokens) || ws.length === 1 || w.length >= 9)) strong = true;
       if (credit >= 0.5 && !stop) hits++;
       got += credit * weight;
     });
@@ -595,11 +608,17 @@
    */
   function matchCardText(texts, entries, near) {
     var all = (Array.isArray(texts) ? texts : [texts]);
-    var s = all.map(squash).filter(function (x) { return x.length >= 3; });
-    if (!s.length) return null;
+    // A title card reads as a few words. A busy picture reads as a long jumble, and the more
+    // jumble there is, the easier it is for a title to "appear" by chance. So long readings only
+    // count for long words read exactly; the looser comparisons use the short readings.
+    var noisy = function (x) { return cardWords(x).length > 14; };
+    var clean = all.filter(function (x) { return !noisy(x); });
+    var s = clean.map(squash).filter(function (x) { return x.length >= 3; });
     var tokens = [], seenTok = {};
-    var perReading = all.map(function (x) { return cardWords(x).filter(function (w) { return w.length >= 2; }); });
+    var perReading = clean.map(function (x) { return cardWords(x).filter(function (w) { return w.length >= 2; }); });
     perReading.forEach(function (ws) { ws.forEach(function (w) { if (!seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
+    all.filter(noisy).forEach(function (x) { cardWords(x).forEach(function (w) { if (w.length >= 6 && !seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
+    if (!s.length && !tokens.length) return null;
     var blob = s.join(' ');
     var scored = [];
     (entries || []).forEach(function (e) {
@@ -618,7 +637,10 @@
       // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
       // score counts as before. Anywhere else the words themselves have to show up.
       var nearOne = near && near.indexOf(e) >= 0;
-      var best = Math.max(sub >= 0.8 || nearOne ? sub : 0, wordScore(e.name, tokens, blob, perReading));
+      var ws = wordScore(e.name, tokens, blob, perReading);
+      // Two weaker signs together: some words show up, and the whole title is close letter for
+      // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
+      var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
       scored.push({ entry: e, score: best });
     });
     scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
@@ -741,7 +763,10 @@
         var g = halfHourGroups(seasonEntries(list, found[0].season)).filter(function (gg) { return found.every(function (e) { return gg.indexOf(e) >= 0; }); })[0];
         // One title card at the start, and none further in although Shelf looked there: one long
         // episode (a special like "SpongeBob's Last Stand"), not a half-hour with a second cartoon.
-        var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && parts > 1 && file.cards.some(function (c) { return c.part >= 1; });
+        var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && parts > 1 && file.cards.some(function (c) { return c.part >= 1; }) &&
+          // ...unless Shelf saw another cartoon start further in (a card between two black fades,
+          // or its opening credits).
+          !file.cards.some(function (c) { return c.part >= 1 && c.boundary; });
         if (onlyFirst) {
           var long1 = found[0].runtime && found[0].runtime >= 18;
           return out(found, 'card', !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
