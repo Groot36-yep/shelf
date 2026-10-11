@@ -9,7 +9,9 @@ const P = require('../js/parser.js');
 
 const PWSH = process.env.PWSH || '';
 let pass = 0, fail = 0;
-function ok(cond, msg) { if (cond) pass++; else { fail++; console.log('FAIL', msg); } }
+const CI = !!process.env.GITHUB_ACTIONS;
+function annotate(msg) { if (CI) console.log('::error::' + String(msg).slice(0, 1500).replace(/%/g, '%25').replace(/\r?\n/g, '%0A')); }
+function ok(cond, msg) { if (cond) pass++; else { fail++; console.log('FAIL', msg); annotate('FAIL ' + msg); } }
 
 // Hostile names: shell metacharacters, quotes of every kind, wildcards, unicode.
 const WIN = process.platform === 'win32';
@@ -67,10 +69,18 @@ function run(platform, shell, mode) {
   fs.writeFileSync(scriptPath, out.script);
   fs.writeFileSync(undoPath, out.undo);
   const env = { ...process.env, HOME: home };
-  const exec = (file) => shell === 'bash'
+  const exec0 = (file) => shell === 'bash'
     ? execFileSync('bash', [file], { env, cwd: root, input: '\n' }).toString()
     : execFileSync(PWSH, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], { env, cwd: root, input: '\n' }).toString();
   const label = platform + '/' + mode;
+  const exec = (file) => {
+    try { return exec0(file); }
+    catch (e) {
+      const out = ((e.stdout || '') + '\n' + (e.stderr || '')).toString();
+      fail++; console.log('FAIL', label, 'script crashed:', out); annotate(label + ' script crashed: ' + out);
+      return out;
+    }
+  };
 
   const log1 = exec(scriptPath);
   const libFiles = listAll(path.join(home, 'Library Plex'));
