@@ -75,17 +75,21 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
 
 ## Check Episodes: see what's really in a file (and split it, if you want)
 
-Every TV file shows **Shelf thinks this file is…** with the episode codes and titles, and *how*
-Shelf knows (title cards, the title in the file name, or just the number). **Change…** opens an
-episode browser (season tabs, search by title or `S01E08`). **Check Episodes…** opens the video,
-after a prompt, in a window built for checking:
+Every TV file shows which episodes Shelf thinks it holds, with the frame of each title card it read
+and *how* it knows (title cards, the title in the file name, or just the number). Each episode has
+its own **Change** (season tabs, search by title or `S01E08`). If something needs a decision, a
+problem card says so in plain words: **Resolve…** shows the title cards side by side and settles it
+in one click (split the file at the gap, keep one file, or confirm one long episode).
 
-- A player with frame-by-frame stepping (hold to repeat), ±1 s / ±5 s, ¼×–2× speed and
+**Check Episodes…** opens the video, after a prompt, in a window built for checking:
+
+- A player with frame-by-frame stepping (hold to repeat), ½×–2× speed, J/K/L and
   "Play Around Cut".
-- A timeline you can zoom from the whole video down to 6 seconds, with a picture strip. Press
-  and drag anywhere to scrub; the playhead never moves a cut by accident.
-- Title cards Shelf read are marked; **‹ Card / Card ›** jumps between them, and each episode
-  shows the actual frame Shelf read, so you can see whether it's right.
+- One timeline, like a video editor: drag to scrub (preview pictures follow instantly), hover to
+  skim, pinch or Ctrl + scroll to zoom down to 6 seconds. Split points move only when you drag
+  their own handle (they snap to the black gap) or use **Set Cut Here**.
+- Every title card Shelf read is one click away (a row under the timeline, and a **Jump to**
+  button over the video).
 - **One File** keeps one name (listing every episode in it, if they're in a row), or **Split Into
   Files** gives each episode its own file. Shelf suggests each cut at the black, silent moment
   before the next episode. You move a cut only with **Set Cut Here** (or add and remove cuts).

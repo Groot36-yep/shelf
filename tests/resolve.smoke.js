@@ -27,7 +27,8 @@ function fake(file, vf, af) {
   fake(path.join(dir, 'SpongeBob.S01E05.mp4'), `drawbox=enable='between(t,659.0,660.6)':color=black:t=fill,${card(62, 'Pizza Delivery', '0x3d9be9')},${card(663, 'Pickles', '0xe95b3d')}`, "volume=enable='between(t,659.0,660.6)':volume=0");
   fake(path.join(dir, 'SpongeBob.S01E01.mp4'), card(62, 'Help Wanted', '0x3d9be9'));
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
-  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', '--user-data-dir=' + profile, ROOT] });
+  const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') : path.join(ROOT, 'node_modules/electron/dist/electron');
+  const app = await electron.launch({ executablePath: exe, args: ['--no-sandbox', '--user-data-dir=' + profile].concat(process.env.PACKAGED ? [] : [ROOT]) });
   await app.evaluate(({ dialog }, d) => { global.__prompts = []; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] }); dialog.showMessageBox = async (w, o) => { global.__prompts.push(o.message); return { response: 0 }; }; }, path.join(tmp, 'Downloads'));
   const win = await app.firstWindow();
   await win.setViewportSize({ width: 1400, height: 900 }).catch(() => {});
