@@ -2,6 +2,16 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.7.2)
+- **Mark a title card yourself**: when Shelf can't read one (curved letters, a card that's only on
+  screen for a moment), go to it in Check Episodes and click **Mark Title Card Here** (or press M),
+  then pick the episode. Your mark counts like a card Shelf read, and wins over anything it guessed.
+  The Resolve window offers **Mark It Yourself…** for a part without a card, and "One long episode?"
+  offers **Mark 2nd Card…**. Tested on the 3 hardest real episodes: all 3 named right after marking.
+- **File names like S03E01aE01b** (a half-hour in a/b parts) are now read as episodes, not movies.
+- **Fewer false title cards**: a noisy picture no longer passes for a title just because a few
+  letters line up (it read "As Seen on TV" in an episode of "The Idiot Box").
+
 ## Done (1.7.1)
 - **Deep Scan** for the hard ones: when a title card was missed, one click takes a slower, closer look
   (more frames, more sizes, two separate readings must agree before a name is used). About 1–3 minutes
@@ -55,7 +65,7 @@ Where things stand, and what's left to do. Newest first.
    with a review list before anything is written.
 3. **Originals after a split**: optional "Move originals to the Recycle Bin" button after a successful split (never automatic).
 4. **Exact cuts** (optional): re-encode only the few seconds around a cut when the nearest keyframe is too far from the gap.
-5. **Unreadable title cards** (lettering on a curve, very short cards like "The Idiot Box"): let you mark the card's spot
+5. ~~**Unreadable title cards**~~ done in 1.7.2 (Mark Title Card Here). Was: let you mark the card's spot
    so Shelf learns where cards are for that show.
 6. **HEVC playback in the split window**: falls back to still frames today; could convert a short preview on the fly.
 7. **Speed pass**: time start-up, big folders, matching and renaming to make sure nothing got slower.

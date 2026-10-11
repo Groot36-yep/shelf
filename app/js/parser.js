@@ -189,7 +189,8 @@
 
     // --- TV patterns -------------------------------------------------------
     var tvPatterns = [
-      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:\s?-?\s?E(\d{1,3})|-(\d{1,3})\b)?\b/i, // S01E02, S01 E02, S01E02E03, S01E02-03
+      // S01E02, S01 E02, S01E02E03, S01E02-03, and half-hours split in a/b: S03E01a, S03E01aE01b, S03E03bE03a
+      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|E\d|$))?(?:\s?-?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|$))?|-(\d{1,3})\b)?(?:\b|(?=_))/i,
       /\b(\d{1,2})x(\d{2,3})(?:-?(?:\d{1,2}x)?(\d{2,3}))?\b/i,                   // 1x02, 1x02-03
       /\bSeason\s?(\d{1,2})\s?[-,]?\s?Episode\s?(\d{1,3})\b/i                    // Season 1 Episode 2
     ];
@@ -672,7 +673,7 @@
       // Two weaker signs together: some words show up, and the whole title is close letter for
       // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
       var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
-      scored.push({ entry: e, score: best });
+      scored.push({ entry: e, score: best, ws: ws });
     });
     scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
     var top = scored[0], next = scored[1];
@@ -687,6 +688,9 @@
     var long = squash(top.entry.name).length >= 10;
     var need = isNear ? (long ? 0.5 : 0.62) : (long ? 0.6 : 0.7);
     var margin = isNear ? 0.08 : 0.15;
+    // Only a loose letter-for-letter likeness, and not one of the title's words seen: needs more
+    // ("ae So ZENON ~¥) 0) TC" is not "As Seen on TV").
+    if (!top.ws && isNear) need = Math.max(need, 0.6);
     if (top.score < need) return null;
     if (rival && top.score - rival.score < margin && top.score < 0.9) return null;
     return { entry: top.entry, score: Math.round(top.score * 100) / 100 };
@@ -778,9 +782,16 @@
       var pool = (list || []).filter(function (e) { return e.number != null; });
       var near = seasonList.filter(function (e) { return exp.some(function (x) { return Math.abs(x.number - e.number) <= 6; }); });
       var best = {};
-      file.cards.forEach(function (c) {
-        var mm = matchCardText(c.texts, pool, near);
-        if (mm && (!best[c.part] || mm.score > best[c.part].score)) best[c.part] = Object.assign({ t: c.t }, mm);
+      // Title cards you marked yourself each count on their own, and a reading near one (within two
+      // minutes: two cartoons' cards are ~11 minutes apart) gives way to it.
+      var marks = file.cards.filter(function (c) { return c.mark; });
+      var cardsIn = file.cards.filter(function (c) { return c.mark || !marks.some(function (m) { return c.t != null && Math.abs(c.t - m.t) < 120; }); });
+      cardsIn.forEach(function (c, ci) {
+        // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
+        var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
+          : matchCardText(c.texts, pool, near);
+        var slot = c.mark ? 'm' + ci : c.part;
+        if (mm && (!best[slot] || mm.score > best[slot].score)) best[slot] = Object.assign({ t: c.t }, mm);
       });
       Object.keys(best).forEach(function (k) { if (best[k].t != null) cardAt[best[k].entry.season + 'x' + best[k].entry.number] = best[k].t; });
       var found = Object.keys(best).sort(function (a, b) { return a - b; }).map(function (k) { return best[k].entry; })
@@ -797,7 +808,7 @@
         var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && file.parts > 1 &&
           // ...unless Shelf saw another cartoon start further in (a card between two black fades,
           // or its opening credits).
-          !file.cards.some(function (c) { return c.part >= 1 && c.boundary; });
+          !cardsIn.some(function (c) { return c.part >= 1 && c.boundary; });
         if (onlyFirst) {
           var long1 = found[0].runtime && found[0].runtime >= 18;
           return out(found, 'card', !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');

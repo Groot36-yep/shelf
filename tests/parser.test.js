@@ -194,7 +194,34 @@ check('a long special read from its one title card is one episode, for sure', ()
   assert.match(r2.note, /one long episode/);
 });
 withFile('SpongeBob.S01E05.mkv', { minutes: 22, parts: 2, cards: cards('Pizza Delivery', 'Pickles') }, 'S1E10 ?');
+// Title cards you mark yourself (when Shelf couldn't read them) count, and beat what Shelf read.
+const mark = (name, part, t) => { const e = SB.find((x) => x.name === name); return { part, t, texts: [], mark: { season: e.season, number: e.number } }; };
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, t: 53, texts: OCR['Jellyfishing'] }, { part: 1, t: 700, texts: ['x7 Q# ]'] }, mark('Plankton!', 1, 712)] }, 'S1E6-E7');
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [mark('Jellyfishing', 0, 53), mark('Plankton!', 1, 712)] }, 'S1E6-E7');
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, t: 53, texts: OCR['Hall Monitor'] }, mark('Jellyfishing', 0, 53), mark('Plankton!', 1, 712)] }, 'S1E6-E7');
+// A mark just before the middle doesn't push out the first card; a wrong reading near a mark gives way.
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, t: 53, texts: OCR['Jellyfishing'] }, mark('Plankton!', 0, 650)] }, 'S1E6-E7');
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, t: 53, texts: OCR['Jellyfishing'] }, { part: 1, t: 700, texts: OCR['Hall Monitor'] }, mark('Plankton!', 0, 650)] }, 'S1E6-E7');
+check('marked cards for episodes apart → split them, in the order marked', () => {
+  const r = P.resolveEpisode(P.parseFilename('SpongeBob.S01E03.mkv'), SB, { segmented: true, file: { minutes: 22, parts: 2, cards: [mark('Hall Monitor', 1, 700), { part: 0, t: 53, texts: OCR['Jellyfishing'] }] } });
+  assert.ok(r.needsSplit, JSON.stringify(r));
+  assert.deepStrictEqual(r.entries.map((e) => e.name + '@' + e.card), ['Jellyfishing@53', 'Hall Monitor@700']);
+});
 
+check('a noisy reading near the file is not a title just because a few letters line up', () => {
+  const L = require('./fixtures/sb-titles-s3-s7.json').map(([season, number, name]) => ({ season, number, name }));
+  const near = L.filter((e) => e.season === 3 && Math.abs(e.number - 8) <= 6);
+  assert.strictEqual(P.matchCardText(['ae So ZENON ~¥) 0) TC — ar— £5 ?'], L, near), null); // not "As Seen on TV"
+});
+check('half-hours split in a/b parts are episodes: S03E01aE01b, S03E03bE03a, S01E05a', () => {
+  const a = P.parseFilename('SpongeBob_SquarePants_S03E01aE01b_The_Algaes_Always_Greener___Sponge_Guard_on_Duty.mkv');
+  assert.deepStrictEqual([a.kind, a.title, a.season, a.episode, a.episodeEnd || null, a.episodeTitle], ['episode', 'SpongeBob SquarePants', 3, 1, null, 'The Algaes Always Greener Sponge Guard on Duty']);
+  const b = P.parseFilename('SpongeBob_SquarePants_S03E03bE03a_Just_One_Bite___The_Bully_720p_n.mkv');
+  assert.deepStrictEqual([b.kind, b.season, b.episode, b.episodeTitle, b.resolution], ['episode', 3, 3, 'Just One Bite The Bully', '720p']);
+  const c = P.parseFilename('Show.S01E05a.mkv');
+  assert.deepStrictEqual([c.kind, c.season, c.episode], ['episode', 1, 5]);
+  assert.strictEqual(P.parseFilename('Show.S01E05E06.mkv').episodeEnd, 6);
+});
 // Naming
 check('movie name', () => {
   const p = P.parseFilename('charade.1963.1080p.mkv');

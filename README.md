@@ -70,7 +70,7 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
 - **Read Title Cards** (turn on in Settings → Advanced) finds the moments where the picture holds
   still and reads the text there with an OCR engine built into Shelf, then compares it with the
   show's real episode titles. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan** finds
-  more of the hard ones);
+  more of the hard ones, and for any it can't read you can **mark the title card yourself**);
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
   (Deep Scan: 1–3 minutes).

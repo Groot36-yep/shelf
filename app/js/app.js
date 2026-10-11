@@ -413,7 +413,8 @@
         var chosen = numbering[id];
         var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
         group.forEach(function (i) {
-          var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: i.cards || null, parts: i.cardParts || null } });
+          var allCards = (i.cards || []).concat(markCards(i));
+          var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
           var r = i.manualEp ? manualResult(i.manualEp) : P.resolveEpisode(i.parsed, list, fileCtx);
           var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
           i.showKeyId = id;
@@ -1269,8 +1270,21 @@
 
   // ---------- Check Episodes window ----------
   // Title cards Shelf read in this video, for the window to show (and jump to).
+  // Title cards you marked yourself (for ones Shelf couldn't read), in the form the matcher reads:
+  // which part of the video each is in, and the episode it is.
+  function markCards(v) {
+    var secs = v.secs || (v.minutes || 22) * 60;
+    var parts = v.cardParts || Math.max(1, Math.min(4, Math.round(secs / 660)));
+    return (v.marks || []).map(function (m) {
+      return { part: Math.min(parts - 1, Math.floor(m.t / (secs / parts))), t: m.t, texts: [], mark: { season: m.season, number: m.number } };
+    });
+  }
   function cardsFor(v, list) {
     var out = {};
+    (v.marks || []).forEach(function (m) {
+      var k = m.season + 'x' + m.number;
+      out[k] = { t: m.t, start: m.t, key: k, name: m.name, season: m.season, number: m.number, text: '', score: 1, manual: true };
+    });
     (v.cards || []).forEach(function (r) {
       var m = P.matchCardText(r.texts, list);
       if (!m) return;
@@ -1278,6 +1292,8 @@
       // Show the clearest of the readings (the one closest to the title on its own).
       var best = r.texts.map(function (t) { var one = P.matchCardText([t], [m.entry]); return { t: t, s: one ? one.score : 0 }; })
         .sort(function (a, b) { return b.s - a.s || a.t.length - b.t.length; })[0];
+      if (out[k] && out[k].manual) return;
+      if ((v.marks || []).some(function (mk) { return Math.abs(mk.t - r.t) < 120; })) return; // near a card you marked: yours wins
       if (!out[k] || m.score > out[k].score) out[k] = { t: r.t, start: r.start != null ? r.start : r.t, key: k, name: m.entry.name, text: best ? best.t : '', score: m.score };
     });
     return Object.keys(out).map(function (k) { return out[k]; });
@@ -1341,7 +1357,8 @@
     if (ep.how === 'card' && /one long episode/.test(note)) {
       return { kind: 'single', title: 'One long episode?',
         text: 'Shelf read one title card (“' + ep.name + '”) and no second one. Is the whole file this episode?',
-        actions: [{ label: 'Yes, One Episode', run: function () { useEntries(v, [episodeRows(v)[0]], 'Confirmed: one episode.'); } }, { label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item)) };
+        actions: [{ label: 'Yes, One Episode', run: function () { useEntries(v, [episodeRows(v)[0]], 'Confirmed: one episode.'); } }, { label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item))
+          .concat(v.fullPath ? [{ label: 'Mark 2nd Card…', title: 'Find the second title card in the video yourself and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
     }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.',
       actions: [{ label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item)) };
@@ -1425,7 +1442,10 @@
         parts.forEach(function (e, i) {
           var frame = el('div', { class: 'rs-frame' }, [el('span', { class: 'rs-noframe' }, e.card != null ? [] : [
             'No title card read for this part',
-            canDeep(item) ? el('button', { type: 'button', class: 'pill small-pill', text: 'Deep Scan', title: 'Take a much closer look for this video’s title cards (a few minutes)', onclick: function () { $('resolveSheet').close(); deepScan(item); } }) : null
+            el('span', { class: 'rs-noframe-btns' }, [
+              el('button', { type: 'button', class: 'pill small-pill', text: 'Mark It Yourself…', title: 'Find this title card in the video and say which episode it is', onclick: function () { $('resolveSheet').close(); openEditor(item, { part: i, of: parts.length }); } }),
+              canDeep(item) ? el('button', { type: 'button', class: 'pill small-pill', text: 'Deep Scan', title: 'Take a much closer look for this video’s title cards (a few minutes)', onclick: function () { $('resolveSheet').close(); deepScan(item); } }) : null
+            ])
           ])]);
           if (e.card != null) cardFrame(v, e.card, 480).then(function (url) { if (url) frame.replaceChildren(el('img', { src: url, alt: 'Title card of ' + e.name })); else frame.firstChild.textContent = 'Picture not available'; });
           var change = el('button', { type: 'button', class: 'pill small-pill', 'data-opens-browser': '1', text: 'Change…' });
@@ -1464,7 +1484,7 @@
     });
   }
 
-  function openEditor(item) {
+  function openEditor(item, lookFor) {
     var v = linkedVideo(item) || item;
     var c = current(v);
     if (!c || !v.fullPath) return;
@@ -1483,7 +1503,12 @@
         entries.forEach(function (e) { var f = list.filter(function (x) { return x.season === e.season && x.number === e.number; })[0]; if (f) { e.runtime = e.runtime || f.runtime; e.name = e.name || f.name; } });
         ShelfEditor.open({
           native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list,
-          entries: entries, cards: cardsFor(v, list),
+          entries: entries, cards: cardsFor(v, list), lookFor: lookFor || null,
+          onMarks: function (marks, secs) {
+            // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
+            v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null;
+            resolveShow(c).then(render);
+          },
           mode: v.split || wantSplit || (v.episode && v.episode.needsSplit) ? 'split' : 'one',
           existing: v.split ? { pieces: v.split.pieces } : null,
           position: run.length > 1 && at >= 0 ? 'File ' + (at + 1) + ' of ' + run.length + ' of this show' : '',

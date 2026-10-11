@@ -203,8 +203,11 @@
     setMode(st.mode, true);
     // Start just before the first title card, or the first cut.
     var startAt = st.cuts.length ? st.cuts[0] - 3 : st.cards.length ? st.cards[0].start || st.cards[0].t : 0;
-    setZoom(st.cuts.length || st.cards.length ? 3 : 0, startAt, true);
+    var look = o.lookFor; // looking for a title card Shelf couldn't read: start where it usually is
+    if (look) startAt = look.part ? Math.max(0, st.secs * look.part / look.of - 20) : Math.min(40, st.secs * 0.04);
+    setZoom(st.cuts.length || st.cards.length || look ? 3 : 0, startAt, true);
     seek(startAt);
+    if (look) setTimeout(function () { if (st) info('Find the title card for ' + (look.of > 1 ? 'part ' + (look.part + 1) : 'this video') + ' (play or scrub), then click Mark Title Card Here.'); }, 0);
     loop();
   }
 
@@ -338,6 +341,7 @@
   }
   var lastHead = {};
   function drawHead() {
+    markBtn();
     if (!st) return;
     var t = st.t, txt = fmt(t);
     if (lastHead.clock !== txt) { $('edClock').textContent = txt; lastHead.clock = txt; }
@@ -452,7 +456,7 @@
     });
     st.cards.forEach(function (c) {
       if (c.t < v.a || c.t > v.b) return;
-      mk.push(el('div', { class: 'ed-card', style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', 'data-card': c.key, title: 'Title card “' + c.name + '”, read at ' + fmt(c.t) + '. Click to go there.', text: c.name })]));
+      mk.push(el('div', { class: 'ed-card' + (c.manual ? ' is-manual' : ''), style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', 'data-card': c.key, title: 'Title card “' + c.name + '”, ' + (c.manual ? 'marked by you' : 'read') + ' at ' + fmt(c.t) + '. Click to go there.', text: c.name })]));
     });
     if (split) st.cuts.forEach(function (c, k) {
       if (c < v.a || c > v.b) return;
@@ -631,20 +635,81 @@
     if (st.playable) video.pause();
     if (st.zoom < 3) setZoom(3, c.t); else keepInView(c.t);
     seek(cardStart(c)); flash();
-    info('Title card “' + c.name + '”: Shelf read it at ' + fmt(c.t) + '. Step with ← → to see exactly where it starts.');
+    info(c.manual ? 'Title card “' + c.name + '”: you marked it at ' + fmt(c.t) + '.' : 'Title card “' + c.name + '”: Shelf read it at ' + fmt(c.t) + '. Step with ← → to see exactly where it starts.');
+  }
+
+  // ---- Marking a title card yourself (for cards Shelf couldn't read) ----
+  function markedHere() { return st.cards.filter(function (c) { return c.manual && Math.abs(c.t - st.t) < 1; })[0] || null; }
+  function markBtn() {
+    var m = st && markedHere(), b = $('edMarkCard');
+    var want = m ? 'Remove Mark' : 'Mark Title Card Here';
+    if (b.lastChild.textContent !== want) { b.lastChild.textContent = want; b.classList.toggle('is-remove', !!m); b.title = m ? 'Remove the title card you marked here (“' + m.name + '”)' : 'The title card is on screen right now: say which episode it is  (M)'; }
+  }
+  function marksChanged() {
+    if (st.o.onMarks) st.o.onMarks(st.cards.filter(function (c) { return c.manual; }).map(function (c) { return { t: c.t, season: c.season, number: c.number, name: c.name }; }), st.secs);
+  }
+  function markCard() {
+    if (!st) return;
+    if (st.playable) video.pause();
+    var t = st.t, here = markedHere();
+    if (here) {
+      st.cards.splice(st.cards.indexOf(here), 1);
+      drawAll(); marksChanged();
+      info('Removed the mark for “' + here.name + '”.');
+      return;
+    }
+    var guess = st.mode === 'split' ? st.parts[partAt(t)] && st.parts[partAt(t)].entry : st.oneEntries[t > st.secs / 2 ? st.oneEntries.length - 1 : 0];
+    browse($('edMarkCard'), {
+      list: st.list, marked: guess ? [guess] : [], season: guess ? guess.season : null,
+      title: 'Whose title card is at ' + fmt(t, false) + '?',
+      onPick: function (x) { if (st) addMark(t, x); }
+    });
+  }
+  function addMark(t, x) {
+    var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'card' }, k = keyOf(pick);
+    // The mark replaces any other card for this episode, and any reading near it (cards are ~11 min apart).
+    st.cards = st.cards.filter(function (c) { return c.key !== k && (c.manual || Math.abs(c.t - t) >= 120); });
+    st.cards.push({ t: t, start: t, key: k, name: x.name, season: x.season, number: x.number, manual: true, score: 1, text: '' });
+    st.cards.sort(function (a, b) { return a.t - b.t; });
+    var cardT = function (e) { var c = e && st.cards.filter(function (y) { return y.key === keyOf(e); })[0]; return c ? c.t : null; };
+    if (st.mode === 'split') {
+      var i = partAt(t);
+      st.parts.forEach(function (p, j) { if (j !== i && p.entry && keyOf(p.entry) === k) p.entry = null; });
+      st.parts[i].entry = pick;
+    } else if (!st.oneEntries.some(function (e) { return keyOf(e) === k; })) {
+      // Put it in place of an episode no title card backs up (the one nearest where you marked), or add it.
+      var loose = st.oneEntries.map(function (e, j) { return j; }).filter(function (j) { return cardT(st.oneEntries[j]) == null; });
+      if (loose.length) st.oneEntries[t > st.secs / 2 ? loose[loose.length - 1] : loose[0]] = pick;
+      else st.oneEntries.push(pick);
+      st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+      var en = st.oneEntries;
+      var apart = en.length > 1 && !en.every(function (y, j) { return j === 0 || (y.season === en[j - 1].season && y.number === en[j - 1].number + 1); });
+      if (apart) {
+        // Not next to each other: they need a file each. Order the parts the way they play.
+        st.parts = en.slice().sort(function (p, q) { var a = cardT(p), b = cardT(q); return (a == null ? 1e9 : a) - (b == null ? 1e9 : b); }).map(function (e) { return { entry: e }; });
+        st.suggested = false; st.newKey = k;
+        marksChanged();
+        setMode('split');
+        return;
+      }
+    }
+    st.newKey = k;
+    drawAll(); marksChanged();
+    info('Marked: the title card at ' + fmt(t) + ' is ' + code(pick) + ' “' + pick.name + '”.');
   }
 
   // ---- The parts / episodes panel ----
   function drawAll() { drawTimeline(); drawPanel(); }
   // The row of title cards under the timeline: every card Shelf read, one click away.
   function drawCards() {
-    var box = $('edCards'), list = $('edCardList');
-    box.hidden = !st.cards.length;
+    var list = $('edCardList');
+    $('edCardsNone').hidden = !!st.cards.length;
+    list.hidden = !st.cards.length;
     list.replaceChildren.apply(list, st.cards.map(function (c, i) {
       var part = st.mode === 'split' ? partAt(cardStart(c) + 0.5) : -1;
-      return el('button', { type: 'button', class: 'ed-chip', 'data-key': c.key, title: 'Go to the title card “' + c.name + '” (' + fmt(c.t) + ')', onclick: function () { goCard(c); } }, [
+      return el('button', { type: 'button', class: 'ed-chip' + (c.manual ? ' is-manual' : ''), 'data-key': c.key, title: 'Go to the title card “' + c.name + '” (' + fmt(c.t) + ')' + (c.manual ? ', marked by you' : ''), onclick: function () { goCard(c); } }, [
         el('img', { src: 'shelf-media://f/' + st.token + '?t=' + c.t.toFixed(2) + '&w=160', alt: '' }),
-        el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + fmt(c.t, false) })])
+        el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + fmt(c.t, false) }), c.manual ? el('i', { text: 'Marked by you' }) : null])
       ]);
     }));
     lastHead.card = null;
@@ -693,7 +758,15 @@
       // How we know, and the frame Shelf read, so you can check it.
       if (card) {
         var sure = card.score >= 0.85 ? 'hi' : 'mid';
-        row.push(el('div', { class: 'ed-proof' }, [
+        if (card.manual) row.push(el('div', { class: 'ed-proof' }, [
+          el('button', { type: 'button', class: 'ed-thumb', title: 'Go to this title card in the video', onclick: function () { goCard(card); } },
+            [el('img', { src: 'shelf-media://f/' + st.token + '?t=' + card.t.toFixed(2) + '&w=320', alt: 'The title card you marked' })]),
+          el('div', { class: 'ed-proof-text' }, [
+            el('span', { class: 'ed-sure hi', text: '✓ You marked this title card · ' + fmt(card.t, false) }),
+            el('span', { text: 'Wrong spot? Go to it and click Remove Mark.' })
+          ])
+        ]));
+        else row.push(el('div', { class: 'ed-proof' }, [
           el('button', { type: 'button', class: 'ed-thumb', title: 'Go to this title card in the video', onclick: function () { goCard(card); } },
             [el('img', { src: 'shelf-media://f/' + st.token + '?t=' + card.t.toFixed(2) + '&w=320', alt: 'The frame Shelf read' })]),
           el('div', { class: 'ed-proof-text' }, [
@@ -894,6 +967,7 @@
     $('edZoomOut').addEventListener('click', function () { if (st) setZoom(st.zoom - 1); });
     $('edZoomFit').addEventListener('click', function () { if (st) setZoom(0); });
     $('edCutHere').addEventListener('click', setCutHere);
+    $('edMarkCard').addEventListener('click', markCard);
     $('edAddCut').addEventListener('click', addCut);
     $('edRemoveCut').addEventListener('click', removeCut);
     document.querySelectorAll('#edMode button').forEach(function (b) { b.addEventListener('click', function () { if (st && st.mode !== b.dataset.mode) setMode(b.dataset.mode); }); });
@@ -919,6 +993,7 @@
       }
       else if (k === '[') { press('edPrevCard'); jumpCard(-1); }
       else if (k === ']') { press('edNextCard'); jumpCard(1); }
+      else if (k === 'm' || k === 'M') { press('edMarkCard'); markCard(); }
       else if (k === 'c' || k === 'C') { if (st.mode === 'split') { press('edCutHere'); setCutHere(); } }
       else if (k === '+' || k === '=') { press('edZoomIn'); setZoom(st.zoom + 1); }
       else if (k === '-' || k === '_') { press('edZoomOut'); setZoom(st.zoom - 1); }

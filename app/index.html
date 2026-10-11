@@ -472,10 +472,12 @@
         </div>
         <button class="ed-btn" type="button" id="edAround" title="Plays from 4 s before to 4 s after the selected cut (or the playhead)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span> Play Around Cut</span></button>
       </div>
-      <!-- Every title card Shelf read, always one click away. -->
-      <div class="ed-cards" id="edCards" hidden>
+      <!-- Every title card Shelf read (or you marked), always one click away. -->
+      <div class="ed-cards" id="edCards">
         <span class="ed-cards-k">Title cards</span>
         <div class="ed-cards-list" id="edCardList"></div>
+        <span class="ed-cards-none" id="edCardsNone">None read. Find one in the video, then mark it.</span>
+        <button class="ed-btn small ed-mark" type="button" id="edMarkCard" data-opens-browser="1" title="The title card is on screen right now: say which episode it is  (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5h10v15l-5-3.6-5 3.6z"/></svg><span>Mark Title Card Here</span></button>
       </div>
       <div class="ed-cuttools" id="edCutTools" hidden>
         <span class="ed-cut-label" id="edCutLabel"></span>
@@ -496,7 +498,7 @@
     </aside>
   </div>
   <footer class="sheet-actions ed-actions">
-    <span class="ed-keys"><kbd>Space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>⇧</kbd> 1 s <kbd>[</kbd><kbd>]</kbd> title cards <kbd>C</kbd> cut <kbd>+</kbd><kbd>−</kbd> zoom</span>
+    <span class="ed-keys"><kbd>Space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>⇧</kbd> 1 s <kbd>[</kbd><kbd>]</kbd> title cards <kbd>M</kbd> mark card <kbd>C</kbd> cut <kbd>+</kbd><kbd>−</kbd> zoom</span>
     <button class="pill" type="button" id="edCancel">Cancel</button>
     <button class="pill" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next</button>
     <button class="pill pill-primary" type="button" id="edSave">Use This Name</button>
