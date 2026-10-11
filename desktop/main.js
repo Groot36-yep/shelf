@@ -170,10 +170,38 @@ if (gotLock) app.whenReady().then(() => {
       });
     } finally { frameJobs--; const n = frameWaiters.shift(); if (n) n(); }
   }
+  // n evenly spaced frames from `from` to `to`, tiled in one row. key=true decodes only keyframes
+  // (much faster for long stretches; each tile is then the nearest keyframe before its time).
+  async function stripJpeg(file, from, to, n, w, keyOnly) {
+    if (frameJobs >= 3) await new Promise((r) => frameWaiters.push(r));
+    frameJobs++;
+    try {
+      const { spawn } = require('child_process');
+      const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+      const fps = n / (to - from);
+      const args = ['-hide_banner', '-nostdin', '-loglevel', 'error'].concat(keyOnly ? ['-skip_frame', 'nokey'] : [],
+        ['-ss', String(from), '-t', String(to - from), '-i', file, '-an', '-sn', '-dn',
+          '-vf', 'fps=' + fps.toFixed(6) + ':start_time=' + from.toFixed(3) + ',scale=' + w + ':-2,tile=' + n + 'x1', '-frames:v', '1',
+          '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '6', '-']);
+      return await new Promise((resolve, reject) => {
+        const c = spawn(ff, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        const chunks = []; c.stdout.on('data', (d) => chunks.push(d));
+        const timer = setTimeout(() => c.kill(), 90000);
+        c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
+      });
+    } finally { frameJobs--; const nx = frameWaiters.shift(); if (nx) nx(); }
+  }
   protocol.handle('shelf-media', async (request) => {
     const u = new URL(request.url);
     const file = mediaTokens.get(u.pathname.replace(/^\/+/, ''));
     if (!file) return new Response('Not found', { status: 404 });
+    if (u.host === 's') { // a film strip: n frames side by side, shelf-media://s/<token>?from=0&to=60&n=12&w=160&key=0
+      const from = Math.max(0, Number(u.searchParams.get('from')) || 0), to = Math.max(from + 0.5, Number(u.searchParams.get('to')) || from + 60);
+      const n = Math.min(240, Math.max(1, Math.round(Number(u.searchParams.get('n')) || 12)));
+      const w = Math.min(320, Math.max(48, Math.round((Number(u.searchParams.get('w')) || 160) / 2) * 2));
+      const jpg = await stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1');
+      return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' } }) : new Response('', { status: 404 });
+    }
     if (u.host === 'f') { // one still frame: shelf-media://f/<token>?t=12.5&w=320
       const t = Math.max(0, Number(u.searchParams.get('t')) || 0), w = Math.min(1280, Math.max(64, Number(u.searchParams.get('w')) || 320));
       const jpg = await frameJpeg(file, t, Math.round(w / 2) * 2);
@@ -245,6 +273,22 @@ if (gotLock) app.whenReady().then(() => {
     (r.restored || []).forEach((p) => allowedSources.add(path.resolve(p))); // files put back can be renamed again
     return { undone: r.undone, kept: r.kept, nothing: !!r.nothing };
   });
+  // Frames per second (for frame-by-frame stepping), from ffmpeg's description of the file.
+  async function frameRate(file) {
+    try {
+      const { spawn } = require('child_process');
+      const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+      const err = await new Promise((resolve) => {
+        const c = spawn(ff, ['-hide_banner', '-nostdin', '-i', file], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+        let e = ''; c.stderr.on('data', (d) => { if (e.length < 20000) e += d; });
+        c.on('close', () => resolve(e)); c.on('error', () => resolve(''));
+      });
+      const m = err.match(/,\s*([\d.]+)\s*fps/) || err.match(/,\s*([\d.]+)\s*tbr/);
+      const f = m ? parseFloat(m[1]) : 0;
+      return f > 5 && f < 121 ? f : 24;
+    } catch (e) { return 24; }
+  }
+
   // ---- Looking inside videos: only files you picked, only after you say yes in a system prompt ----
   function pickedVideos(paths) {
     if (!Array.isArray(paths)) return [];
@@ -323,12 +367,12 @@ if (gotLock) app.whenReady().then(() => {
   handle('shelf:openSplit', async (p) => {
     const files = pickedVideos([p]);
     if (!files.length) throw new Error('Not a video you picked');
-    const yes = await askFirst(files, 'Open this video to choose where to split it?',
-      'Shelf plays the video in its own window and looks for the quiet, black moment between cartoons to suggest a cut. Nothing is changed until you click Rename Now, and your original file is always kept. Nothing leaves this computer.', 'Open Video');
+    const yes = await askFirst(files, 'Open this video to check its episodes?',
+      'Shelf plays the video in its own window so you can see which episodes it holds, check where each one starts, and split it if you want. Nothing is changed until you click Rename Now, your original file is always kept, and nothing leaves this computer.', 'Open Video');
     if (!yes) return null;
     const token = crypto.randomBytes(16).toString('hex');
     mediaTokens.set(token, files[0]);
-    return { token, secs: await probe.duration(files[0]) };
+    return { token, secs: await probe.duration(files[0]), fps: await frameRate(files[0]) };
   });
   handle('shelf:closeSplit', async (token) => { mediaTokens.delete(String(token)); return true; });
   // Suggested cuts. hints: [{ card: seconds } | { est: seconds }], one per cut.

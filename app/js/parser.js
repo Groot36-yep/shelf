@@ -773,6 +773,7 @@
     resolveEpisode: resolveEpisode,
     matchByTitle: matchByTitle,
     matchCardText: matchCardText,
+    joinNames: joinNames,
     detectNumbering: detectNumbering,
     halfHourGroups: halfHourGroups,
     qualityLabel: qualityLabel,

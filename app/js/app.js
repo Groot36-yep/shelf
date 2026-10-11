@@ -63,6 +63,8 @@
     'The.Twilight.Zone.S01E08.720p.mkv'
   ];
 
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
   // ---------- DOM helpers ----------
   function $(id) { return document.getElementById(id); }
   function el(tag, attrs, children) {
@@ -587,22 +589,46 @@
       b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
     });
 
-    // Split into one file per cartoon (only ever when you choose it).
-    var canSplit = item.kind === 'episode' && item.fullPath && item.parsed.isVideo && item.episode && item.episode.entries && item.episode.entries.length >= 2;
-    $('inspSplitWrap').hidden = !(canSplit || item.split);
-    if (canSplit || item.split) {
-      var n = item.split ? item.split.pieces.length : item.episode.entries.length;
-      $('splitLabel').textContent = item.split ? 'Will be split into ' + n + ' files' : 'One file per cartoon';
-      $('splitHelp').textContent = item.split
-        ? pieceNames(item).map(function (x) { return x.file; }).join('\n')
-        : item.episode.needsSplit
-          ? 'These cartoons aren’t next to each other in the episode list, so Plex can’t show this file correctly as one. Split it into one file per cartoon (you check where to cut).'
-          : 'Optional: split this file so each cartoon is its own episode in Plex. You check where to cut.';
-      $('openSplit').textContent = item.split ? 'Edit Split…' : 'Split into ' + n + ' Files…';
-      $('clearSplit').hidden = !item.split;
-      $('openSplit').disabled = scanning;
+    // What Shelf thinks this file is, how it knows, and ways to check or change it.
+    var epWrap = $('inspEpWrap');
+    var showEp = item.kind === 'episode' && !!current(item);
+    epWrap.hidden = !showEp;
+    if (showEp) {
+      var src0 = linkedVideo(item) || item;
+      var list0 = $('inspEpList'); list0.textContent = '';
+      var rowsEp = src0.split ? src0.split.pieces.map(function (p) { return p.entry; }) : src0.episode ? (src0.episode.entries && src0.episode.entries.length ? src0.episode.entries : [{ season: src0.episode.season, number: src0.episode.number, name: src0.episode.name }]) : [];
+      if (!rowsEp.length) {
+        var s0 = item.parsed.season != null ? item.parsed.season : 1;
+        rowsEp = [{ season: s0, number: item.parsed.episode || 1, name: item.parsed.episodeTitle || '' }];
+      }
+      rowsEp.forEach(function (e, i) {
+        list0.appendChild(el('div', { class: 'ep-card-row', 'data-part': src0.split ? i % 2 : '' }, [
+          el('span', { class: 'ep-card-code', text: 'S' + pad2(e.season) + 'E' + pad2(e.number) }),
+          el('span', { class: 'ep-card-name', text: e.name || '(no title listed)' })
+        ]));
+      });
+      var how = src0.split ? 'split' : src0.episode ? src0.episode.how : '';
+      var sure = !item.epBlock && (item.status === 'matched' || item.confirmed);
+      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : rowsEp.length > 1 ? 'Shelf thinks this file holds' : 'Shelf thinks this file is';
+      var why = {
+        split: '✂ You chose to split it. Each part gets its own name.',
+        manual: '✓ You chose this.',
+        card: '✓ Read from the title cards in the video.',
+        title: '✓ Matched by the episode title in the file name.',
+        date: '✓ Matched by the air date in the file name.',
+        halfhour: 'From the half-hour number in the file name' + (src0.minutes ? ' and the video’s length.' : '.'),
+        number: 'From the episode number in the file name.'
+      }[how] || 'From the file name.';
+      $('inspEpWhy').textContent = why + (src0.episode && src0.episode.needsSplit && !src0.split
+        ? ' They aren’t next to each other in the episode list, so Plex needs them as separate files: click Check Episodes… to split it.'
+        : sure || how === 'split' || how === 'manual' ? '' : ' Not sure? Click Check Episodes… to look at the video.');
+      $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
+      $('checkEps').hidden = !src0.fullPath || !src0.parsed.isVideo;
+      $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Check Episodes…';
+      $('checkEps').disabled = scanning;
+      $('changeEp').hidden = !!src0.split;
+      $('clearSplit').hidden = !src0.split;
     }
-    $('changeEp').hidden = !(item.kind === 'episode' && current(item) && !item.split);
 
     var facts = $('inspFacts');
     facts.textContent = '';
@@ -1100,240 +1126,82 @@
     window.open('https://github.com/Groot36-yep/shelf/releases/latest', '_blank');
   });
 
-  // ---------- Episode picker ----------
-  var picker = { list: [], onPick: null, sel: 0, shown: [] };
-  function fmtEp(e) { return 'S' + (e.season < 10 ? '0' : '') + e.season + 'E' + (e.number < 10 ? '0' : '') + e.number; }
-  function openPicker(anchor, list, onPick) {
-    var box = $('epPicker');
-    var host = anchor.closest('dialog[open]') || document.body;
-    if (box.parentNode !== host) host.appendChild(box);
-    picker.list = (list || []).filter(function (e) { return e.number != null; });
-    picker.onPick = onPick;
-    var a = anchor.getBoundingClientRect(), h = host.getBoundingClientRect();
-    var left = Math.min(a.left - h.left + (host.scrollLeft || 0), Math.max(8, (host === document.body ? window.innerWidth : h.width) - 350));
-    box.style.left = Math.max(8, left) + 'px';
-    box.style.top = (a.bottom - h.top + (host.scrollTop || 0) + 6) + 'px';
-    box.hidden = false;
-    $('epSearch').value = '';
-    renderPicker();
-    $('epSearch').focus();
-  }
-  function closePicker() { $('epPicker').hidden = true; picker.onPick = null; }
-  function renderPicker() {
-    var q = $('epSearch').value.trim();
-    var list = picker.list, shown;
-    var se = q.match(/^s?(\d{1,2})\s*[ex]\s*(\d{1,3})$/i);
-    if (se) shown = list.filter(function (e) { return e.season === +se[1] && e.number === +se[2]; });
-    else if (/^\d{1,3}$/.test(q)) shown = list.filter(function (e) { return e.number === +q; });
-    else if (q) {
-      var ql = q.toLowerCase();
-      shown = list.map(function (e) { var nm = (e.name || '').toLowerCase(); return { e: e, s: nm.indexOf(ql) >= 0 ? 2 : P.titleSimilarity(q, e.name) }; })
-        .filter(function (x) { return x.s >= 0.5; }).sort(function (a, b) { return b.s - a.s; }).map(function (x) { return x.e; });
-    } else shown = list;
-    picker.shown = shown.slice(0, 80); picker.sel = 0;
-    var box = $('epList'); box.textContent = '';
-    if (!picker.shown.length) { box.appendChild(el('p', { class: 'ep-empty', text: 'No episode matches “' + q + '”.' })); return; }
-    picker.shown.forEach(function (e, i) {
-      box.appendChild(el('button', { type: 'button', class: 'ep-opt' + (i === picker.sel ? ' is-on' : ''), role: 'option', onclick: function () { pick(e); } },
-        [el('span', { class: 'mono', text: fmtEp(e) }), el('span', { text: e.name || '(no title)' })]));
+  // ---------- Check Episodes window ----------
+  // Title cards Shelf read in this video, for the window to show (and jump to).
+  function cardsFor(v, list) {
+    var out = {};
+    (v.cards || []).forEach(function (r) {
+      var m = P.matchCardText(r.texts, list);
+      if (!m) return;
+      var k = m.entry.season + 'x' + m.entry.number;
+      // Show the clearest of the readings (the one closest to the title on its own).
+      var best = r.texts.map(function (t) { var one = P.matchCardText([t], [m.entry]); return { t: t, s: one ? one.score : 0 }; })
+        .sort(function (a, b) { return b.s - a.s || a.t.length - b.t.length; })[0];
+      if (!out[k] || m.score > out[k].score) out[k] = { t: r.t, start: r.start != null ? r.start : r.t, key: k, name: m.entry.name, text: best ? best.t : '', score: m.score };
     });
+    return Object.keys(out).map(function (k) { return out[k]; });
   }
-  function pick(e) { var fn = picker.onPick; closePicker(); if (fn) fn(e); }
-  on('epSearch', 'input', renderPicker);
-  on('epSearch', 'keydown', function (ev) {
-    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePicker(); return; }
-    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-      ev.preventDefault();
-      picker.sel = Math.max(0, Math.min(picker.shown.length - 1, picker.sel + (ev.key === 'ArrowDown' ? 1 : -1)));
-      document.querySelectorAll('#epList .ep-opt').forEach(function (b, i) { b.classList.toggle('is-on', i === picker.sel); if (i === picker.sel) b.scrollIntoView({ block: 'nearest' }); });
-    }
-    if (ev.key === 'Enter') { ev.preventDefault(); if (picker.shown[picker.sel]) pick(picker.shown[picker.sel]); }
-  });
-  document.addEventListener('mousedown', function (ev) { if (!$('epPicker').hidden && !$('epPicker').contains(ev.target)) closePicker(); }, true);
-
-  // "Wrong episode? Choose…" in the side panel.
-  on('changeEp', 'click', function (ev) {
-    var item = itemById(selectedId); var c = item && current(item); if (!c) return;
+  function nameFor(v, entries) {
+    var m = matchFor(v);
+    if (!m || !entries.length) return '';
+    var first = entries[0], last = entries[entries.length - 1];
+    var mm = Object.assign({}, m, { season: first.season, episode: first.number, episodeEnd: last.number > first.number ? last.number : null, episodeTitle: P.joinNames(entries) });
+    return P.plexName(v.parsed, mm, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(v) }).file;
+  }
+  function openEditor(item) {
+    var v = linkedVideo(item) || item;
+    var c = current(v);
+    if (!c || !v.fullPath) return;
+    var btn = $('checkEps'); btn.disabled = true;
     listFor(c).then(function (list) {
-      openPicker(ev.target, list, function (e) {
-        item.manualEp = { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null };
-        item.confirmed = true;
-        resolveShow(c).then(render);
-      });
-    });
-  });
-
-  // ---------- Split window ----------
-  var sp = null; // the open split: { item, token, secs, entries, cuts, active, keys, gaps, video, frames }
-  function clock(t) { t = Math.max(0, t || 0); var m = Math.floor(t / 60), s2 = t - m * 60; return m + ':' + (s2 < 10 ? '0' : '') + s2.toFixed(1); }
-  function spNow() { return sp ? (sp.frames ? sp.t : $('spVideo').currentTime) : 0; }
-  function spSeek(t) {
-    if (!sp) return;
-    t = Math.max(0, Math.min(sp.secs - 0.05, t));
-    sp.t = t;
-    if (sp.frames) { $('spFrame').src = 'shelf-media://f/' + sp.token + '?t=' + t.toFixed(2) + '&w=960'; }
-    else { $('spVideo').currentTime = t; }
-    spDrawHead();
-  }
-  function spDrawHead() { if (!sp) return; var t = spNow(); $('spHead').style.left = (t / sp.secs * 100) + '%'; $('spClock').textContent = clock(t); }
-  function spPieces() {
-    var pts = [0].concat(sp.cuts, [sp.secs]);
-    return sp.entries.map(function (e, i) { return { start: pts[i], end: pts[i + 1], entry: e }; });
-  }
-  function spDraw() {
-    if (!sp) return;
-    var track = $('spTrack'); track.textContent = '';
-    spPieces().forEach(function (pc) { var d = el('div', { class: 'sp-seg' }); d.style.width = ((pc.end - pc.start) / sp.secs * 100) + '%'; track.appendChild(d); });
-    var marks = $('spMarks'); marks.textContent = '';
-    sp.gaps.forEach(function (g) { var d = el('div', { class: 'sp-mark ' + g.kind, title: (g.kind === 'black' ? 'Black screen ' : 'Silence ') + clock(g.a) + '–' + clock(g.b) }); d.style.left = (g.a / sp.secs * 100) + '%'; d.style.width = Math.max(0.15, (g.b - g.a) / sp.secs * 100) + '%'; marks.appendChild(d); });
-    var cuts = $('spCuts'); cuts.textContent = '';
-    sp.cuts.forEach(function (t, i) {
-      var c = el('div', { class: 'sp-cut' + (i === sp.active ? ' is-active' : ''), tabindex: '0', role: 'slider', 'aria-label': 'Cut ' + (i + 1), 'aria-valuetext': clock(t), 'data-i': i });
-      c.style.left = (t / sp.secs * 100) + '%';
-      cuts.appendChild(c);
-    });
-    // Parts, each with the episode Shelf thinks it is and a way to change it.
-    var parts = $('spParts'); parts.textContent = '';
-    var m = matchFor(sp.item);
-    spPieces().forEach(function (pc, i) {
-      var name = m ? P.plexName(sp.item.parsed, Object.assign({}, m, { season: pc.entry.season, episode: pc.entry.number, episodeEnd: null, episodeTitle: pc.entry.name }), { showYear: settings.showYear || m.needsYear, quality: qualityFor(sp.item) }).file : pc.entry.name;
-      var btn = el('button', { type: 'button', class: 'link-btn', text: 'Change…', title: 'Choose a different episode for this part' });
-      btn.addEventListener('click', function () {
-        listFor(current(sp.item)).then(function (list) { openPicker(btn, list, function (e) { sp.entries[i] = { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null }; spDraw(); }); });
-      });
-      parts.appendChild(el('div', { class: 'sp-part' }, [el('b', { text: String(i + 1) }), el('span', { class: 'mono', text: clock(pc.start) + ' – ' + clock(pc.end) }), el('span', { class: 'nm', text: name, title: name }), btn]));
-    });
-    spStrip();
-  }
-  var stripFor = null;
-  function spStrip() {
-    if (!sp) return;
-    var c = sp.cuts[sp.active];
-    var key = sp.active + ':' + c.toFixed(2);
-    if (stripFor === key) return;
-    stripFor = key;
-    var strip = $('spStrip'); strip.textContent = '';
-    for (var k = -6; k <= 6; k++) {
-      (function (t) {
-        if (t < 0 || t > sp.secs) { strip.appendChild(el('span')); return; }
-        var isKey = sp.keys.some(function (x) { return Math.abs(x - t) < 0.3; });
-        var b = el('button', { type: 'button', class: 'sp-thumb' + (Math.abs(t - c) < 0.05 ? ' is-cut' : '') + (isKey ? ' is-key' : ''), title: 'Cut at ' + clock(t) },
-          [el('img', { src: 'shelf-media://f/' + sp.token + '?t=' + t.toFixed(2) + '&w=200', alt: '', loading: 'lazy' }), el('span', { text: clock(t) })]);
-        b.addEventListener('click', function () { spSetCut(t); });
-        strip.appendChild(b);
-      })(Math.round((c + k) * 10) / 10);
-    }
-  }
-  // Lossless cuts must start on a keyframe: move to the nearest one and say so.
-  function spSetCut(t, quiet) {
-    if (!sp) return Promise.resolve();
-    var i = sp.active, lo = (i ? sp.cuts[i - 1] : 0) + 60, hi = (i < sp.cuts.length - 1 ? sp.cuts[i + 1] : sp.secs) - 60;
-    t = Math.max(lo, Math.min(hi, t));
-    return native.splitAround(sp.token, t).then(function (q) {
-      sp.keys = q.keys;
-      mergeGaps(q);
-      var k = q.keys.slice().sort(function (a, b) { return Math.abs(a - t) - Math.abs(b - t); })[0];
-      var at = k != null && Math.abs(k - t) < 8 ? k : t;
-      sp.cuts[i] = Math.max(lo, Math.min(hi, at));
-      if (!quiet) $('spInfo').textContent = 'Cut ' + (sp.cuts.length > 1 ? (i + 1) + ' ' : '') + 'at ' + clock(sp.cuts[i]) + (Math.abs(at - t) > 0.05 ? ' — moved ' + Math.abs(at - t).toFixed(1) + ' s to the nearest keyframe, so the cut is lossless.' : '.');
-      stripFor = null; spDraw(); spSeek(sp.cuts[i]);
-    });
-  }
-  function mergeGaps(q) {
-    var add = q.black.map(function (g) { return { kind: 'black', a: g.a, b: g.b }; }).concat(q.silence.map(function (g) { return { kind: 'silence', a: g.a, b: g.b }; }));
-    add.forEach(function (g) { if (!sp.gaps.some(function (x) { return x.kind === g.kind && Math.abs(x.a - g.a) < 0.2; })) sp.gaps.push(g); });
-  }
-  function openSplitWindow(item) {
-    var entries = item.split ? item.split.pieces.map(function (p) { return p.entry; }) : (item.episode.entries || []).slice();
-    if (entries.length < 2) return;
-    native.openSplit(item.fullPath).then(function (r) {
-      if (!r) { toast('Cancelled. The video wasn’t opened.'); return; }
-      sp = { item: item, token: r.token, secs: r.secs || 1320, entries: entries, cuts: [], active: 0, keys: [], gaps: [], frames: false, t: 0 };
-      // First guesses: before each title card, or from the episodes' lengths.
-      var total = entries.reduce(function (t, e) { return t + (e.runtime || 11); }, 0), acc = 0;
-      var hints = entries.slice(1).map(function (e, i) { acc += entries[i].runtime || 11; return e.card != null ? { card: e.card } : { est: sp.secs * acc / total }; });
-      sp.cuts = item.split ? item.split.pieces.slice(1).map(function (p) { return p.start; }) : hints.map(function (h) { return h.card != null ? h.card - 2 : h.est; });
-      $('spTitle').textContent = 'Split into ' + entries.length + ' files';
-      $('spFile').textContent = item.name;
-      $('spEnd').textContent = clock(sp.secs);
-      $('spMode').hidden = true; $('spFrame').hidden = true;
-      var v = $('spVideo'); v.hidden = false;
-      v.src = 'shelf-media://v/' + r.token;
-      v.onerror = function () { if (!sp) return; sp.frames = true; v.hidden = true; $('spFrame').hidden = false; $('spMode').hidden = false; $('spPlay').disabled = $('spAround').disabled = true; spSeek(sp.t || sp.cuts[0] - 3); };
-      v.ontimeupdate = function () { spDrawHead(); if (sp && sp.stopAt && v.currentTime >= sp.stopAt) { v.pause(); sp.stopAt = null; } };
-      v.onplay = v.onpause = function () { $('spPlay').textContent = v.paused ? 'Play' : 'Pause'; };
-      $('spPlay').disabled = $('spAround').disabled = false;
-      stripFor = null; spDraw();
-      $('splitSheet').showModal();
-      if (item.split) { $('spInfo').textContent = 'Your split. Drag the marker, click a frame, or use Cut Here to change it.'; native.splitAround(r.token, sp.cuts[0]).then(function (q) { sp.keys = q.keys; mergeGaps(q); stripFor = null; spDraw(); }); spSeek(sp.cuts[0] - 3); return; }
-      $('spBusy').hidden = false; $('spUse').disabled = true;
-      $('spInfo').textContent = 'Looking for the black, silent moment between the cartoons…';
-      native.splitSuggest(r.token, hints).then(function (res) {
-        if (!sp) return;
-        var why = [];
-        res.forEach(function (g, i) {
-          if (!g) return;
-          sp.cuts[i] = g.at;
-          why.push(clock(g.at) + ' (' + (g.why === 'black + silence' ? 'black screen + silence' : g.why === 'black' ? 'black screen' : g.why === 'silence' ? 'silence' : g.from === 'card' ? 'just before the title card' : 'from the episodes’ lengths') +
-            (sp.entries[i + 1] && sp.entries[i + 1].card != null ? ', right before the “' + sp.entries[i + 1].name + '” title card' : '') + ')');
+      return native.openSplit(v.fullPath).then(function (r) {
+        if (!r) { toast('Cancelled. The video wasn’t opened.'); return; }
+        var how = v.episode ? v.episode.how : 'number';
+        var entries = v.episode && v.episode.entries && v.episode.entries.length
+          ? v.episode.entries.map(function (e) { return Object.assign({ how: how }, e); })
+          : v.episode ? [{ season: v.episode.season, number: v.episode.number, name: v.episode.name, how: how }] : [];
+        // Fill in runtimes from the list (used to estimate where episodes change).
+        entries.forEach(function (e) { var f = list.filter(function (x) { return x.season === e.season && x.number === e.number; })[0]; if (f) { e.runtime = e.runtime || f.runtime; e.name = e.name || f.name; } });
+        ShelfEditor.open({
+          native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list,
+          entries: entries, cards: cardsFor(v, list),
+          mode: v.split || (v.episode && v.episode.needsSplit) ? 'split' : 'one',
+          existing: v.split ? { pieces: v.split.pieces } : null,
+          preview: function (mode, ents) { return mode === 'split' ? ents.map(function (e) { return nameFor(v, [e]); }) : [nameFor(v, ents)]; },
+          onSave: function (res) {
+            if (res.mode === 'split') { v.split = { pieces: res.pieces }; toast('Will split into ' + res.pieces.length + ' files when you rename.'); }
+            else {
+              v.split = null;
+              var es = res.entries, last = es[es.length - 1];
+              v.manualEp = { season: es[0].season, number: es[0].number, end: last.number > es[0].number ? last.number : null, name: P.joinNames(es), entries: es };
+              v.confirmed = true;
+              toast('Saved: ' + nameFor(v, es));
+            }
+            resolveShow(c).then(render);
+          }
         });
-        $('spInfo').textContent = 'Shelf thinks ' + (sp.cuts.length > 1 ? 'the cuts are at ' : 'the first cartoon ends at ') + why.join(' and ') + '. Check it: play around the cut, or scrub and choose your own spot.';
-        return native.splitAround(sp.token, sp.cuts[0]).then(function (q) { sp.keys = q.keys; mergeGaps(q); });
-      }).catch(function (e) { $('spInfo').textContent = 'Couldn’t find the gap (' + e.message + '). Scrub to where the second cartoon starts and click Cut Here.'; })
-        .then(function () { if (!sp) return; $('spBusy').hidden = true; $('spUse').disabled = false; stripFor = null; spDraw(); spSeek(sp.cuts[0] - 3); });
-    }).catch(function (e) { toast('Couldn’t open the video: ' + e.message); });
+      });
+    }).catch(function (e) { toast('Couldn’t open the video: ' + e.message); })
+      .then(function () { btn.disabled = false; });
   }
-  function closeSplitWindow() {
-    if (!sp) return;
-    var v = $('spVideo'); v.pause(); v.removeAttribute('src'); v.load();
-    native.closeSplit(sp.token);
-    sp = null; closePicker();
-    if ($('splitSheet').open) $('splitSheet').close();
-  }
-  on('openSplit', 'click', function () { var item = itemById(selectedId); if (item) openSplitWindow(linkedVideo(item) || item); });
-  on('clearSplit', 'click', function () { var item = itemById(selectedId); if (item) { item.split = null; render(); } });
-  on('spCancel', 'click', closeSplitWindow);
-  on('splitSheet', 'cancel', function (e) { e.preventDefault(); if ($('epPicker').hidden) closeSplitWindow(); });
-  on('spUse', 'click', function () {
-    if (!sp) return;
-    var it = sp.item;
-    it.split = { pieces: spPieces().map(function (pc) { return { start: Math.round(pc.start * 1000) / 1000, end: Math.round(pc.end * 1000) / 1000, entry: pc.entry }; }) };
-    closeSplitWindow();
-    toast('Will split into ' + it.split.pieces.length + ' files when you rename.');
-    render();
-  });
-  on('spPlay', 'click', function () { var v = $('spVideo'); if (v.paused) { sp.stopAt = null; v.play(); } else v.pause(); });
-  on('spAround', 'click', function () { if (!sp || sp.frames) return; var c = sp.cuts[sp.active]; spSeek(c - 4); sp.stopAt = c + 4; $('spVideo').play(); });
-  on('spSetHere', 'click', function () { if (sp) spSetCut(spNow()); });
-  document.querySelectorAll('#splitSheet [data-jump]').forEach(function (b) {
-    b.addEventListener('click', function () { if (sp) { $('spVideo').pause(); spSeek(spNow() + Number(b.dataset.jump)); } });
-  });
-  // Timeline: click to jump; drag a cut marker to move it.
-  (function () {
-    var tl = $('spTimeline'), drag = null;
-    function at(ev) { var r = tl.getBoundingClientRect(); return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * (sp ? sp.secs : 0); }
-    tl.addEventListener('pointerdown', function (ev) {
-      if (!sp) return;
-      var c = ev.target.closest('.sp-cut');
-      if (c) { sp.active = +c.dataset.i; drag = c; tl.setPointerCapture(ev.pointerId); spDraw(); return; }
-      $('spVideo').pause(); spSeek(at(ev));
+  on('checkEps', 'click', function () { var item = itemById(selectedId); if (item) openEditor(item); });
+  on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { v.split = null; render(); } });
+  // "Change…": pick the episode from the show's list (no need to open the video).
+  on('changeEp', 'click', function (ev) {
+    var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); var c = v && current(v); if (!c) return;
+    var anchor = ev.currentTarget;
+    listFor(c).then(function (list) {
+      var cur = v.episode && v.episode.entries ? v.episode.entries : v.episode ? [v.episode] : [];
+      ShelfEditor.browse(anchor, {
+        list: list, marked: cur, season: cur[0] ? cur[0].season : item.parsed.season, title: 'Which episode is this file?',
+        onPick: function (e) {
+          v.manualEp = { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null };
+          v.split = null; v.confirmed = true;
+          resolveShow(c).then(render);
+          toast('Changed to S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name);
+        }
+      });
     });
-    tl.addEventListener('pointermove', function (ev) {
-      if (!drag || !sp) return;
-      var t = at(ev);
-      drag.style.left = (t / sp.secs * 100) + '%';
-      $('spInfo').textContent = 'Cut at ' + clock(t) + '…';
-      if (!sp.frames) { $('spVideo').currentTime = t; spDrawHead(); }
-    });
-    tl.addEventListener('pointerup', function (ev) { if (!drag || !sp) return; drag = null; spSetCut(at(ev)); });
-    $('spCuts').addEventListener('keydown', function (ev) {
-      var c = ev.target.closest('.sp-cut'); if (!c || !sp) return;
-      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); sp.active = +c.dataset.i; spSetCut(sp.cuts[sp.active] + (ev.key === 'ArrowLeft' ? -1 : 1) * (ev.shiftKey ? 5 : 0.5)); }
-    });
-  })();
-  document.addEventListener('keydown', function (ev) {
-    if (!sp || !$('splitSheet').open || /INPUT/.test(document.activeElement.tagName)) return;
-    if (ev.key === ' ') { ev.preventDefault(); $('spPlay').click(); }
   });
 
   render();
