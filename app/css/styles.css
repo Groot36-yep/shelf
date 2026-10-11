@@ -364,6 +364,133 @@ select.text { font-family: inherit; font-size: 13px; }
 .credit img { display: block; height: 16px; width: auto; }
 .tvmaze { font-weight: 700; color: #3C948B; text-decoration: none; font-size: 15px; }
 
+/* ---------- Live title-card reader ---------- */
+.list-wrap { position: relative; }
+@property --spin { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.reader {
+  position: absolute; left: 50%; bottom: 42px; z-index: 6; width: min(560px, calc(100% - 32px));
+  display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 10px; border-radius: 18px;
+  background: color-mix(in srgb, var(--window) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 0 0 0.5px var(--hairline), 0 18px 50px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateX(-50%); animation: reader-in 0.5s cubic-bezier(0.2, 1.1, 0.3, 1) both;
+}
+.reader.is-out { animation: reader-out 0.32s ease-in both; }
+@keyframes reader-in { from { opacity: 0; transform: translateX(-50%) translateY(18px) scale(0.94); } }
+@keyframes reader-out { to { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.96); } }
+/* A slowly turning glow around the edge while it works. */
+.reader-glow {
+  position: absolute; inset: -1.5px; border-radius: 19.5px; pointer-events: none; z-index: -1; padding: 1.5px;
+  background: conic-gradient(from var(--spin), #5AC8FA, #007AFF, #AF52DE, #FF2D55, #FF9500, #FFCC00, #5AC8FA);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: reader-spin 4s linear infinite; opacity: 0.85;
+}
+.reader-glow::after {
+  content: ''; position: absolute; inset: -6px; border-radius: 24px; z-index: -1;
+  background: inherit; filter: blur(14px); opacity: 0.35;
+}
+@keyframes reader-spin { to { --spin: 360deg; } }
+.reader-view {
+  position: relative; flex: none; width: 176px; height: 99px; border-radius: 10px; overflow: hidden;
+  background: radial-gradient(120% 100% at 50% 0%, #2A2D36, #0E0F12); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+}
+.reader-view canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0;
+  transform: scale(1.06); transition: opacity 0.35s ease, transform 1.6s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.35s ease;
+}
+.reader-view canvas.on { opacity: 1; transform: scale(1); }
+.reader[data-state=found] .reader-view canvas.on { transform: scale(1.04); filter: saturate(1.15) brightness(1.05); }
+/* Before the first frame: a film strip of shimmering tiles. */
+.reader-idle { position: absolute; inset: 14px 10px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; transition: opacity 0.3s; }
+.reader-idle i { border-radius: 4px; background: rgba(255, 255, 255, 0.08); animation: idle-tile 1.4s ease-in-out infinite; }
+.reader-idle i:nth-child(2) { animation-delay: 0.1s; } .reader-idle i:nth-child(3) { animation-delay: 0.2s; }
+.reader-idle i:nth-child(4) { animation-delay: 0.3s; } .reader-idle i:nth-child(5) { animation-delay: 0.4s; } .reader-idle i:nth-child(6) { animation-delay: 0.5s; }
+@keyframes idle-tile { 0%, 100% { background: rgba(255, 255, 255, 0.06); } 50% { background: rgba(140, 200, 255, 0.28); } }
+.reader.has-frame .reader-idle { opacity: 0; }
+/* The reading beam: sweeps across each new frame, like the eye moving along a line of text. */
+.reader-beam { position: absolute; top: 0; bottom: 0; left: 0; width: 38%; pointer-events: none; opacity: 0; mix-blend-mode: screen; }
+.reader-beam::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(90, 200, 250, 0) 0%, rgba(90, 200, 250, 0.12) 55%, rgba(170, 225, 255, 0.55) 92%, rgba(255, 255, 255, 0.95) 98%, rgba(255, 255, 255, 0) 100%);
+}
+.reader.is-reading .reader-beam { animation: beam 1.15s cubic-bezier(0.5, 0, 0.3, 1) infinite; }
+@keyframes beam { 0% { transform: translateX(-100%); opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(265%); opacity: 0; } }
+/* Live Text-style corners: wide while looking, snap tight and turn yellow when a title is found. */
+.reader-corners { position: absolute; inset: 9px; pointer-events: none; transition: inset 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.reader-corners i { position: absolute; width: 14px; height: 14px; border: 2.5px solid rgba(255, 255, 255, 0.85); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.5)); transition: border-color 0.25s, width 0.3s, height 0.3s; }
+.reader-corners i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
+.reader-corners i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 6px; }
+.reader-corners i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 6px; }
+.reader-corners i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
+.reader.is-reading .reader-corners { animation: corners-breathe 1.15s ease-in-out infinite; }
+@keyframes corners-breathe { 50% { inset: 13px 15px; } }
+.reader[data-state=found] .reader-corners { inset: 22px 18px; animation: none; }
+.reader[data-state=found] .reader-corners i { border-color: #FFD60A; width: 18px; height: 18px; filter: drop-shadow(0 0 6px rgba(255, 214, 10, 0.8)); }
+.reader[data-state=found] .reader-view::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(70% 60% at 50% 50%, rgba(255, 214, 10, 0.35), transparent 70%); animation: found-flash 0.9s ease-out both;
+}
+@keyframes found-flash { from { opacity: 1; } to { opacity: 0; } }
+/* Finished: the glow settles to green and a check appears on the last frame. */
+.reader[data-state=done] .reader-glow { animation: none; background: linear-gradient(var(--green), var(--green)); opacity: 0.7; transition: opacity 0.4s; }
+.reader[data-state=done] .reader-corners { opacity: 0; transition: opacity 0.3s; animation: none; }
+.reader[data-state=done] .reader-view canvas.on { filter: brightness(0.55) saturate(0.8); transform: scale(1); }
+.reader-check {
+  position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; z-index: 2; border-radius: 50%;
+  padding: 8px; background: var(--green); color: #fff; stroke-width: 3; box-shadow: 0 4px 14px rgba(52, 199, 89, 0.5); display: none;
+}
+.reader[data-state=done] .reader-check { display: block; animation: pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.reader[data-state=done] .reader-track i { background: var(--green); animation: none; }
+.reader-time {
+  position: absolute; right: 6px; bottom: 5px; padding: 1px 6px; border-radius: 5px; font: 600 10px/16px var(--mono);
+  color: #fff; background: rgba(0, 0, 0, 0.55); font-variant-numeric: tabular-nums;
+}
+.reader-time:empty { display: none; }
+.reader-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.reader-head { display: flex; align-items: baseline; gap: 8px; }
+.reader-head strong { font-size: 13px; }
+.reader-count { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.reader-file { font: 11px/1.3 var(--mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reader-step { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 17px; }
+.reader-step.swap { animation: step-swap 0.3s ease both; }
+@keyframes step-swap { from { opacity: 0; transform: translateY(4px); } }
+.reader-found { display: flex; gap: 5px; flex-wrap: wrap; min-height: 0; }
+.reader-found:empty { display: none; }
+.reader-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; max-width: 100%;
+  font-size: 11px; font-weight: 600; background: rgba(255, 214, 10, 0.2); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: chip-in 0.55s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.reader-chip b { color: #B58900; }
+@media (prefers-color-scheme: dark) { .reader-chip b { color: #FFD60A; } }
+@keyframes chip-in { from { opacity: 0; transform: scale(0.4) translateY(6px); } }
+.reader-track { height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; margin-top: 4px; }
+.reader-track i {
+  display: block; height: 100%; width: 0; border-radius: 2px; transition: width 0.35s ease;
+  background: linear-gradient(90deg, #5AC8FA, #007AFF, #AF52DE); background-size: 200% 100%; animation: track-flow 2s linear infinite;
+}
+@keyframes track-flow { to { background-position: -200% 0; } }
+.reader-stop {
+  flex: none; align-self: center; height: 26px; padding: 0 12px; border: 0; border-radius: 999px;
+  background: var(--fill); color: var(--text); font-size: 12px; font-weight: 500; transition: background 0.15s, transform 0.1s;
+}
+.reader-stop:hover { background: var(--fill-strong); }
+.reader-stop:active { transform: scale(0.95); }
+.reader-stop:disabled { opacity: 0.5; }
+/* The row being read: a soft light sweeps along it. */
+.row-item.is-scanning::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, rgba(90, 200, 250, 0.16) 45%, rgba(175, 82, 222, 0.12) 55%, transparent 80%);
+  background-size: 250% 100%; animation: row-sheen 1.8s ease-in-out infinite;
+}
+@keyframes row-sheen { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .reader, .reader.is-out, .reader-glow, .reader-idle i, .reader.is-reading .reader-beam, .reader.is-reading .reader-corners,
+  .reader-chip, .reader-track i, .reader-step.swap, .row-item.is-scanning::before, .reader[data-state=found] .reader-view::after { animation: none; }
+  .reader-view canvas { transition: opacity 0.2s; transform: none; }
+}
+
 /* ---------- Drag + toast ---------- */
 .drag-overlay {
   position: fixed; inset: 8px; border-radius: 16px; border: 3px solid var(--accent); background: rgba(0, 122, 255, 0.08);
@@ -376,6 +503,7 @@ body.dragging .drag-overlay { display: flex; }
   padding: 10px 16px; border-radius: 12px; background: rgba(40, 40, 44, 0.94); color: #fff; font-size: 13px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); max-width: calc(100vw - 32px);
 }
+body.has-reader .toast { bottom: 172px; }
 
 /* ---------- Narrow windows ---------- */
 @media (max-width: 1080px) {

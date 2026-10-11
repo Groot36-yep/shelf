@@ -348,8 +348,11 @@ if (gotLock) app.whenReady().then(() => {
         let last = 0;
         try {
           const r = await scan.scanFile(f, secs, {
-            isMatch: (texts) => !!P.matchCardText(texts, entries),
+            isMatch: (texts) => P.matchCardText(texts, entries),
             cancelled: () => cardCancel,
+            // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
+            onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
+            onFound: (fd) => send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }),
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
           out[f] = { secs, parts: scan.windowsFor(secs).length, texts: r.texts };

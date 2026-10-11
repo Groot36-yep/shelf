@@ -101,6 +101,26 @@
         <span></span><span>Original File</span><span></span><span>Plex Name</span><span class="right">Match</span>
       </div>
       <div class="list" id="list" role="listbox" aria-label="Files" tabindex="0"></div>
+      <!-- Live title-card reader: shows the frame Shelf is reading right now (kept in memory only). -->
+      <div class="reader" id="reader" hidden role="status" aria-live="polite" aria-label="Reading title cards">
+        <div class="reader-glow" aria-hidden="true"></div>
+        <div class="reader-view" aria-hidden="true">
+          <canvas id="readerA"></canvas><canvas id="readerB"></canvas>
+          <div class="reader-idle"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="reader-beam"></div>
+          <div class="reader-corners"><i></i><i></i><i></i><i></i></div>
+          <span class="reader-time" id="readerTime"></span>
+          <svg class="reader-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </div>
+        <div class="reader-body">
+          <div class="reader-head"><strong id="readerTitle">Reading title cards</strong><span class="reader-count" id="readerCount"></span></div>
+          <div class="reader-file" id="readerFile"></div>
+          <div class="reader-step" id="readerStep"></div>
+          <div class="reader-found" id="readerFound"></div>
+          <div class="reader-track"><i id="readerFill"></i></div>
+        </div>
+        <button class="reader-stop" type="button" id="readerStop" title="Stop after this video">Stop</button>
+      </div>
       <footer class="statusbar">
         <span id="statusText"></span>
         <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">

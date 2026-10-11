@@ -111,7 +111,25 @@ async function frameVariants(file, t) {
   const g = raw.subarray(0, plane), b = raw.subarray(plane, 2 * plane), r = raw.subarray(2 * plane, 3 * plane);
   const y = new Uint8Array(plane); for (let k = 0; k < plane; k++) y[k] = (r[k] * 77 + g[k] * 150 + b[k] * 29) >> 8;
   // Tried in this order; Shelf stops as soon as one reads as a known title.
-  return [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18))];
+  const out = [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18))];
+  out.preview = preview(W, h, r, g, b);
+  return out;
+}
+// A small colour copy of the frame (RGBA, 1/5 size), so the window can show what's being read. Kept in memory only.
+function preview(W, h, r, g, b) {
+  const f = 5, pw = Math.floor(W / f), ph = Math.floor(h / f);
+  const data = new Uint8Array(pw * ph * 4);
+  for (let yy = 0; yy < ph; yy++) {
+    for (let xx = 0; xx < pw; xx++) {
+      // average a 2×2 patch from the middle of each 5×5 block: cheap, and smoother than picking one pixel
+      const k0 = (yy * f + 2) * W + xx * f + 2, k1 = k0 + 1, k2 = k0 + W, k3 = k2 + 1, o = (yy * pw + xx) * 4;
+      data[o] = (r[k0] + r[k1] + r[k2] + r[k3]) >> 2;
+      data[o + 1] = (g[k0] + g[k1] + g[k2] + g[k3]) >> 2;
+      data[o + 2] = (b[k0] + b[k1] + b[k2] + b[k3]) >> 2;
+      data[o + 3] = 255;
+    }
+  }
+  return { w: pw, h: ph, data };
 }
 
 let workerPromise = null;
@@ -212,14 +230,17 @@ async function scanFile(file, secs, opts) {
       frames++;
       report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
       const read = [];
-      for (const img of await frameVariants(file, run.t)) {
+      const imgs = await frameVariants(file, run.t);
+      if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
+      let hit = null;
+      for (const img of imgs) {
         const text = await readText(img);
         if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
-        if (opts.isMatch && read.length && opts.isMatch(read, i)) break;
+        if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) break;
       }
       if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
-      if (opts.isMatch && read.length && opts.isMatch(read, i)) break; // found this cartoon's card
+      if (hit) { if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
     }
   }
   report(wins.length, 0);

@@ -999,20 +999,97 @@
     $('scanBarFill').style.width = Math.round(Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
   }
   function itemByPath(p) { return items.filter(function (i) { return i.fullPath === p; })[0] || null; }
+
+  // The live reader: a small card that shows the frame Shelf is reading and the titles it finds.
+  var reader = (function () {
+    var box = $('reader'), cv = [$('readerA'), $('readerB')], front = 0, holdUntil = 0, queued = null, timer = 0, outTimer = 0;
+    function clock(t) { t = Math.max(0, t || 0); var m = Math.floor(t / 60), sec = Math.floor(t % 60); return m + ':' + (sec < 10 ? '0' : '') + sec; }
+    function step(text) {
+      var n = $('readerStep');
+      if (n.textContent === text) return;
+      n.textContent = text; n.classList.remove('swap'); void n.offsetWidth; n.classList.add('swap');
+    }
+    function draw(p) {
+      if (!p.image) return;
+      var c = cv[1 - front];
+      if (c.width !== p.image.w || c.height !== p.image.h) { c.width = p.image.w; c.height = p.image.h; }
+      try { c.getContext('2d').putImageData(new ImageData(p.image.data, p.image.w, p.image.h), 0, 0); } catch (e) { return; }
+      c.classList.add('on'); cv[front].classList.remove('on'); front = 1 - front;
+      box.classList.add('has-frame', 'is-reading'); box.dataset.state = 'read';
+      $('readerTime').textContent = clock(p.t);
+      step('Reading the words at ' + clock(p.t) + '…');
+    }
+    function later(fn) { clearTimeout(timer); timer = setTimeout(fn, Math.max(0, holdUntil - Date.now())); }
+    return {
+      start: function (total) {
+        clearTimeout(outTimer); box.hidden = false; box.classList.remove('is-out', 'has-frame', 'is-reading'); document.body.classList.add('has-reader');
+        box.dataset.state = 'seek'; front = 0; holdUntil = 0; queued = null;
+        cv.forEach(function (c) { c.classList.remove('on'); });
+        $('readerFound').replaceChildren(); $('readerFill').style.width = '0%'; $('readerTime').textContent = '';
+        $('readerTitle').textContent = 'Reading title cards'; $('readerCount').textContent = total > 1 ? total + ' videos' : '';
+        $('readerFile').textContent = ''; $('readerStop').disabled = false; $('readerStop').hidden = false;
+        step('Waiting for your OK…');
+      },
+      file: function (name, index, total) {
+        var go = function () {
+          $('readerFile').textContent = name;
+          $('readerFound').replaceChildren(); // the titles found in this video
+          box.classList.remove('has-frame'); cv.forEach(function (c) { c.classList.remove('on'); });
+          $('readerCount').textContent = total > 1 ? 'Video ' + (index + 1) + ' of ' + total : '';
+          box.classList.remove('is-reading'); box.dataset.state = 'seek'; $('readerTime').textContent = '';
+          step('Finding the quiet, still moments…');
+        };
+        if (Date.now() < holdUntil) later(go); else go();
+      },
+      peek: function (p) {
+        if (Date.now() < holdUntil) { queued = p; later(function () { if (queued) { var q = queued; queued = null; draw(q); } }); return; }
+        draw(p);
+      },
+      found: function (p) {
+        queued = null;
+        box.classList.remove('is-reading'); box.dataset.state = 'found';
+        $('readerTime').textContent = clock(p.t);
+        step('Found a title card at ' + clock(p.t));
+        var chips = $('readerFound');
+        chips.appendChild(el('span', { class: 'reader-chip', title: p.title }, [el('b', { text: '✓' }), p.title]));
+        while (chips.children.length > 4) chips.removeChild(chips.firstChild);
+        holdUntil = Date.now() + 1100; // let the find sink in before the next frame
+      },
+      progress: function (frac) { $('readerFill').style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%'; },
+      stopping: function () { $('readerStop').disabled = true; step('Stopping after this video…'); },
+      end: function (text, title, count) {
+        var finish = function () {
+          box.classList.remove('is-reading'); box.dataset.state = 'done';
+          $('readerTitle').textContent = title; $('readerCount').textContent = count;
+          $('readerStop').hidden = true;
+          $('readerFill').style.width = '100%'; step(text);
+          outTimer = setTimeout(function () { box.classList.add('is-out'); outTimer = setTimeout(function () { box.hidden = true; document.body.classList.remove('has-reader'); }, 340); }, 2600);
+        };
+        clearTimeout(timer);
+        if (Date.now() < holdUntil) setTimeout(finish, holdUntil - Date.now()); else finish();
+      },
+      hide: function () { clearTimeout(timer); clearTimeout(outTimer); box.hidden = true; document.body.classList.remove('has-reader'); }
+    };
+  })();
+
   on('readCards', 'click', function () {
     var item = itemById(selectedId); if (!item || scanning) return;
     var files = showFiles(item); if (!files.length) return;
     var c = current(linkedVideo(item) || item);
     scanning = true; setScanStatus('Waiting for your OK…');
-    var read = 0;
+    var read = 0, titlesFound = 0;
+    // The answer can arrive before the last progress messages do, so keep listening until "end" (or a few seconds).
+    var ended, endedP = new Promise(function (res) { ended = res; });
     var stop = native.onCardProgress(function (p) {
       var it = p.path ? itemByPath(p.path) : null;
-      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; }
+      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; reader.start(p.total); }
       if (p.kind === 'start' && it) { it.scan = 'reading'; it.scanFrac = 0; }
+      if (p.kind === 'start') reader.file(p.file || (it && it.name) || '', p.index, p.total);
       if (p.kind === 'step' && it) it.scanFrac = p.frac;
+      if (p.kind === 'peek') { reader.peek(p); return; }
+      if (p.kind === 'found') { titlesFound++; reader.found(p); return; }
       if (p.kind === 'start' || p.kind === 'step') {
-        var name = p.file || (it && it.name) || '';
-        scanBar('Reading title cards · video ' + (p.index + 1) + ' of ' + p.total + (name ? ' · ' + name : ''), (p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
+        reader.progress((p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
         setScanStatus('Reading title cards: video ' + (p.index + 1) + ' of ' + p.total + '…');
       }
       if (p.kind === 'file' && it) {
@@ -1028,7 +1105,10 @@
       }
       if (p.kind === 'end') {
         items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
-        scanBar(null);
+        var nTitles = titlesFound + ' title card' + (titlesFound === 1 ? '' : 's');
+        reader.end(titlesFound ? 'Found ' + nTitles + '. Check the episodes in the side panel.' : 'No title cards could be read. Shelf will go by name and length.',
+          p.stopped ? 'Stopped' : 'Finished reading', read + ' of ' + p.total + ' video' + (p.total === 1 ? '' : 's'));
+        ended();
       }
       scheduleRender();
     });
@@ -1036,15 +1116,18 @@
       var titles = list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; });
       return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles }; }));
     }).then(function (res) {
-      if (!res) { setScanStatus('Cancelled. No videos were read.'); return; }
+      if (!res) return res;
+      return Promise.race([endedP, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { return res; });
+    }).then(function (res) {
+      if (!res) { reader.hide(); setScanStatus('Cancelled. No videos were read.'); return; }
       setScanStatus('Read ' + read + ' of ' + files.length + ' videos.');
-      toast('Finished reading ' + read + ' video' + (read === 1 ? '' : 's'));
       return resolveShow(c);
     }).catch(function (e) { setScanStatus('Couldn’t read the title cards: ' + e.message); })
-      .then(function () { stop(); scanning = false; scanBar(null); $('cancelCards').hidden = true; render(); });
+      .then(function () { stop(); scanning = false; $('cancelCards').hidden = true; render(); });
   });
   on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
-  on('cancelCards', 'click', function () { native.cancelCards(); setScanStatus('Stopping…'); });
+  on('readerStop', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
+  on('cancelCards', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
   function syncOrderHelp() {
     var svc = tvService();
     var want = settings.order === 'tmdb' ? 'The Movie Database' : 'TheTVDB';

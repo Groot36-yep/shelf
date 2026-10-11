@@ -18,6 +18,14 @@ window.addEventListener('drop', (e) => {
     .catch((err) => fn({ state: 'error', message: String((err && err.message) || err) }));
 }, true);
 
+// A live preview frame from the title-card reader: only a small RGBA picture of the right size is passed on.
+function peekImage(im) {
+  if (!im || typeof im !== 'object') return null;
+  const w = Number(im.w) | 0, h = Number(im.h) | 0, d = im.data;
+  if (w <= 0 || h <= 0 || w > 400 || h > 400 || !(d instanceof Uint8Array) || d.length !== w * h * 4) return null;
+  return { w, h, data: new Uint8ClampedArray(d.buffer, d.byteOffset, d.length) };
+}
+
 contextBridge.exposeInMainWorld('shelfNative', {
   platform: process.platform,
   version: () => ipcRenderer.invoke('shelf:version'),
@@ -46,7 +54,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
     const listener = (e, p) => fn({
       kind: String(p.kind || ''), path: String(p.path || ''), paths: Array.isArray(p.paths) ? p.paths.map(String) : [],
       index: Number(p.index) || 0, total: Number(p.total) || 0, frac: Number(p.frac) || 0,
-      file: String(p.file || ''), stopped: !!p.stopped, result: p.result && typeof p.result === 'object' ? p.result : null
+      file: String(p.file || ''), stopped: !!p.stopped, result: p.result && typeof p.result === 'object' ? p.result : null,
+      t: Number(p.t) || 0, part: Number(p.part) || 0, title: String(p.title || ''), image: peekImage(p.image)
     });
     ipcRenderer.on('shelf:cardProgress', listener);
     return () => ipcRenderer.removeListener('shelf:cardProgress', listener);
