@@ -389,13 +389,18 @@ if (gotLock) app.whenReady().then(() => {
   let cardCancel = false;
   handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
   // jobs: [{ path, titles: [episode titles of that show] }]
-  handle('shelf:readCards', async (jobs) => {
+  handle('shelf:readCards', async (jobs, how) => {
     if (!Array.isArray(jobs)) return {};
+    const deep = !!(how && how.deep);
     const titlesFor = new Map(jobs.filter((j) => j && typeof j.path === 'string').map((j) => [path.resolve(j.path), Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
+    const nearFor = new Map(jobs.filter((j) => j && typeof j.path === 'string').map((j) => [path.resolve(j.path), new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
     const files = pickedVideos([...titlesFor.keys()]);
     if (!files.length) return {};
-    const yes = await askFirst(files, 'Read the title cards of ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + '?',
-      'Shelf looks at a few still frames from each video and reads the words on them, here on this computer, to find out which episodes it holds. Nothing is uploaded, and the frames are deleted straight away. It takes roughly 5–30 seconds per video.', 'Read Title Cards');
+    const yes = deep
+      ? await askFirst(files, 'Deep scan ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + ' for title cards?',
+        'Shelf takes a much closer look at the still frames where a title card could be, reading each one many ways, here on this computer. Nothing is uploaded, and the frames are deleted straight away. It can take a few minutes per video.', 'Deep Scan')
+      : await askFirst(files, 'Read the title cards of ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + '?',
+        'Shelf looks at a few still frames from each video and reads the words on them, here on this computer, to find out which episodes it holds. Nothing is uploaded, and the frames are deleted straight away. It takes roughly 5–30 seconds per video.', 'Read Title Cards');
     if (!yes) return null;
     files.forEach((f) => lookApproved.add(f)); // you said yes to Shelf looking inside these
     const scan = require('./scan'); // loaded only when you use it
@@ -407,12 +412,14 @@ if (gotLock) app.whenReady().then(() => {
       for (let i = 0; i < files.length && !cardCancel; i++) {
         const f = files[i];
         const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1 }));
+        const near = entries.filter((e) => nearFor.get(f).has(e.name));
         const secs = await probe.duration(f);
         send({ kind: 'start', path: f, index: i, total: files.length, file: path.basename(f) });
         let last = 0;
         try {
           const r = await scan.scanFile(f, secs, {
-            isMatch: (texts) => P.matchCardText(texts, entries),
+            deep,
+            isMatch: (texts) => P.matchCardText(texts, entries, near),
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),

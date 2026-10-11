@@ -654,6 +654,9 @@
       $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Check Episodes…';
       $('checkEps').disabled = scanning;
       $('clearSplit').hidden = !src0.split;
+      // Deep Scan once a quick read has missed a card for this video.
+      $('deepScan').hidden = !(canDeep(item) && src0.cards && rowsEp.some(function (e) { return e.card == null; }));
+      $('deepScan').disabled = scanning;
     }
     // The problem card.
     var iss1 = showEp ? issueFor(item) : null, issBox = $('inspIssue');
@@ -1044,12 +1047,13 @@
     }
     function later(fn) { clearTimeout(timer); timer = setTimeout(fn, Math.max(0, holdUntil - Date.now())); }
     return {
-      start: function (total) {
+      start: function (total, deep) {
         clearTimeout(outTimer); box.hidden = false; box.classList.remove('is-out', 'has-frame', 'is-reading'); document.body.classList.add('has-reader');
         box.dataset.state = 'seek'; front = 0; holdUntil = 0; queued = null;
         cv.forEach(function (c) { c.classList.remove('on'); });
         $('readerFound').replaceChildren(); $('readerFill').style.width = '0%'; $('readerTime').textContent = '';
-        $('readerTitle').textContent = 'Reading title cards'; $('readerCount').textContent = total > 1 ? total + ' videos' : '';
+        $('readerTitle').textContent = deep ? 'Deep scan' : 'Reading title cards'; $('readerCount').textContent = deep ? 'a closer look' : total > 1 ? total + ' videos' : '';
+        box.classList.toggle('is-deep', !!deep);
         $('readerFile').textContent = ''; $('readerStop').disabled = false; $('readerStop').hidden = false;
         step('Waiting for your OK…');
       },
@@ -1095,9 +1099,19 @@
     };
   })();
 
+  on('deepScan', 'click', function () { var item = itemById(selectedId); if (item) deepScan(item); });
   on('readCards', 'click', function () {
     var item = itemById(selectedId); if (!item || scanning) return;
-    var files = showFiles(item); if (!files.length) return;
+    readCardsOf(item, showFiles(item), false);
+  });
+  // Deep Scan: one video, much more thorough (for title cards the quick read missed).
+  function deepScan(item) {
+    var v = linkedVideo(item) || item;
+    if (scanning || !v.fullPath) return;
+    readCardsOf(item, [v], true);
+  }
+  function readCardsOf(item, files, deepNext) {
+    if (!files.length) return;
     var c = current(linkedVideo(item) || item);
     scanning = true; setScanStatus('Waiting for your OK…');
     var read = 0, titlesFound = 0;
@@ -1105,7 +1119,7 @@
     var ended, endedP = new Promise(function (res) { ended = res; });
     var stop = native.onCardProgress(function (p) {
       var it = p.path ? itemByPath(p.path) : null;
-      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; reader.start(p.total); }
+      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; reader.start(p.total, deepNext); }
       if (p.kind === 'start' && it) { it.scan = 'reading'; it.scanFrac = 0; }
       if (p.kind === 'start') reader.file(p.file || (it && it.name) || '', p.index, p.total);
       if (p.kind === 'step' && it) it.scanFrac = p.frac;
@@ -1137,7 +1151,12 @@
     });
     listFor(c).then(function (list) {
       var titles = list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; });
-      return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles }; }));
+      // Episodes the file's name points near: a slightly weaker reading is enough for these.
+      var nearFor = function (i) {
+        var es = i.episode ? (i.episode.entries && i.episode.entries.length ? i.episode.entries : [i.episode]) : [];
+        return list.filter(function (e) { return e.number != null && es.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); }).map(function (e) { return e.name; });
+      };
+      return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles, near: nearFor(i) }; }), { deep: !!deepNext });
     }).then(function (res) {
       if (!res) return res;
       return Promise.race([endedP, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { return res; });
@@ -1147,7 +1166,7 @@
       return resolveShow(c);
     }).catch(function (e) { setScanStatus('Couldn’t read the title cards: ' + e.message); })
       .then(function () { stop(); scanning = false; $('cancelCards').hidden = true; render(); });
-  });
+  }
   on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
   on('readerStop', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
   on('cancelCards', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
@@ -1322,10 +1341,15 @@
     if (ep.how === 'card' && /one long episode/.test(note)) {
       return { kind: 'single', title: 'One long episode?',
         text: 'Shelf read one title card (“' + ep.name + '”) and no second one. Is the whole file this episode?',
-        actions: [{ label: 'Yes, One Episode', run: function () { useEntries(v, [episodeRows(v)[0]], 'Confirmed: one episode.'); } }, { label: 'Resolve…', run: function () { openResolve(item); } }] };
+        actions: [{ label: 'Yes, One Episode', run: function () { useEntries(v, [episodeRows(v)[0]], 'Confirmed: one episode.'); } }, { label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item)) };
     }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.',
-      actions: [{ label: 'Resolve…', run: function () { openResolve(item); } }] };
+      actions: [{ label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item)) };
+  }
+  // Deep Scan, offered where a title card is missing (if title-card reading is turned on).
+  function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && v.fullPath && v.parsed.isVideo && !v.split); }
+  function deepAction(item) {
+    return canDeep(item) ? [{ label: 'Deep Scan', title: 'Take a much closer look for the title cards in this video (a few minutes)', run: function () { deepScan(item); } }] : [];
   }
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
@@ -1399,7 +1423,10 @@
         var box = $('rsParts'); box.textContent = '';
         box.className = 'rs-parts n' + parts.length;
         parts.forEach(function (e, i) {
-          var frame = el('div', { class: 'rs-frame' }, [el('span', { class: 'rs-noframe', text: e.card != null ? '' : 'No title card read for this part' })]);
+          var frame = el('div', { class: 'rs-frame' }, [el('span', { class: 'rs-noframe' }, e.card != null ? [] : [
+            'No title card read for this part',
+            canDeep(item) ? el('button', { type: 'button', class: 'pill small-pill', text: 'Deep Scan', title: 'Take a much closer look for this video’s title cards (a few minutes)', onclick: function () { $('resolveSheet').close(); deepScan(item); } }) : null
+          ])]);
           if (e.card != null) cardFrame(v, e.card, 480).then(function (url) { if (url) frame.replaceChildren(el('img', { src: url, alt: 'Title card of ' + e.name })); else frame.firstChild.textContent = 'Picture not available'; });
           var change = el('button', { type: 'button', class: 'pill small-pill', 'data-opens-browser': '1', text: 'Change…' });
           change.onclick = function () {

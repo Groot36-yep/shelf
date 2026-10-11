@@ -46,5 +46,26 @@ for (const f of FIX3.files) {
     else check(key + ' not a card at ' + r.t, () => assert.ok(!m || c.real.includes(m.entry.name), 'matched ' + (m && m.entry.name + ' ' + m.score) + ' from ' + JSON.stringify(r.texts).slice(0, 300)));
   }
 }
+// All 19 episodes, read the way the scanner reads now (480 px). Every card it found must still be
+// found; no reading may ever name an episode that isn't in that file.
+const ALL = require('./fixtures/all-real-ocr.json');
+const REAL = {
+  S03E01: ["The Algae's Always Greener", 'SpongeGuard on Duty'], S03E02: ['Club SpongeBob', 'My Pretty Seahorse'],
+  S03E03: ['Just One Bite', 'The Bully'], S03E04: ['Nasty Patty', 'The Idiot Box'], S03E05: ['Mermaid Man and Barnacle Boy IV', 'Doing Time'],
+  S03E06: ['The Snowball Effect', "One Krab's Trash"], S05E02: ['The Original Fry Cook', 'Night Light'], S05E03: ['Rise and Shine', 'Fungus Among Us'],
+  S05E04: ['Spy Buddies', 'Boat Smarts'], S05E05: ['New Digs', 'Krabs à La Mode'], S05E06: ['Roller Cowards', 'Bucket Sweet Bucket'],
+  S05E07: ['To Love a Patty', 'Breath of Fresh Squidward'], S05E08: ['Money Talks', 'Slimy Dancing'], S05E09: ['The Krusty Sponge', 'Sing a Song of Patrick'],
+  S05E10: ['A Flea in Her Dome', 'The Donut of Shame'], S07E09: ['One Coarse Meal', 'Gary in Love'], S07E10: ["The Play's the Thing", 'Rodeo Daze'],
+  S07E11: ["SpongeBob's Last Stand"], Pest: ['Pest of the West']
+};
+for (const f of ALL.files) {
+  const key = Object.keys(REAL).find((k) => f.name.includes(k)), real = REAL[key];
+  for (const r of f.readings) {
+    if (!r.texts.length) continue;
+    const m = P.matchCardText(r.texts, POOL), want = f.found[String(r.t)];
+    if (want) check('all ' + key + ' card at ' + r.t, () => assert.ok(m && m.entry.name === want, 'want ' + want + ', got ' + (m && m.entry.name)));
+    else check('all ' + key + ' at ' + r.t, () => assert.ok(!m || real.includes(m.entry.name), 'matched ' + (m && m.entry.name + ' ' + m.score) + ' from ' + JSON.stringify(r.texts).slice(0, 300)));
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

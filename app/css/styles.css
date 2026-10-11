@@ -392,6 +392,8 @@ select.text { font-family: inherit; font-size: 13px; }
   background: inherit; filter: blur(14px); opacity: 0.35;
 }
 @keyframes reader-spin { to { --spin: 360deg; } }
+/* Deep scan: a slower, deeper glow. */
+.reader.is-deep .reader-glow { background: conic-gradient(from var(--spin), #5E5CE6, #BF5AF2, #FF375F, #5E5CE6); animation-duration: 7s; }
 .reader-view {
   position: relative; flex: none; width: 176px; height: 99px; border-radius: 10px; overflow: hidden;
   background: radial-gradient(120% 100% at 50% 0%, #2A2D36, #0E0F12); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
@@ -950,7 +952,9 @@ svg.solid { fill: currentColor; stroke: none; }
 .rs-part:nth-child(2) { animation-delay: 0.06s; }
 .rs-frame { aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; background: #111; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #FFD60A; }
 .rs-frame img { width: 100%; height: 100%; object-fit: cover; display: block; animation: fadein 0.3s ease both; }
-.rs-noframe { font-size: 12px; color: rgba(255, 255, 255, 0.6); padding: 12px; text-align: center; }
+.rs-noframe { font-size: 12px; color: rgba(255, 255, 255, 0.65); padding: 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.rs-noframe .pill { background: rgba(255, 255, 255, 0.14); color: #fff; box-shadow: none; }
+.rs-noframe .pill:hover { background: rgba(255, 255, 255, 0.24); }
 .rs-part-k { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--text-2); }
 .rs-part-k i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; background: #0A84FF; color: #fff; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; }
 .rs-part[data-part="1"] .rs-part-k i { background: #AF52DE; }

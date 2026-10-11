@@ -507,6 +507,13 @@
   function squash(s) {
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '');
   }
+  // Letters cartoon lettering is often misread as each other ("HeRmbidyAn" for "MeRmaidMan"): mixing
+  // these up counts as half a mistake.
+  var LOOKALIKE = {};
+  ['mnhr', 'aeocu', 'bhdp', 'il1tj', 'yvu', 's5z', 'gq9', 'o0', 'wv', 'kx'].forEach(function (g) {
+    for (var x = 0; x < g.length; x++) for (var y = 0; y < g.length; y++) if (x !== y) LOOKALIKE[g[x] + g[y]] = 1;
+  });
+  function subCost(a, b) { return a === b ? 0 : LOOKALIKE[a + b] ? 0.5 : 1; }
   // Fewest edits to turn `t` into some stretch of `s` (approximate substring search).
   function fuzzyFind(t, s) {
     var prev = new Array(t.length + 1), cur = new Array(t.length + 1), best = t.length;
@@ -514,7 +521,7 @@
     for (var j = 1; j <= s.length; j++) {
       cur[0] = 0; // a match may start anywhere in s
       for (var k = 1; k <= t.length; k++) {
-        cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + (t[k - 1] === s[j - 1] ? 0 : 1));
+        cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + subCost(t[k - 1], s[j - 1]));
       }
       if (cur[t.length] < best) best = cur[t.length];
       var tmp = prev; prev = cur; cur = tmp;
@@ -533,7 +540,7 @@
     for (var x = 1; x <= a.length; x++) {
       cur = [x]; var low = x;
       for (var y = 1; y <= b.length; y++) {
-        cur[y] = Math.min(prev[y] + 1, cur[y - 1] + 1, prev[y - 1] + (a[x - 1] === b[y - 1] ? 0 : 1));
+        cur[y] = Math.min(prev[y] + 1, cur[y - 1] + 1, prev[y - 1] + subCost(a[x - 1], b[y - 1]));
         if (cur[y] < low) low = cur[y];
       }
       if (low > cap) return cap + 1;
@@ -576,6 +583,16 @@
     // A title with only one short real word ("Not Normal", "Pickles") rests on that word alone,
     // so it has to be read nearly right: at most one slip. (Long words are evidence enough.)
     var real = ws.filter(function (w) { return !CARD_STOP[w]; });
+    // A one-word title must stand out: read in a short, clean reading (the title on its own), or in
+    // at least two versions of the frame. Inside a jumble ("Gone a A rr RS \ - LIN — ER") it's chance.
+    if (real.length === 1) {
+      var w1 = real[0], j1 = ws.indexOf(w1);
+      var homes = perReading.filter(function (rt) { var h = wordHit(w1, rt); return h === 1 || h === 'weak' || h >= 0.5; });
+      var alone = homes.some(function (rt) { return rt.length <= 3; });
+      if (!alone && homes.length < 2) hit[j1] = 0;
+      // ...and even a long one-word title allows only about one slip per four letters.
+      else if (w1.length >= 9 && !tokens.some(function (t) { var cap1 = Math.floor(w1.length / 4); return Math.abs(t.length - w1.length) <= cap1 && editDist(w1, t, cap1) <= cap1; })) hit[j1] = 0;
+    }
     if (real.length === 1 && real[0].length <= 8) {
       var only = real[0], i0 = ws.indexOf(only);
       var close = only.length <= 5 ? hit[i0] : tokens.some(function (t) { return Math.abs(t.length - only.length) <= 1 && editDist(only, t, 1) <= 1; }) || fuzzyFind(only, blob) <= 1;
@@ -588,6 +605,18 @@
       return perReading.some(function (rt) {
         return wordHit(ws[i], rt) === 'weak' && ws.some(function (o, k) { return k !== i && !CARD_STOP[o] && o.length >= 4 && cleanHit(o, rt); });
       }) ? 1 : 0;
+    });
+    // One word read can only stand for one word of the title ("Might" can't be both "Night" and "Light").
+    var used = {};
+    ws.map(function (w, i) { return i; }).sort(function (x, y) { return ws[y].length - ws[x].length; }).forEach(function (i) {
+      if (!(hit[i] >= 0.5) || CARD_STOP[ws[i]]) return;
+      var w = ws[i], cap = w.length <= 5 ? 1 : w.length <= 8 ? 2 : 3;
+      var mine = tokens.filter(function (t) { return Math.abs(t.length - w.length) <= cap && editDist(w, t, cap) <= cap; });
+      if (!mine.length) return; // found inside run-together text: nothing to share
+      var free = mine.filter(function (t) { return !used[t]; });
+      if (!free.length) { hit[i] = 0; return; }
+      free.sort(function (x, y) { return editDist(w, x, cap) - editDist(w, y, cap); });
+      used[free[0]] = 1;
     });
     var total = 0, got = 0, strong = false, words = 0, hits = 0;
     ws.forEach(function (w, i) {
@@ -628,7 +657,9 @@
       // Letters in a row, spaces ignored: only trusted when it's a near-perfect fit (long garbage can
       // otherwise look like a long title), else the word-by-word score decides.
       var sub = 0;
-      s.forEach(function (x) {
+      // A one-word title only counts letter-for-letter in a short reading (the title on its own).
+      var oneWord = cardWords(e.name).filter(function (w) { return !CARD_STOP[w]; }).length === 1;
+      (oneWord ? clean.filter(function (x) { return cardWords(x).length <= 3; }).map(squash) : s).forEach(function (x) {
         var d = fuzzyFind(t, x);
         var sc = 1 - d / t.length;
         if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact

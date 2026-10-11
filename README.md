@@ -69,9 +69,11 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
   About 11 minutes means one cartoon, about 22 means a half-hour.
 - **Read Title Cards** (turn on in Settings → Advanced) finds the moments where the picture holds
   still and reads the text there with an OCR engine built into Shelf, then compares it with the
-  show's real episode titles. On 16 real SpongeBob title cards it identified 12 and got none wrong;
+  show's real episode titles. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan** finds
+  more of the hard ones);
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
-  uploaded or downloaded, and no pictures are saved. Takes roughly 5–30 seconds per video.
+  uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
+  (Deep Scan: 1–3 minutes).
 
 ## Check Episodes: see what's really in a file (and split it, if you want)
 

@@ -2,6 +2,15 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.7.1)
+- **Deep Scan** for the hard ones: when a title card was missed, one click takes a slower, closer look
+  (more frames, more sizes, two separate readings must agree before a name is used). About 1–3 minutes
+  per video, and it asks first.
+- **Faster, sharper reading**: frames are read at a smaller size that turned out to be both faster and
+  more accurate; most videos now take 15–25 seconds. Cards that fade in are caught too.
+- **Fewer wrong guesses**: tested on 19 real episodes (36 title cards): 30 found by the normal scan,
+  2 more by Deep Scan, and none named wrong.
+
 ## Done (1.7)
 - **Title cards, tested on 10 real episodes** (seasons 3 and 7, plus a special): more card styles are read (dark, coloured,
   white and tilted lettering), wrong matches are gone (garbled text can no longer pass for a title), and reading is

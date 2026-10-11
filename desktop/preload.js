@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('shelfNative', {
   closeSplit: (token, endBatch) => ipcRenderer.invoke('shelf:closeSplit', token, endBatch),
   splitSuggest: (token, hints) => ipcRenderer.invoke('shelf:splitSuggest', token, hints),
   splitAround: (token, t) => ipcRenderer.invoke('shelf:splitAround', token, t),
-  readCards: (jobs) => ipcRenderer.invoke('shelf:readCards', jobs),
+  readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
   cancelCards: () => ipcRenderer.invoke('shelf:cancelCards'),

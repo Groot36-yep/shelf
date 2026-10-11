@@ -149,6 +149,18 @@ function whiteOnly(r, g, b) {
   for (let k = 0; k < n; k++) { const mn = Math.min(r[k], g[k], b[k]), mx = Math.max(r[k], g[k], b[k]); out[k] = mn >= 190 && mx - mn < 40 ? 0 : 255; }
   return out;
 }
+// The same size, turned by a few degrees.
+function turned(plane, W, h, deg) {
+  const out = new Uint8Array(W * h).fill(255);
+  const a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), cx = W / 2, cy = h / 2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = x - cx, dy = y - cy, sx = Math.round(ca * dx + sa * dy + cx), sy = Math.round(-sa * dx + ca * dy + cy);
+      if (sx >= 0 && sx < W && sy >= 0 && sy < h) out[y * W + x] = plane[sy * W + sx];
+    }
+  }
+  return { w: W, h, data: out };
+}
 // A half-size copy turned by a few degrees (bouncy, tilted lettering reads better straightened).
 function turnedHalf(plane, W, h, deg) {
   const w2 = W >> 1, h2 = h >> 1, out = new Uint8Array(w2 * h2).fill(255);
@@ -166,8 +178,10 @@ function turnedHalf(plane, W, h, deg) {
  * Versions of one frame for the text reader, most useful first. full: also the slower ones
  * (used only on the few frames most likely to be the title card).
  */
-async function frameVariants(file, t, full) {
-  const W = 960;
+// Frames are read at 480 pixels wide by default: lettering that fills the screen reads much better
+// at that size than at full size (and four times faster).
+async function frameVariants(file, t, full, width) {
+  const W = width || 480;
   const raw = await runCapture(ffmpegPath(), [
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-ss', String(Math.max(0, t)), '-i', file,
     '-frames:v', '1', '-an', '-sn', '-dn', '-vf', `scale=${W}:-2,format=gbrp`, '-f', 'rawvideo', '-'
@@ -181,7 +195,7 @@ async function frameVariants(file, t, full) {
   if (full) {
     const white = whiteOnly(r, g, b);
     out.push(pgm(W, h, white));
-    for (const deg of [5, -5]) { const t2 = turnedHalf(white, W, h, deg); out.push(pgm(t2.w, t2.h, t2.data)); }
+    for (const deg of [5, -5]) { const t2 = W > 640 ? turnedHalf(white, W, h, deg) : turned(white, W, h, deg); out.push(pgm(t2.w, t2.h, t2.data)); }
     out.push(pgm(W, h, colourful(r, g, b, 0.2)));
     for (const m of colourLayers(r, g, b, 6)) out.push(pgm(W, h, m));
     out.push(pgm(W, h, g), pgm(W, h, brightOnly(y, 0.18)), pgm(W, h, brightOnly(r, 0.18)));
@@ -191,7 +205,7 @@ async function frameVariants(file, t, full) {
 }
 // A small colour copy of the frame (RGBA, 1/5 size), so the window can show what's being read. Kept in memory only.
 function preview(W, h, r, g, b) {
-  const f = 5, pw = Math.floor(W / f), ph = Math.floor(h / f);
+  const f = Math.max(1, Math.round(W / 192)), pw = Math.floor(W / f), ph = Math.floor(h / f);
   const data = new Uint8Array(pw * ph * 4);
   for (let yy = 0; yy < ph; yy++) {
     for (let xx = 0; xx < pw; xx++) {
@@ -220,6 +234,7 @@ function ocrWorker() {
       logger: () => {}
     }).then(async (w) => {
       await w.setParameters({ tessedit_pageseg_mode: '11' }); // sparse text: big words anywhere on screen
+      currentPsm = '11';
       return w;
     });
     workerPromise.catch(() => { workerPromise = null; });
@@ -232,8 +247,13 @@ async function stopOcr() {
   try { (await p).terminate(); } catch (e) { /* ignore */ }
 }
 
-async function readText(png) {
+let currentPsm = '11';
+// psm '11' looks for words anywhere (most title cards); '6' reads the picture as one block of text,
+// which suits big lettering that fills the screen.
+async function readText(png, psm) {
   const w = await ocrWorker();
+  psm = psm || '11';
+  if (psm !== currentPsm) { await w.setParameters({ tessedit_pageseg_mode: psm }); currentPsm = psm; }
   let timer;
   const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The text reader stopped responding')), 20000); });
   try {
@@ -278,6 +298,13 @@ function windowsFor(secs) {
   return out;
 }
 
+// Black fades most likely to be the gap between cartoons: longer ones first (a real gap is a second or
+// more; a scene cut is a flicker), then the ones nearest to where a card is expected.
+function fadeOrder(blacks, likely) {
+  return (blacks || []).filter((b) => b.b - b.a >= 0.4)
+    .map((b) => ({ b, score: -Math.min(b.b - b.a, 2) + Math.abs(b.b - likely) / 120 }))
+    .sort((x, y) => x.score - y.score).map((x) => x.b);
+}
 // Words from a cartoon's opening credits.
 const CREDITS = /story ?board|written|directors?\b|director|animation|supervising|producer|creative/i;
 
@@ -302,6 +329,11 @@ async function scanFile(file, secs, opts) {
     // Most likely spots first; at most 30 still moments per cartoon.
     const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
     let k = 0, found = false;
+    // Title cards come straight after a black fade, often fading in: besides the still moments, look
+    // a moment after the black fades nearest to where a card is expected.
+    const probeBlacks = fadeOrder(runs.blacks, wins[i].likely).slice(0, 2);
+    const probes = [].concat(...probeBlacks.map((b) => [0.8, 1.6].map((d) => ({ t: b.b + d, start: b.b, secs: 0, probe: true, rightAfterBlack: true }))));
+    if (tryRuns.length > 4) tryRuns.splice(4, 0, ...probes); else tryRuns.push(...probes);
     for (const run of tryRuns) {
       if (opts.cancelled && opts.cancelled()) break;
       frames++;
@@ -312,14 +344,71 @@ async function scanFile(file, secs, opts) {
       const imgs = await frameVariants(file, run.t, k <= 4 || run.rightAfterBlack);
       if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
       let hit = null;
-      for (const img of imgs) {
-        const text = await readText(img);
-        if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
-        if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) break;
-      }
+      const tryImgs = async (list, psm) => {
+        for (const img of list) {
+          const text = await readText(img, psm);
+          if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
+          if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) return;
+        }
+      };
+      await tryImgs(imgs);
+      // Small lettering: the likeliest frames also get a look at full size.
+      if (!hit && (k <= 4 || run.rightAfterBlack)) await tryImgs(await frameVariants(file, run.t, false, 960));
+      // Cards often fade in: near the end of the still moment the lettering is at its clearest.
+      if (!hit && (k <= 4 || run.rightAfterBlack) && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
       if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
       if (hit) { found = true; if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
+    }
+    // Deep scan (only when you ask for it): the parts still without a card get many more tries:
+    // more frames from each still moment, several sizes, both ways of reading.
+    if (opts.deep && !found && !(opts.cancelled && opts.cancelled())) {
+      // The likeliest still moments, and every one straight after a black moment.
+      const ranked = rankRuns(runs, wins[i].likely);
+      const cands = ranked.slice(0, 6).concat(ranked.slice(6).filter((r) => r.rightAfterBlack).slice(0, 4));
+      fadeOrder(runs.blacks, wins[i].likely).slice(0, 3)
+        .forEach((b) => cands.push({ start: b.b, probeTimes: [0.6, 1.0, 1.4, 1.8, 2.4].map((d) => b.b + d), probe: true }));
+      let n = 0;
+      deep: for (const run of cands) {
+        // The middle and (cards fade in) near the end of the still moment.
+        const times = run.probeTimes || (run.secs >= 1.5 ? [run.start + run.secs - 0.4, run.t] : [run.t]);
+        const votes = {}; // title → the readings (one group per size, way of reading and moment) that found it
+        for (const tt of times) {
+          if (opts.cancelled && opts.cancelled()) break deep;
+          n++; frames++;
+          if (opts.onProgress) opts.onProgress(Math.min(1, (i + 0.2 + 0.8 * Math.min(1, n / (cands.length * 2))) / wins.length));
+          const read = [];
+          let hit = null, hitTexts = null;
+          for (const width of [480, 400, 360, 640, 960]) {
+            // Every version of the picture at the two sizes that read best; the quick ones at the rest.
+            const imgs = await frameVariants(file, tt, width === 480 || width === 400, width);
+            if (opts.onPeek && imgs.preview && width === 480) opts.onPeek({ part: i, t: tt, image: imgs.preview, deep: true });
+            for (const psm of ['11', '6']) {
+              const before = read.length;
+              for (const img of imgs) {
+                if (opts.cancelled && opts.cancelled()) break deep;
+                const text = await readText(img, psm);
+                if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
+                // Each size and way of reading is judged on its own readings (pooling everything a
+                // deep scan reads would make chance matches likely).
+              }
+              const mine = read.slice(before);
+              // A deep scan reads so much that a single chance match is likely; a title counts only
+              // when two different sizes or ways of reading agree on it.
+              const m = opts.isMatch && mine.length ? opts.isMatch(mine, i) : null;
+              if (m) {
+                const key = m.entry ? m.entry.name : String(m);
+                (votes[key] = votes[key] || []).push(mine);
+                if (votes[key].length >= 2) { hit = m; hitTexts = [].concat.apply([], votes[key]).slice(0, 30); break; }
+              }
+            }
+            if (hit) break;
+          }
+          // Only the readings that made the match are kept (see above).
+          if (hit) texts.push({ part: i, t: Math.round(tt * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: hitTexts, deep: true });
+          if (hit) { found = true; if (opts.onFound) opts.onFound({ part: i, t: tt, hit }); break deep; }
+        }
+      }
     }
     // No card read for a later cartoon: is one starting here at all? A new cartoon shows its
     // credits ("storyboard directors", "written by") a few seconds after a black moment; one long
