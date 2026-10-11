@@ -394,9 +394,11 @@
       <h2 id="edTitle" class="sheet-title">Check Episodes</h2>
       <p id="edFile"></p>
     </div>
-    <div class="segmented" role="group" aria-label="Keep as one file or split" id="edMode">
-      <button type="button" data-mode="one" aria-pressed="true" title="Keep it as one file and choose which episodes it holds">One File</button>
-      <button type="button" data-mode="split" aria-pressed="false" title="Cut it into one file per episode">Split Into Files</button>
+    <div class="segmented ed-mode" role="group" aria-label="Keep as one file or split" id="edMode">
+      <button type="button" data-mode="one" aria-pressed="true" title="Keep it as one file and choose which episodes it holds">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2.5"/></svg>One File</button>
+      <button type="button" data-mode="split" aria-pressed="false" title="Cut it into one file per episode">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="7.5" height="12" rx="2"/><rect x="13.5" y="6" width="7.5" height="12" rx="2"/></svg>Split Into Files</button>
     </div>
   </header>
   <div class="ed-body">
@@ -405,55 +407,77 @@
         <video id="edVideo" preload="auto" playsinline></video>
         <div id="edQuick" class="ed-quick" hidden></div>
         <img id="edFrame" alt="" hidden>
-        <span class="ed-clock" id="edClock">0:00.0</span>
         <span class="ed-partchip" id="edPartChip" hidden></span>
         <span class="ed-busy" id="edBusy" hidden><span class="spinner"></span> Finding the gap between episodes…</span>
         <span class="ed-fallback" id="edFallback" hidden></span>
-      </div>
-      <div class="ed-transport" role="toolbar" aria-label="Playback">
-        <button class="ed-btn" type="button" id="edPrevCard" title="Previous title card  [ ">‹ Card</button>
-        <button class="ed-btn" type="button" data-step="-5" title="Back 5 seconds  (Alt+←)">−5s</button>
-        <button class="ed-btn" type="button" data-step="-1" title="Back 1 second  (Shift+←)">−1s</button>
-        <button class="ed-btn" type="button" data-step="-frame" title="Back one frame  (←, hold to repeat)">◂ Frame</button>
-        <button class="ed-btn ed-play" type="button" id="edPlay" aria-pressed="false" title="Play / Pause  (Space)">Play</button>
-        <button class="ed-btn" type="button" data-step="frame" title="Forward one frame  (→, hold to repeat)">Frame ▸</button>
-        <button class="ed-btn" type="button" data-step="1" title="Forward 1 second  (Shift+→)">+1s</button>
-        <button class="ed-btn" type="button" data-step="5" title="Forward 5 seconds  (Alt+→)">+5s</button>
-        <button class="ed-btn" type="button" id="edNextCard" title="Next title card  ]">Card ›</button>
-        <span class="ed-flex"></span>
-        <div class="segmented small" role="group" aria-label="Speed" id="edSpeed">
-          <button type="button" data-rate="0.25" aria-pressed="false">¼×</button>
-          <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
-          <button type="button" data-rate="1" aria-pressed="true">1×</button>
-          <button type="button" data-rate="2" aria-pressed="false">2×</button>
+        <span class="ed-flash" id="edFlash" aria-hidden="true"></span>
+        <!-- Title cards Shelf read: jump straight to them. -->
+        <div class="ed-cardnav" id="edCardNav" hidden>
+          <button class="ed-glass round" type="button" id="edPrevCard" title="Previous title card  [" aria-label="Previous title card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg></button>
+          <button class="ed-glass main" type="button" id="edCardJump" title="Jump to this title card">
+            <svg class="flag" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4M6 4h11l-2.5 4L17 12H6"/></svg>
+            <span class="ed-cardnav-k" id="edCardVerb">Jump to title card</span><b id="edCardName"></b><span class="ed-cardnav-t" id="edCardTime"></span>
+          </button>
+          <button class="ed-glass round" type="button" id="edNextCard" title="Next title card  ]" aria-label="Next title card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5L15 12l-5.5 5.5"/></svg></button>
         </div>
       </div>
-      <div class="ed-overview" id="edOverview" title="Whole video: click or drag to jump">
-        <img id="edOvStrip" alt="">
-        <div id="edOvParts" class="ed-layer"></div>
-        <div id="edOvMarks" class="ed-layer"></div>
-        <div id="edOvView" class="ed-ovview"></div>
-        <div id="edOvHead" class="ed-ovhead"></div>
+      <div class="ed-transport" role="toolbar" aria-label="Playback">
+        <div class="ed-time" aria-live="off"><b id="edClock">0:00.0</b><span id="edTotal">/ 0:00</span></div>
+        <div class="ed-controls">
+          <div class="ed-group">
+            <button class="ed-btn" type="button" data-step="-5" title="Back 5 seconds  (Alt+←)">−5s</button>
+            <button class="ed-btn" type="button" data-step="-1" title="Back 1 second  (Shift+←)">−1s</button>
+            <button class="ed-btn icon" type="button" data-step="-frame" title="Back one frame  (←, hold to repeat)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6.5v11l-8-5.5z"/><rect x="6" y="6.5" width="2.2" height="11" rx="1"/></svg></button>
+          </div>
+          <button class="ed-play" type="button" id="edPlay" aria-pressed="false" aria-label="Play" title="Play / Pause  (Space)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
+          <div class="ed-group">
+            <button class="ed-btn icon" type="button" data-step="frame" title="Forward one frame  (→, hold to repeat)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.5v11l8-5.5z"/><rect x="15.8" y="6.5" width="2.2" height="11" rx="1"/></svg></button>
+            <button class="ed-btn" type="button" data-step="1" title="Forward 1 second  (Shift+→)">+1s</button>
+            <button class="ed-btn" type="button" data-step="5" title="Forward 5 seconds  (Alt+→)">+5s</button>
+          </div>
+        </div>
+        <div class="segmented small ed-speed" role="group" aria-label="Speed" id="edSpeed">
+          <button type="button" data-rate="0.25" aria-pressed="false" title="Quarter speed">¼×</button>
+          <button type="button" data-rate="0.5" aria-pressed="false" title="Half speed">½×</button>
+          <button type="button" data-rate="1" aria-pressed="true" title="Normal speed">1×</button>
+          <button type="button" data-rate="2" aria-pressed="false" title="Double speed">2×</button>
+        </div>
       </div>
-      <div class="ed-timeline" id="edTimeline" aria-label="Timeline: press and drag to scrub. Ctrl + scroll to zoom.">
-        <div class="ed-strip is-loading" id="edStrip"></div>
-        <div id="edParts" class="ed-layer"></div>
-        <div id="edTicks" class="ed-ticks"></div>
-        <div id="edMarks" class="ed-layer ed-marks"></div>
-        <div id="edHover" class="ed-hover"><span>0:00</span></div>
-        <div id="edHead" class="ed-head"><span></span></div>
+      <div class="ed-track">
+        <div class="ed-overview" id="edOverview" title="The whole video: click or drag to jump">
+          <img id="edOvStrip" alt="">
+          <div id="edOvParts" class="ed-layer"></div>
+          <div id="edOvMarks" class="ed-layer"></div>
+          <div id="edOvView" class="ed-ovview"></div>
+          <div id="edOvHead" class="ed-ovhead"></div>
+        </div>
+        <div class="ed-timeline" id="edTimeline" aria-label="Timeline: press and drag to scrub. Scroll to move along, Ctrl + scroll to zoom.">
+          <div id="edTicks" class="ed-ticks"></div>
+          <div class="ed-film">
+            <img id="edStripBase" class="ed-strip-img base" alt="">
+            <img id="edStripOld" class="ed-strip-img" alt="">
+            <img id="edStripImg" class="ed-strip-img" alt="">
+            <div class="ed-strip" id="edStrip"></div>
+          </div>
+          <div id="edParts" class="ed-lane"></div>
+          <div id="edMarks" class="ed-layer ed-marks"></div>
+          <div id="edHover" class="ed-hover"><span>0:00</span></div>
+          <div id="edHead" class="ed-head"><span class="ed-knob"></span><span class="ed-bubble" id="edBubble"></span></div>
+        </div>
       </div>
-      <div class="ed-zoom">
-        <button class="ed-btn small" type="button" id="edZoomOut" title="Zoom out  (−)">−</button>
-        <span id="edZoomLabel" class="ed-zoom-label">Whole video</span>
-        <button class="ed-btn small" type="button" id="edZoomIn" title="Zoom in  (+)">+</button>
-        <button class="ed-btn small" type="button" id="edZoomFit" title="Show the whole video">Fit</button>
-        <span class="ed-flex"></span>
-        <button class="ed-btn" type="button" id="edAround" title="Plays from 4 s before to 4 s after the selected cut (or the playhead)">▶<span> Play Around Cut</span></button>
+      <div class="ed-under">
+        <div class="ed-zoom" role="group" aria-label="Timeline zoom">
+          <button class="ed-btn icon small" type="button" id="edZoomOut" title="Zoom out  (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+          <input type="range" id="edZoomSlider" min="0" max="5" step="1" value="0" aria-label="Zoom">
+          <button class="ed-btn icon small" type="button" id="edZoomIn" title="Zoom in  (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
+          <span id="edZoomLabel" class="ed-zoom-label">Whole video</span>
+          <button class="ed-btn small" type="button" id="edZoomFit" title="Show the whole video  (0)">Fit</button>
+        </div>
+        <button class="ed-btn" type="button" id="edAround" title="Plays from 4 s before to 4 s after the selected cut (or the playhead)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span> Play Around Cut</span></button>
       </div>
       <div class="ed-cuttools" id="edCutTools" hidden>
         <span class="ed-cut-label" id="edCutLabel"></span>
-        <button class="ed-btn primary" type="button" id="edCutHere" title="Move the selected cut to the playhead  (C)">✂ Set Cut Here</button>
+        <button class="ed-btn primary" type="button" id="edCutHere" title="Move the selected cut to the playhead  (C)"></button>
         <button class="ed-btn" type="button" id="edAddCut" title="Add another cut at the playhead (for a third part)">+ Add Cut</button>
         <button class="ed-btn" type="button" id="edRemoveCut" title="Remove the selected cut">Remove Cut</button>
       </div>
@@ -463,15 +487,17 @@
       <h3 class="ed-panel-title" id="edPanelTitle">Episodes in this file</h3>
       <div id="edPanel" class="ed-panel"></div>
       <p class="ed-warn" id="edWarn" hidden></p>
-      <h3 class="ed-panel-title">You’ll get</h3>
-      <div id="edNames" class="ed-names"></div>
+      <div class="ed-get">
+        <h3 class="ed-panel-title">You’ll get</h3>
+        <div id="edNames" class="ed-names"></div>
+      </div>
     </aside>
   </div>
   <footer class="sheet-actions ed-actions">
-    <span class="ed-keys">Space play · ←/→ frame · Shift 1 s · [ ] title cards · C cut · Ctrl+scroll zoom</span>
+    <span class="ed-keys"><kbd>Space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>⇧</kbd> 1 s <kbd>[</kbd><kbd>]</kbd> title cards <kbd>C</kbd> cut <kbd>+</kbd><kbd>−</kbd> zoom</span>
     <button class="pill" type="button" id="edCancel">Cancel</button>
+    <button class="pill" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next</button>
     <button class="pill pill-primary" type="button" id="edSave">Use This Name</button>
-    <button class="pill pill-primary" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next ›</button>
   </footer>
 </dialog>
 

@@ -142,8 +142,9 @@ function fakeSingle(file) {
   s = await ed();
   assert.ok(s.view.b - s.view.a < span0, 'zoomed in');
   await sleep(1200);
-  const strip = await win.evaluate(() => getComputedStyle(document.getElementById('edStrip')).backgroundImage);
-  assert.match(strip, /shelf-media:\/\/s\//, 'picture strip loaded for the zoomed view');
+  const strip = await win.evaluate(() => { const i = document.getElementById('edStripImg'); const s = ShelfEditor._state(); return { src: i.src, ok: i.complete && i.naturalWidth > 0, a: s.tlStrip && s.tlStrip.a, b: s.tlStrip && s.tlStrip.b, va: s.view.a, vb: s.view.b }; });
+  assert.match(strip.src, /shelf-media:\/\/s\//, 'picture strip loaded for the zoomed view');
+  assert.ok(strip.ok && Math.abs(strip.a - strip.va) < 0.01 && Math.abs(strip.b - strip.vb) < 0.01, 'strip matches the view: ' + JSON.stringify(strip));
 
   // Frame step (#2.2): one key press = one frame.
   const t0 = (await ed()).t;
