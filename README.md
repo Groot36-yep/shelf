@@ -73,6 +73,15 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 5–30 seconds per video.
 
+## Splitting a half-hour into one file per cartoon
+
+When a file's cartoons aren't next to each other in the episode list (or you'd just like each cartoon
+on its own), click **Split…**. After you OK the prompt, a window plays the video with a timeline and
+Shelf's suggested cut: the black, silent moment before the next title card. Scrub, play around the
+cut, or click a frame to move it; check (and **Change…**) which episode each part is; then **Use This
+Split**. Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your
+original is kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
+
 ## Settings
 
 - **Add TMDB ID to movie names**: `Charade (1963) {tmdb-4808}.mkv`. Plex then never mismatches it.

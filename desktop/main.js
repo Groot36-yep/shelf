@@ -10,6 +10,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, safe
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const crypto = require('crypto');
+const { Readable } = require('stream');
 const fileops = require('./fileops');
 const probe = require('./probe');
 const P = require('../app/js/parser.js');
@@ -44,7 +46,9 @@ process.on('unhandledRejection', (e) => fatal('main', e));
 log('Starting Shelf ' + app.getVersion() + ' on ' + process.platform + ' ' + process.getSystemVersion() + ' (Electron ' + process.versions.electron + ')');
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false } }
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false } },
+  // The split window's player: plays only the one video you opened it for (by a random token).
+  { scheme: 'shelf-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: false } }
 ]);
 
 // Only one copy of Shelf at a time. A second launch brings the first window to the front.
@@ -52,6 +56,7 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { log('Another copy is already running; asking it to come to the front.'); app.exit(0); }
 
 let win = null;
+const mediaTokens = new Map(); // token → video path, only while its split window is open
 const allowedSources = new Set(); // files the user picked; nothing else can be touched
 const prefsPath = () => path.join(app.getPath('userData'), 'shelf-prefs.json');
 const journalPath = () => path.join(app.getPath('userData'), 'last-rename.json');
@@ -147,6 +152,47 @@ if (gotLock) app.whenReady().then(() => {
     return net.fetch(pathToFileURL(full).toString());
   });
 
+  // ---- The split window's player: one video, by token, only after you said yes ----
+  const MIME = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska', webm: 'video/webm', avi: 'video/x-msvideo', ts: 'video/mp2t', m2ts: 'video/mp2t', wmv: 'video/x-ms-wmv', mpg: 'video/mpeg', mpeg: 'video/mpeg' };
+  let frameJobs = 0; const frameWaiters = [];
+  async function frameJpeg(file, t, w) {
+    if (frameJobs >= 3) await new Promise((r) => frameWaiters.push(r));
+    frameJobs++;
+    try {
+      const { spawn } = require('child_process');
+      const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+      return await new Promise((resolve, reject) => {
+        const c = spawn(ff, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-ss', String(Math.max(0, t)), '-i', file, '-frames:v', '1', '-an', '-sn',
+          '-vf', 'scale=' + w + ':-2', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '5', '-'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        const chunks = []; c.stdout.on('data', (d) => chunks.push(d));
+        const timer = setTimeout(() => c.kill(), 20000);
+        c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
+      });
+    } finally { frameJobs--; const n = frameWaiters.shift(); if (n) n(); }
+  }
+  protocol.handle('shelf-media', async (request) => {
+    const u = new URL(request.url);
+    const file = mediaTokens.get(u.pathname.replace(/^\/+/, ''));
+    if (!file) return new Response('Not found', { status: 404 });
+    if (u.host === 'f') { // one still frame: shelf-media://f/<token>?t=12.5&w=320
+      const t = Math.max(0, Number(u.searchParams.get('t')) || 0), w = Math.min(1280, Math.max(64, Number(u.searchParams.get('w')) || 320));
+      const jpg = await frameJpeg(file, t, Math.round(w / 2) * 2);
+      return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } }) : new Response('', { status: 404 });
+    }
+    if (u.host !== 'v') return new Response('Not found', { status: 404 });
+    const size = (await fs.promises.stat(file)).size;
+    let start = 0, end = size - 1, status = 200;
+    const m = /bytes=(\d*)-(\d*)/.exec(request.headers.get('range') || '');
+    if (m) {
+      status = 206;
+      if (m[1] === '' && m[2] !== '') { start = Math.max(0, size - Number(m[2])); } else { start = Number(m[1]) || 0; if (m[2] !== '') end = Math.min(size - 1, Number(m[2])); }
+      if (start > end || start >= size) return new Response('', { status: 416, headers: { 'Content-Range': 'bytes */' + size } });
+    }
+    const headers = { 'Content-Type': MIME[path.extname(file).slice(1).toLowerCase()] || 'application/octet-stream', 'Content-Length': String(end - start + 1), 'Accept-Ranges': 'bytes' };
+    if (status === 206) headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + size;
+    return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), { status, headers });
+  });
+
   // Deny every permission request (camera, microphone, location, notifications, ...).
   session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -185,6 +231,7 @@ if (gotLock) app.whenReady().then(() => {
     if (!Array.isArray(ops)) throw new Error('Nothing to rename.');
     const { results } = await fileops.run(ops.slice(0, 20000), {
       library, mode, allowed: allowedSources, journalPath: journalPath(),
+      writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
       onProgress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:progress', p); }
     });
     // A moved file's old path is gone; its new path can be renamed again later.
@@ -270,6 +317,39 @@ if (gotLock) app.whenReady().then(() => {
       send({ kind: 'end', total: files.length, stopped: cardCancel });
     }
     return out;
+  });
+
+  // ---- Split window ----
+  handle('shelf:openSplit', async (p) => {
+    const files = pickedVideos([p]);
+    if (!files.length) throw new Error('Not a video you picked');
+    const yes = await askFirst(files, 'Open this video to choose where to split it?',
+      'Shelf plays the video in its own window and looks for the quiet, black moment between cartoons to suggest a cut. Nothing is changed until you click Rename Now, and your original file is always kept. Nothing leaves this computer.', 'Open Video');
+    if (!yes) return null;
+    const token = crypto.randomBytes(16).toString('hex');
+    mediaTokens.set(token, files[0]);
+    return { token, secs: await probe.duration(files[0]) };
+  });
+  handle('shelf:closeSplit', async (token) => { mediaTokens.delete(String(token)); return true; });
+  // Suggested cuts. hints: [{ card: seconds } | { est: seconds }], one per cut.
+  handle('shelf:splitSuggest', async (token, hints) => {
+    const file = mediaTokens.get(String(token));
+    if (!file || !Array.isArray(hints)) throw new Error('This split window has closed');
+    const split = require('./split');
+    const out = [];
+    for (const h of hints.slice(0, 5)) {
+      if (h && Number.isFinite(h.card)) out.push(Object.assign({ from: 'card' }, await split.cutBefore(file, h.card)));
+      else if (h && Number.isFinite(h.est)) out.push(Object.assign({ from: 'estimate' }, await split.cutNear(file, h.est)));
+      else out.push(null);
+    }
+    return out;
+  });
+  // Lossless cuts land on keyframes: the keyframes and quiet moments around a time.
+  handle('shelf:splitAround', async (token, t) => {
+    const file = mediaTokens.get(String(token));
+    if (!file) throw new Error('This split window has closed');
+    t = Number(t) || 0;
+    return require('./split').quietAndKeys(file, Math.max(0, t - 20), t + 20);
   });
 
   handle('shelf:showInFolder', async () => { const lib = readPrefs().library; if (lib) shell.openPath(lib); });

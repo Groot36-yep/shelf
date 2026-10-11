@@ -137,6 +137,10 @@ resolves('The.Fairly.OddParents.S01E01.The.Big.Problem.Power.Mad.DVDRip.mkv', FO
 resolves('Fairly OddParents - 1x05 - Father Time - Apartnership.avi', FOP, {}, 'S1E7-E8');
 resolves('Fairly OddParents S01E07 Christmas Everyday.mkv', FOP, {}, 'S1E13');
 resolves('Fairly OddParents S02E01 Hex Games.mkv', FOP, { mode: 'halfhours', sure: true }, 'S2E1-E2');
+check('daily show by date resolves', () => {
+  const r = P.resolveEpisode(P.parseFilename('The.Daily.Show.2024.01.15.Guest.Night.mkv'), [{ season: 29, number: 6, name: 'Guest Night', aired: '2024-01-15' }], {});
+  assert.strictEqual(r.season + 'x' + r.number, '29x6');
+});
 check('numbering: a full season of half-hour files', () => {
   const files = Array.from({ length: 20 }, (_, i) => P.parseFilename('SpongeBob.S01E' + String(i + 1).padStart(2, '0') + '.mkv'));
   assert.deepStrictEqual(P.detectNumbering(files, SB, 1), { mode: 'halfhours', sure: true, segmented: true });

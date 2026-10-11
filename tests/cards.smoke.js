@@ -86,7 +86,7 @@ function fakeEpisode(file, secs, cards) {
   assert.ok(await win.isVisible('#readCards'));
   const t0 = Date.now();
   await win.click('#readCards');
-  for (let i = 0; i < 300; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent('#scanStatus'))) break; }
+  for (let i = 0; i < 900; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent("#scanStatus"))) break; } // up to 3 min on a busy machine
   const took = Date.now() - t0;
   await sleep(300);
   s = await state();

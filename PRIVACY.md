@@ -45,6 +45,8 @@ only after a Windows prompt listing those files, where you choose OK or Cancel.
 - **Read Title Cards** (off unless you turn it on in Settings → Advanced) decodes still moments of
   the video in memory and reads the words on them with an OCR engine that ships inside Shelf. No
   pictures are written to disk, nothing is uploaded, and no data is downloaded for it.
+- **Split…** asks before opening a video, then plays it inside Shelf (only that one file, through a
+  private one-time link that stops working when the window closes) and reads it to suggest a cut.
 - What was read is kept only in memory until you close Shelf or clear the list.
 
 ## Your TMDB key

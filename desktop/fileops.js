@@ -115,6 +115,7 @@ async function run(ops, opts) {
     try {
       const from = path.resolve(String(op.source));
       if (!opts.allowed || !opts.allowed.has(from)) throw new Error('Not a file you picked');
+      if (Array.isArray(op.split)) { await runSplit(op, from, library, opts, res, journal); if (opts.onProgress) opts.onProgress({ done: n, total: ops.length }); continue; }
       if (!Array.isArray(op.folder) || !op.folder.length || op.folder.length > 4) throw new Error('Bad destination');
       const dir = path.join(library, ...op.folder.map(safeName));
       const wantExt = path.extname(String(op.file));
@@ -141,6 +142,55 @@ async function run(ops, opts) {
   return { results, journal };
 }
 
+/**
+ * One video → one file per cartoon (op.split: [{ start, end, folder, file }]).
+ * Each piece is written under a temporary name next to where it goes, checked, then given its
+ * name (never over an existing file). The original is left exactly where it is.
+ */
+async function runSplit(op, from, library, opts, res, journal) {
+  if (!opts.writePiece) throw new Error('Splitting isn’t available');
+  if (!op.split.length || op.split.length > 6) throw new Error('Bad split');
+  if (!(await exists(from))) throw new Error('File not found (was it moved?)');
+  const ext = path.extname(from);
+  // Work out and check every destination first, so nothing is written if any is wrong.
+  const plan = op.split.map((p) => {
+    if (!Array.isArray(p.folder) || !p.folder.length || p.folder.length > 4) throw new Error('Bad destination');
+    const wantExt = path.extname(String(p.file));
+    if (wantExt.toLowerCase() !== ext.toLowerCase()) throw new Error('File type would change');
+    const dir = path.join(library, ...p.folder.map(safeName));
+    const to = path.join(dir, safeName(String(p.file).slice(0, -wantExt.length)) + wantExt);
+    if (!inside(library, to)) throw new Error('Destination is outside your library');
+    const start = Number(p.start), end = Number(p.end);
+    if (!(start >= 0 && end > start + 30)) throw new Error('Bad split points');
+    return { dir, to, start, end };
+  });
+  if (new Set(plan.map((p) => p.to.toLowerCase())).size !== plan.length) throw new Error('Two pieces would get the same name');
+  for (const p of plan) if (await exists(p.to)) { res.skipped = 'A file with this name already exists: ' + path.basename(p.to); return; }
+  const made = [];
+  try {
+    for (const p of plan) {
+      await fsp.mkdir(p.dir, { recursive: true });
+      const tmp = path.join(p.dir, '.shelf-piece-' + process.pid + '-' + Date.now() + ext);
+      await opts.writePiece(from, p.start, p.end, tmp);
+      await moveNoOverwrite(tmp, p.to).catch(async (e) => { await fsp.unlink(tmp).catch(() => {}); throw e; });
+      const st = await fsp.stat(p.to);
+      made.push(p.to);
+      journal.done.push({ from, to: p.to, split: true, size: st.size });
+      if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+    }
+  } catch (e) {
+    // Don't leave half a split behind.
+    for (const m of made) {
+      await fsp.unlink(m).catch(() => {});
+      journal.done = journal.done.filter((d) => d.to !== m);
+      await removeEmptyDirs(path.dirname(m), library);
+    }
+    if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+    throw e;
+  }
+  res.ok = true; res.to = made[0]; res.pieces = made; res.split = true;
+}
+
 async function writeJournal(p, journal) {
   await fsp.mkdir(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
@@ -158,9 +208,17 @@ async function undo(journalPath) {
   if (!j || !Array.isArray(j.done) || !j.done.length) return { undone: 0, kept: 0, nothing: true, restored: [] };
   let undone = 0, kept = 0;
   const restored = [];
-  for (const { from, to } of j.done.slice().reverse()) {
+  for (const rec of j.done.slice().reverse()) {
+    const { from, to } = rec;
     try {
       if (!inside(path.resolve(j.library), path.resolve(to))) { kept++; continue; }
+      if (rec.split) {
+        // A piece Shelf cut: remove it only if it's still exactly what Shelf wrote. The original was never touched.
+        const st = await fsp.stat(to).catch(() => null);
+        if (st && st.size === rec.size) { await fsp.unlink(to); undone++; } else kept++;
+        await removeEmptyDirs(path.dirname(to), j.library);
+        continue;
+      }
       if (j.mode === 'move') {
         if ((await exists(to)) && !(await exists(from))) {
           await fsp.mkdir(path.dirname(from), { recursive: true });

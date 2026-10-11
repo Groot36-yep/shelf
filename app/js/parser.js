@@ -604,6 +604,7 @@
    */
   function resolveEpisode(parsed, list, ctx) {
     ctx = Object.assign({}, ctx || {});
+    var cardAt = {}; // "1x6" → seconds into the video where that cartoon's title card shows
     var season = parsed.season != null ? parsed.season : 1;
     var file = ctx.file || {};
     // The video's own length settles "one cartoon or a half-hour" for this file.
@@ -616,7 +617,9 @@
     var said = parsed.airdate ? parsed.airdate : 'S' + pad2(season) + 'E' + pad2(parsed.episode || 1) + (parsed.episodeEnd ? '-E' + pad2(parsed.episodeEnd) : '');
     function out(entries, how, sure, note) {
       var first = entries[0], last = entries[entries.length - 1];
-      var r = { season: first.season, number: first.number, end: last.number > first.number ? last.number : null, name: joinNames(entries), how: how, sure: sure, note: note || '' };
+      var r = { season: first.season, number: first.number, end: last.number > first.number ? last.number : null, name: joinNames(entries), how: how, sure: sure, note: note || '',
+        // The cartoons in this file, in order (used to offer splitting it into one file each).
+        entries: entries.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: cardAt[e.season + 'x' + e.number] != null ? cardAt[e.season + 'x' + e.number] : null }; }) };
       var now = 'S' + pad2(r.season) + 'E' + pad2(r.number) + (r.end ? '-E' + pad2(r.end) : '');
       if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'card' ? ' (read from its title cards)' : how === 'halfhour' ? ' (' + (hour ? 'an hour' : 'a half-hour') + ' holding ' + entries.length + ' cartoons)' : '') + '.';
       return r;
@@ -645,8 +648,9 @@
       var best = {};
       file.cards.forEach(function (c) {
         var mm = matchCardText(c.texts, pool, near);
-        if (mm && (!best[c.part] || mm.score > best[c.part].score)) best[c.part] = mm;
+        if (mm && (!best[c.part] || mm.score > best[c.part].score)) best[c.part] = Object.assign({ t: c.t }, mm);
       });
+      Object.keys(best).forEach(function (k) { if (best[k].t != null) cardAt[best[k].entry.season + 'x' + best[k].entry.number] = best[k].t; });
       var found = Object.keys(best).sort(function (a, b) { return a - b; }).map(function (k) { return best[k].entry; })
         .filter(function (e, i, arr) { return arr.indexOf(e) === i; })
         .sort(function (a, b) { return a.season - b.season || a.number - b.number; });
@@ -663,7 +667,12 @@
             (agrees ? '' : ' The file’s number points somewhere else, so check this one.'));
         }
         if (together) return out(found, 'card', true);
-        return out([found[0]], 'card', false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so check this one.');
+        var apart = out([found[0]], 'card', false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so split it into one file per cartoon below.');
+        // In the order they play in the video.
+        apart.entries = found.slice().sort(function (a, b) { return (cardAt[a.season + 'x' + a.number] || 0) - (cardAt[b.season + 'x' + b.number] || 0); })
+          .map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: cardAt[e.season + 'x' + e.number] }; });
+        apart.needsSplit = true;
+        return apart;
       }
     }
     // 1. Titles beat numbers.

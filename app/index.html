@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Privacy & security: the page may only talk to TMDB, TheTVDB and TVmaze, load nothing from anywhere else,
      run no inline or third-party code, and never tell other sites where you came from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
 <meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
@@ -120,6 +120,7 @@
     <div class="insp-head">
       <h2 id="inspTitle"></h2>
       <span id="inspMeta" class="muted"></span>
+      <button class="link-btn" type="button" id="changeEp" hidden>Wrong episode? Choose…</button>
     </div>
     <p class="insp-error" id="inspError" hidden></p>
     <p class="insp-note" id="inspNote" hidden></p>
@@ -136,6 +137,14 @@
         <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
       </div>
       <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
+    </div>
+    <div class="insp-section" id="inspSplitWrap" hidden>
+      <span class="section-label" id="splitLabel">One file per cartoon</span>
+      <p class="row-help" id="splitHelp"></p>
+      <div class="scan-row">
+        <button class="pill" type="button" id="openSplit">Split…</button>
+        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
+      </div>
     </div>
 
     <div class="group" id="inspFacts"></div>
@@ -354,6 +363,57 @@
     </div>
   </form>
 </dialog>
+
+<!-- Split window -->
+<dialog class="sheet split-sheet" id="splitSheet" aria-labelledby="spTitle">
+  <div class="sp-head-row">
+    <div>
+      <h2 id="spTitle" class="sheet-title">Split into 2 files</h2>
+      <p class="muted small" id="spFile"></p>
+    </div>
+    <span class="sp-badge" id="spMode" hidden>Still frames — this video format can’t play here</span>
+  </div>
+  <div class="sp-stage">
+    <video id="spVideo" preload="metadata" playsinline></video>
+    <img id="spFrame" alt="" hidden>
+    <span class="sp-clock" id="spClock">0:00.0</span>
+    <span class="sp-busy" id="spBusy" hidden><span class="spinner"></span> Finding the gap between cartoons…</span>
+  </div>
+  <div class="sp-transport">
+    <button class="pill icon" type="button" data-jump="-5" title="Back 5 seconds">−5s</button>
+    <button class="pill icon" type="button" data-jump="-1" title="Back 1 second">−1s</button>
+    <button class="pill icon" type="button" data-jump="-0.1" title="Back a little">−0.1</button>
+    <button class="pill pill-primary icon" type="button" id="spPlay" title="Play / pause (Space)">Play</button>
+    <button class="pill icon" type="button" data-jump="0.1" title="Forward a little">+0.1</button>
+    <button class="pill icon" type="button" data-jump="1" title="Forward 1 second">+1s</button>
+    <button class="pill icon" type="button" data-jump="5" title="Forward 5 seconds">+5s</button>
+    <span class="sp-spacer"></span>
+    <button class="pill" type="button" id="spAround" title="Plays from 4 s before the cut to 4 s after">Play Around Cut</button>
+    <button class="pill" type="button" id="spSetHere" title="Move the cut to the current spot">Cut Here</button>
+  </div>
+  <div class="sp-timeline" id="spTimeline" aria-label="Timeline: click to jump, drag the marker to move the cut">
+    <div class="sp-track" id="spTrack"></div>
+    <div class="sp-marks" id="spMarks"></div>
+    <div class="sp-cuts" id="spCuts"></div>
+    <div class="sp-playhead" id="spHead"></div>
+  </div>
+  <div class="sp-times"><span>0:00</span><span id="spEnd"></span></div>
+  <p class="sp-info" id="spInfo"></p>
+  <span class="section-label">Around the cut — click a frame to cut there</span>
+  <div class="sp-strip" id="spStrip"></div>
+  <span class="section-label">You’ll get — check each one is the right episode</span>
+  <div class="group" id="spParts"></div>
+  <div class="sheet-actions">
+    <button class="pill" type="button" id="spCancel">Cancel</button>
+    <button class="pill pill-primary" type="button" id="spUse">Use This Split</button>
+  </div>
+</dialog>
+
+<!-- Episode picker (used by the split window and the side panel) -->
+<div class="ep-picker" id="epPicker" hidden role="dialog" aria-label="Choose the episode">
+  <input id="epSearch" class="text" type="search" placeholder="Search by title, or S01E08" autocomplete="off" spellcheck="false">
+  <div class="ep-list" id="epList" role="listbox"></div>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
