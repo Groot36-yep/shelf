@@ -216,6 +216,42 @@ button.side-source:hover { background: var(--fill); }
 .spinner { width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* ---- Looking inside videos: live feedback ---- */
+.row-item { position: relative; }
+.row-item.is-scanning { box-shadow: inset 3px 0 0 var(--accent); }
+.row-item.is-queued .thumb { opacity: 0.55; }
+.row-item.is-scanning .thumb { position: relative; }
+.row-item.is-scanning .thumb::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 45%; top: -45%;
+  background: linear-gradient(to bottom, rgba(90, 200, 250, 0) 0%, rgba(90, 200, 250, 0.35) 70%, rgba(255, 255, 255, 0.95) 96%, rgba(90, 200, 250, 0) 100%);
+  animation: scanline 1.25s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes scanline { from { top: -45%; } to { top: 100%; } }
+.ring {
+  --p: 0; width: 12px; height: 12px; border-radius: 50%; flex: none;
+  background: conic-gradient(currentColor calc(var(--p) * 1%), rgba(127, 127, 127, 0.25) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent 52%, #000 56%); mask: radial-gradient(farthest-side, transparent 52%, #000 56%);
+  transition: --p 0.2s;
+}
+.tag-scan { background: rgba(0, 122, 255, 0.12); color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.tag-queued { background: var(--fill); color: var(--text-3); }
+.tag-queued::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: qpulse 1.4s ease-in-out infinite; }
+@keyframes qpulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.row-item.scan-flash { animation: doneflash 1.6s ease-out; }
+@keyframes doneflash { 0% { box-shadow: inset 0 0 0 2px var(--green), 0 0 0 0 rgba(52, 199, 89, 0.35); } 30% { box-shadow: inset 0 0 0 2px var(--green), 0 0 0 4px rgba(52, 199, 89, 0); } 100% { box-shadow: inset 0 0 0 2px rgba(52, 199, 89, 0); } }
+.check-pop { display: inline-block; animation: pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes pop { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.scanbar { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; justify-content: center; }
+.scanbar[hidden] { display: none; }
+.scanbar #scanBarText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-variant-numeric: tabular-nums; }
+.scan-track { width: 120px; height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; flex: none; }
+.scan-track i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.25s ease; }
+.scan-eye { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; animation: qpulse 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .row-item.is-scanning .thumb::after, .tag-queued::before, .row-item.scan-flash, .check-pop, .scan-eye { animation: none; }
+  .row-item.is-scanning .thumb::after { top: 40%; height: 3px; background: var(--accent); }
+}
 .statusbar {
   height: 30px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 0 12px; border-top: 0.5px solid var(--sep); font-size: 11px; color: var(--text-2);

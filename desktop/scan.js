@@ -177,25 +177,33 @@ async function scanFile(file, secs, opts) {
   const texts = [];
   let frames = 0;
   const wins = windowsFor(secs);
+  // How far along this video is, 0..1 (each cartoon's part is an equal share).
+  const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
   for (let i = 0; i < wins.length; i++) {
     if (opts.cancelled && opts.cancelled()) break;
+    report(i, 0.02);
     const runs = await stills(file, wins[i].from, wins[i].len);
+    report(i, 0.2);
     // Most likely spots first; at most 30 still moments per cartoon.
     runs.sort((a, b) => Math.abs(a.t - wins[i].likely) - Math.abs(b.t - wins[i].likely));
-    for (const run of runs.slice(0, 30)) {
+    const tryRuns = runs.slice(0, 30);
+    let k = 0;
+    for (const run of tryRuns) {
       if (opts.cancelled && opts.cancelled()) break;
       frames++;
+      report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
       const read = [];
       for (const img of await frameVariants(file, run.t)) {
         const text = await readText(img);
         if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
         if (opts.isMatch && read.length && opts.isMatch(read, i)) break;
       }
-      if (read.length) texts.push({ part: i, t: Math.round(run.t), texts: read });
+      if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
       if (opts.isMatch && read.length && opts.isMatch(read, i)) break; // found this cartoon's card
     }
   }
+  report(wins.length, 0);
   return { texts, frames };
 }
 

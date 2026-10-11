@@ -27,7 +27,11 @@ contextBridge.exposeInMainWorld('shelfNative', {
   readCards: (jobs) => ipcRenderer.invoke('shelf:readCards', jobs),
   cancelCards: () => ipcRenderer.invoke('shelf:cancelCards'),
   onCardProgress: (fn) => {
-    const listener = (e, p) => fn({ done: Number(p.done) || 0, total: Number(p.total) || 0, file: String(p.file || '') });
+    const listener = (e, p) => fn({
+      kind: String(p.kind || ''), path: String(p.path || ''), paths: Array.isArray(p.paths) ? p.paths.map(String) : [],
+      index: Number(p.index) || 0, total: Number(p.total) || 0, frac: Number(p.frac) || 0,
+      file: String(p.file || ''), stopped: !!p.stopped, result: p.result && typeof p.result === 'object' ? p.result : null
+    });
     ipcRenderer.on('shelf:cardProgress', listener);
     return () => ipcRenderer.removeListener('shelf:cardProgress', listener);
   },

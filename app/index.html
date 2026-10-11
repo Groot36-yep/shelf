@@ -101,7 +101,16 @@
         <span></span><span>Original File</span><span></span><span>Plex Name</span><span class="right">Match</span>
       </div>
       <div class="list" id="list" role="listbox" aria-label="Files" tabindex="0"></div>
-      <footer class="statusbar"><span id="statusText"></span><span class="muted">Drop more files anywhere to add them</span></footer>
+      <footer class="statusbar">
+        <span id="statusText"></span>
+        <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">
+          <span class="scan-eye" aria-hidden="true"></span>
+          <span id="scanBarText"></span>
+          <span class="scan-track" aria-hidden="true"><i id="scanBarFill"></i></span>
+          <button class="link-btn" type="button" id="scanBarStop">Stop</button>
+        </div>
+        <span class="muted" id="dropHint">Drop more files anywhere to add them</span>
+      </footer>
     </section>
   </main>
 

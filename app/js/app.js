@@ -446,6 +446,16 @@
   // ---------- Rendering ----------
   function tagFor(item) {
     var t;
+    if (item.scan === 'queued') return el('span', { class: 'tag tag-queued', text: 'Queued' });
+    if (item.scan === 'reading') {
+      var pct = Math.round((item.scanFrac || 0) * 100);
+      var ring = el('span', { class: 'ring', 'aria-hidden': 'true' }); ring.style.setProperty('--p', pct);
+      return el('span', { class: 'tag tag-scan', title: 'Reading title cards' }, [ring, 'Reading ' + pct + '%']);
+    }
+    if (item.scan === 'done') {
+      var ok = item.episode && item.episode.how === 'card';
+      return el('span', { class: 'tag ' + (ok ? 'tag-ok' : 'tag-warn') }, [el('span', { class: 'check-pop', text: ok ? '✓' : '?' }), ok ? ' Read' : ' Not sure']);
+    }
     switch (item.status) {
       case 'pending': case 'matching':
         t = el('span', { class: 'tag tag-wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Matching']); break;
@@ -468,7 +478,7 @@
       var c = current(item);
       var plex = plexFor(item);
       // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
-      var sig = [item.status, item.confirmed, item.needsKey, c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title].join('|');
+      var sig = [item.status, item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title].join('|');
       var cached = rowCache[item.id];
       keep[item.id] = 1;
       if (cached && cached.sig === sig) {
@@ -498,6 +508,9 @@
         ]),
         el('div', { class: 'match-cell' }, [tagFor(item)])
       ]);
+      if (item.scan === 'reading') row.classList.add('is-scanning');
+      if (item.scan === 'queued') row.classList.add('is-queued');
+      if (item.scan === 'done') row.classList.add('scan-flash');
       rowCache[item.id] = { sig: sig, node: row };
       nodes.push(row);
     });
@@ -868,6 +881,8 @@
     scanning = true; setScanStatus('Waiting for your OK…');
     native.checkLengths(files.map(function (i) { return i.fullPath; })).then(function (res) {
       if (!res) { setScanStatus('Cancelled. Nothing was read.'); return; }
+      scanBar('Checked the length of ' + files.length + ' video' + (files.length === 1 ? '' : 's'), 1);
+      setTimeout(function () { if (!scanning) scanBar(null); }, 1500);
       var got = 0;
       files.forEach(function (i) { var secs = res[i.fullPath]; if (secs) { i.minutes = secs / 60; got++; } });
       setScanStatus(got ? 'Checked ' + got + ' of ' + files.length + ' videos.' : 'Couldn’t tell the length of these videos (unusual format).');
@@ -875,30 +890,61 @@
     }).catch(function (e) { setScanStatus('Couldn’t check: ' + e.message); })
       .then(function () { scanning = false; render(); });
   });
+  // The bar at the bottom while Shelf reads videos.
+  function scanBar(text, frac) {
+    var bar = $('scanBar');
+    bar.hidden = text == null;
+    $('dropHint').hidden = text != null;
+    if (text == null) return;
+    $('scanBarText').textContent = text;
+    $('scanBarFill').style.width = Math.round(Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
+  }
+  function itemByPath(p) { return items.filter(function (i) { return i.fullPath === p; })[0] || null; }
   on('readCards', 'click', function () {
     var item = itemById(selectedId); if (!item || scanning) return;
     var files = showFiles(item); if (!files.length) return;
     var c = current(linkedVideo(item) || item);
     scanning = true; setScanStatus('Waiting for your OK…');
+    var read = 0;
     var stop = native.onCardProgress(function (p) {
-      if (p.done < p.total) { setScanStatus('Reading title cards: video ' + (p.done + 1) + ' of ' + p.total + '…'); $('cancelCards').hidden = false; }
+      var it = p.path ? itemByPath(p.path) : null;
+      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; }
+      if (p.kind === 'start' && it) { it.scan = 'reading'; it.scanFrac = 0; }
+      if (p.kind === 'step' && it) it.scanFrac = p.frac;
+      if (p.kind === 'start' || p.kind === 'step') {
+        var name = p.file || (it && it.name) || '';
+        scanBar('Reading title cards · video ' + (p.index + 1) + ' of ' + p.total + (name ? ' · ' + name : ''), (p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
+        setScanStatus('Reading title cards: video ' + (p.index + 1) + ' of ' + p.total + '…');
+      }
+      if (p.kind === 'file' && it) {
+        var r = p.result || {};
+        if (r.secs) it.minutes = r.secs / 60;
+        if (r.texts) { it.cards = r.texts; it.cardParts = r.parts; read++; }
+        it.scan = p.stopped && !r.texts ? null : 'done'; it.scanFrac = 1;
+        // Show this episode's answer straight away, then settle back to the normal tag.
+        resolveShow(c).then(function () {
+          scheduleRender();
+          setTimeout(function () { if (it.scan === 'done') { it.scan = null; scheduleRender(); } }, 1800);
+        });
+      }
+      if (p.kind === 'end') {
+        items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
+        scanBar(null);
+      }
+      scheduleRender();
     });
     listFor(c).then(function (list) {
       var titles = list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; });
       return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles }; }));
     }).then(function (res) {
       if (!res) { setScanStatus('Cancelled. No videos were read.'); return; }
-      var read = 0;
-      files.forEach(function (i) {
-        var r = res[i.fullPath]; if (!r) return;
-        if (r.secs) i.minutes = r.secs / 60;
-        if (r.texts) { i.cards = r.texts; i.cardParts = r.parts; read++; }
-      });
       setScanStatus('Read ' + read + ' of ' + files.length + ' videos.');
+      toast('Finished reading ' + read + ' video' + (read === 1 ? '' : 's'));
       return resolveShow(c);
     }).catch(function (e) { setScanStatus('Couldn’t read the title cards: ' + e.message); })
-      .then(function () { stop(); scanning = false; $('cancelCards').hidden = true; render(); });
+      .then(function () { stop(); scanning = false; scanBar(null); $('cancelCards').hidden = true; render(); });
   });
+  on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
   on('cancelCards', 'click', function () { native.cancelCards(); setScanStatus('Stopping…'); });
   function syncOrderHelp() {
     var svc = tvService();

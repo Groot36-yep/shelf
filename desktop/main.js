@@ -243,23 +243,31 @@ if (gotLock) app.whenReady().then(() => {
     if (!yes) return null;
     const scan = require('./scan'); // loaded only when you use it
     cardCancel = false;
+    const send = (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', msg); };
     const out = {};
+    send({ kind: 'queue', paths: files, total: files.length });
     try {
       for (let i = 0; i < files.length && !cardCancel; i++) {
         const f = files[i];
         const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1 }));
         const secs = await probe.duration(f);
-        if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', { done: i, total: files.length, file: path.basename(f) });
+        send({ kind: 'start', path: f, index: i, total: files.length, file: path.basename(f) });
+        let last = 0;
         try {
-          const r = await scan.scanFile(f, secs, { isMatch: (texts) => !!P.matchCardText(texts, entries), cancelled: () => cardCancel });
+          const r = await scan.scanFile(f, secs, {
+            isMatch: (texts) => !!P.matchCardText(texts, entries),
+            cancelled: () => cardCancel,
+            onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
+          });
           out[f] = { secs, parts: scan.windowsFor(secs).length, texts: r.texts };
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
         }
+        send({ kind: 'file', path: f, index: i, total: files.length, result: out[f], stopped: cardCancel });
       }
     } finally {
       await scan.stopOcr();
-      if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', { done: files.length, total: files.length });
+      send({ kind: 'end', total: files.length, stopped: cardCancel });
     }
     return out;
   });
