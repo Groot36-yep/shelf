@@ -2,47 +2,47 @@
 
 ## How Shelf protects you
 
-**The web page can't touch your files.** Browsers don't let web pages rename or move files.
-Shelf only reads the names of files you choose. The actual renaming is done by a small
-script that you download, can read in any text editor, and run yourself.
+**Only the files you pick.** The window can't read or change your disk. It can only ask the app
+for a short, fixed list of things (desktop/preload.js). The app keeps a list of the files you
+picked in a system dialog or dropped onto the window, and refuses to touch anything else.
 
-**The scripts treat every name as plain text.** File names and movie titles can contain
-characters that mean something to a computer shell, such as `'`, `` ` ``, `$( )`, `;`, `&`,
-`[ ]`, `*` and curly quotes. Shelf quotes every name so it can never run as a command.
-
-- On Mac and Linux, names are wrapped in single quotes with `'` escaped.
-- On Windows, names are wrapped in PowerShell single quotes. All four kinds of single quote that
-  PowerShell recognises are escaped. Files are moved with .NET file calls, which don't treat
-  `[ ]` or `*` as wildcards.
-
-**Names can't escape the library folder.** Titles from online databases are cleaned before
-use:
+**Names can't escape your library.** Every new folder and file name is cleaned again by the
+app before use (desktop/fileops.js):
 
 - Slashes, `..` and leading dots are removed.
 - Control characters and invisible "direction" characters are removed.
 - Names Windows reserves (`CON`, `NUL`, `COM1` and so on) are made safe.
-- Very long names are shortened.
+- The result must land inside the library folder you chose.
+- A file's type can't be changed (a `.mkv` stays a `.mkv`).
 
-**Nothing is ever overwritten.** If a file already exists at the destination, it is skipped.
+**Nothing is ever overwritten.** Moves use an atomic "create only if it doesn't exist" step
+where the drive supports it. Across drives, Shelf copies, checks the size, and only then
+removes the original.
 
-**Undo is careful.**
+**Undo is careful.** Every change is written to an undo record as it happens.
 - *Move:* undo only moves a file back if its old spot is still empty.
-- *Copy:* undo only deletes the copy if it is still identical to the original.
+- *Copy:* undo only deletes the copy if it still matches the original.
 - *Hard link:* undo only deletes the link if it is still the same file as the original.
 
-**The page is locked down.**
-- A strict Content Security Policy allows only Shelf's own code, and only connections to TMDB
-  and TVmaze. There is no inline code, no third-party scripts, and no `eval`.
-- All text from the internet is displayed as text, never as HTML.
-- Links and images from the lookup services are checked against an allow-list of addresses.
+**The window is locked down.**
+- Sandboxed, with no Node.js access.
+- A strict Content Security Policy: no inline or third-party code, and connections only to TMDB
+  and TVmaze.
+- It can't navigate away or open pop-ups. Links open in your normal browser.
+- Every permission request (camera, microphone, location, notifications) is refused.
+- Text from the internet is always shown as text, never as HTML.
+- Links and images from the lookup services are checked against an allow-list.
+
+**No surprises.** No telemetry, auto-update calls, crash reports or spell-check downloads.
 
 ## Tests
 
 ```
-node tests/parser.test.js     # filename parsing, matching, naming
-node tests/scripts.test.js    # runs the real rename + undo scripts on hostile file names
-PWSH=/path/to/pwsh node tests/scripts.test.js   # also tests the Windows (PowerShell) scripts
+npm test                         # filename parsing + the file engine on hostile names
+xvfb-run -a node tests/app.smoke.js   # end-to-end: pick, match, Rename Now, Undo
 ```
+
+The Windows build on GitHub runs `npm test` on Windows before building the installer.
 
 ## Reporting a problem
 

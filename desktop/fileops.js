@@ -12,7 +12,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { safeName, VIDEO_EXT, SUB_EXT } = require('../js/parser.js');
+const { safeName, VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
 
 const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT));
 const MAX_FILES = 20000;

@@ -36,12 +36,6 @@ jobs:
           node tests/parser.test.js
           node tests/fileops.test.js
 
-      - name: Rename scripts in Windows PowerShell
-        run: node tests/scripts.test.js
-        env:
-          SKIP_BASH: '1'
-          PWSH: powershell.exe
-
       - name: Build installer
         run: npx electron-builder --win --publish never
         env:

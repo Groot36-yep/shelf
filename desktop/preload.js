@@ -8,6 +8,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('shelfNative', {
   platform: process.platform,
+  version: () => ipcRenderer.invoke('shelf:version'),
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),
   pickFolder: () => ipcRenderer.invoke('shelf:pickFolder'),
   expandDropped: (files) => ipcRenderer.invoke('shelf:expandDropped', Array.from(files || []).map((f) => {

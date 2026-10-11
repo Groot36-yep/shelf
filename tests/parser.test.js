@@ -1,6 +1,6 @@
 // Run with: node tests/parser.test.js
 const assert = require('assert');
-const P = require('../js/parser.js');
+const P = require('../app/js/parser.js');
 
 let pass = 0, fail = 0;
 function check(name, fn) {
@@ -78,14 +78,6 @@ check('episode + subtitle name', () => {
   const p = P.parseFilename('bonanza.s01e01.a.rose.for.lotta.en.srt');
   const n = P.plexName(p, { type: 'episode', show: 'Bonanza', showYear: 1959, season: 1, episode: 1, episodeTitle: 'A Rose for Lotta' }, {});
   assert.deepStrictEqual(n, { folder: ['TV Shows', 'Bonanza', 'Season 01'], file: 'Bonanza - S01E01 - A Rose for Lotta.en.srt' });
-});
-
-// Script
-check('script quotes safely', () => {
-  const out = P.buildScript([{ source: "it's $HOME.mkv", folder: ['Movies', "Ocean's Eleven (2001)"], file: "Ocean's Eleven (2001).mkv" }], { library: '~/Media', mode: 'move' });
-  assert.ok(out.script.includes(`'it'\\''s $HOME.mkv'`));
-  assert.ok(out.script.includes(`LIB="$HOME"/'Media'`));
-  assert.ok(out.undo.includes('mv -n'));
 });
 
 console.log(`${pass} passed, ${fail} failed`);

@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-app-'));
   const videos = path.join(tmp, 'Downloads'); const lib = path.join(tmp, 'Plex');
   fs.mkdirSync(videos); fs.mkdirSync(lib);
-  for (const n of ['charade.1963.1080p.mkv', 'bonanza.s01e01.mkv', "weird 'name' $(x) 2001.mkv"]) fs.writeFileSync(path.join(videos, n), 'v');
+  for (const n of ['charade.1963.1080p.mkv', 'bonanza.s01e01.mkv', 'bonanza.s01e01.en.srt', "weird 'name' $(x) 2001.mkv"]) fs.writeFileSync(path.join(videos, n), 'v');
 
   const handle = (route) => {
     const u = route.request().url();
@@ -38,6 +38,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await win.route('**/*', handle);
   await win.waitForLoadState();
+  console.log('version:', await win.textContent('#appVersion'));
   console.log('url:', win.url(), '| native:', await win.evaluate(() => document.documentElement.classList.contains('native')),
     '| page can use Node:', await win.evaluate(() => typeof require !== 'undefined' || typeof process !== 'undefined'));
   await win.click('.side-item[data-open=settings]');
@@ -45,7 +46,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await win.keyboard.press('Escape'); await sleep(300);
   await win.click('text=Choose Folder…');
   for (let i = 0; i < 40; i++) {
-    if (await win.evaluate(() => window.Shelf.items().length === 3 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
+    if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
     await sleep(250);
   }
   console.log('matched:', await win.evaluate(() => window.Shelf.items().map((i) => i.name + ' -> ' + i.status)));

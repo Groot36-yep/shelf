@@ -12,10 +12,9 @@ bonanza.s01e01.a.rose.for.lotta.mkv           →  TV Shows/Bonanza/Season 01/Bo
 bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bonanza - S01E01 - A Rose for Lotta.en.srt
 ```
 
-> **Private by design.** Shelf runs in your web browser on Mac or Windows. It only reads file
-> *names*, and only a cleaned-up title (like `Charade` + `1963`) is ever looked up. Your videos,
-> folders and file list never leave your computer. No accounts, cookies or tracking. See
-> [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
+> **Private by design.** Your videos, folders and file list never leave your computer. Only a
+> cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts, tracking or update
+> checks. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
 ## Get Shelf for Windows
 
@@ -30,35 +29,17 @@ Windows account.
 > Click **More info → Run anyway**. Every installer is built automatically by GitHub from the code
 > in this repository, after the safety tests pass on Windows.
 
-## Try it in your browser
+## How to use it
 
-Open the live demo: **https://groot36-yep.github.io/shelf/**
+1. Open Shelf, click **Settings** and paste your free TMDB key (themoviedb.org → Settings → API).
+   TV shows work without a key, using [TVmaze](https://www.tvmaze.com).
+2. Click **Choose Folder…** (or drag files onto the window).
+3. Check anything marked **Review**: click it and pick the right match on the right, or search by title.
+4. Click **Rename…**, choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
+5. Changed your mind? **Undo Rename** puts everything back.
 
-1. Click **Or try it with sample filenames** to see it work right away, or choose your own files.
-2. TV episodes are matched with [TVmaze](https://www.tvmaze.com). No setup needed.
-3. Movies are matched with [TMDB](https://www.themoviedb.org). Add your free TMDB key in
-   **Settings** first (themoviedb.org → Settings → API). The key is stored only in your browser.
-4. Anything Shelf isn't sure about is marked **Review**. Click it, and pick the right match on
-   the right-hand side, or search by title.
-5. Click **Rename…**, choose **Mac** or **Windows**, and download the small script that does the renaming.
-
-### Running the rename script
-
-For your safety, a web page can't touch files on your computer, so Shelf gives you a script
-instead. You can open it in any text editor to see exactly what it will do.
-
-**Mac**
-1. Put `shelf-rename.sh` in the folder with your videos.
-2. Open **Terminal** (press ⌘ Space, type *Terminal*, press Return).
-3. Type `bash ` (with a space), drag the script into the Terminal window, and press Return.
-
-**Windows**
-1. Put `shelf-rename.ps1` in the folder with your videos.
-2. Right-click it and choose **Run with PowerShell**. If Windows asks whether to run it, choose **Open** or **Run once**.
-
-Download the **undo** script too. Running it the same way puts everything back.
-
-Shelf never overwrites a file that already exists. It skips it and tells you.
+Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter** rename ·
+**Ctrl+Z** undo rename · **Ctrl+,** settings · **Delete** remove from list.
 
 ## What it understands
 
@@ -67,6 +48,7 @@ Shelf never overwrites a file that already exists. It skips it and tells you.
 - Subtitles with languages and flags, like `.en.srt` and `.eng.forced.srt`
 - Release junk such as `1080p`, `BluRay`, `x264`, `WEB-DL` and release group tags, which is ignored
 - Remakes with the same title (*Nosferatu* 1922 / 1979 / 2024), which are flagged for you to pick instead of guessed
+- Subtitles next to a video with the same name, which automatically follow that video's match
 
 ## Settings
 
@@ -74,24 +56,19 @@ Shelf never overwrites a file that already exists. It skips it and tells you.
 - **Add year to show names**: `Doctor Who (2005)`. Useful when a show has been remade.
 - **Move, Copy or Hard Link**: hard links use no extra disk space, which is handy for files you keep seeding.
 - **Show posters**: turn off to download no images at all.
-- **Remember key on this device**: turn off to have your TMDB key forgotten when you close the tab.
-- **Privacy → Erase All Shelf Data**: removes every setting Shelf saved in your browser.
+- **Forget Key** removes your TMDB key. **Privacy → Erase All Shelf Data** removes everything Shelf saved.
 
 ## Project layout
 
 ```
-index.html        the app
-css/styles.css    macOS-style look, light and dark mode
-js/parser.js      filename parsing, match scoring, Plex names, script builder (no network)
-js/sources.js     TMDB and TVmaze lookups
-js/app.js         the interface
-desktop/          the Windows app: window, file renaming engine (fileops.js), locked-down bridge
-tests/            npm test, plus tests/app.smoke.js for the desktop app
+app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js)
+desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files)
+tests/            npm test, and tests/app.smoke.js for an end-to-end run of the app
+index.html        the download page at groot36-yep.github.io/shelf
 ```
 
-The website has no build step and no dependencies. Open `index.html`, or serve the folder with any static web server.
-
-To run the desktop app from source: `npm install` then `npm start`. To build the Windows installer: `npm run dist:win`.
+Run from source: `npm install`, then `npm start`. Build the Windows installer: `npm run dist:win`.
+Every release is built by GitHub Actions on Windows, after the safety tests pass there.
 
 ## Credits
 

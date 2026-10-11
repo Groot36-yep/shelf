@@ -1,54 +1,34 @@
-/* Shelf — app logic. */
+/* Shelf — the app window's logic. Files are renamed by the app itself (desktop/fileops.js). */
 (function () {
   'use strict';
 
   var P = window.ShelfParser;
   var S = window.ShelfSources;
 
-  // ---------- Settings (kept in this browser only) ----------
-  // Nothing about your files is ever stored. Only these preferences are, in this browser.
-  function store(kind) { try { return window[kind]; } catch (e) { return null; } }
-  function load(key, fallback, kind) {
-    try { var v = store(kind || 'localStorage').getItem('shelf.' + key); return v === null ? fallback : JSON.parse(v); }
+  // The bridge to the app (see desktop/preload.js): the only way this window can touch files.
+  var native = window.shelfNative;
+  document.documentElement.classList.add('native', 'os-' + native.platform);
+
+  // ---------- Preferences (nothing about your files is ever stored) ----------
+  function load(key, fallback) {
+    try { var v = localStorage.getItem('shelf.' + key); return v === null ? fallback : JSON.parse(v); }
     catch (e) { return fallback; }
   }
-  function save(key, value, kind) {
-    try { store(kind || 'localStorage').setItem('shelf.' + key, JSON.stringify(value)); } catch (e) { /* storage blocked: fine */ }
+  function save(key, value) {
+    try { localStorage.setItem('shelf.' + key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   }
-  function forget(key, kind) { try { store(kind || 'localStorage').removeItem('shelf.' + key); } catch (e) { /* ignore */ } }
-
-  // Running as the desktop app? Then files are renamed directly, and the key is kept encrypted.
-  var native = window.shelfNative || null;
-  if (native) document.documentElement.classList.add('native');
-
-  var isWindows = /win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
   var settings = {
-    rememberKey: load('rememberKey', true),
     movieIds: load('movieIds', false),
     showYear: load('showYear', false),
     posters: load('posters', true),
     mode: load('mode', 'move'),
-    platform: load('platform', isWindows ? 'windows' : 'mac'),
-    libraryMac: load('libraryMac', load('library', '~/Media')),
-    libraryWin: load('libraryWin', '~\\Videos')
+    tmdbKey: '' // loaded from the encrypted store at start-up
   };
-  settings.tmdbKey = settings.rememberKey ? load('tmdbKey', '') : load('tmdbKey', '', 'sessionStorage');
 
   function saveKey(key) {
     settings.tmdbKey = key;
-    if (native) {
-      native.setKey(key).then(function (stored) {
-        if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
-      });
-      return;
-    }
-    forget('tmdbKey'); forget('tmdbKey', 'sessionStorage');
-    if (key) save('tmdbKey', key, settings.rememberKey ? 'localStorage' : 'sessionStorage');
-  }
-  function eraseEverything() {
-    ['localStorage', 'sessionStorage'].forEach(function (kind) {
-      var st = store(kind); if (!st) return;
-      try { Object.keys(st).filter(function (k) { return k.indexOf('shelf.') === 0; }).forEach(function (k) { st.removeItem(k); }); } catch (e) { /* ignore */ }
+    native.setKey(key).then(function (stored) {
+      if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
     });
   }
 
@@ -164,30 +144,54 @@
       if (it.status === 'skipped') return; // quietly ignore artwork / nfo files
       items.push(it); added++;
     });
-    normalisePaths();
     if (!selectedId && items.length) selectedId = items[0].id;
     render();
     matchAll();
     if (added) toast('Added ' + added + ' file' + (added === 1 ? '' : 's'));
   }
 
-  // If every file came from the same top folder, paths in the script are relative to that folder.
-  var scriptBase = '';
-  function normalisePaths() {
-    var tops = {};
-    items.forEach(function (i) { var seg = i.relPath.split('/'); tops[seg.length > 1 ? seg[0] : ''] = 1; });
-    var keys = Object.keys(tops);
-    scriptBase = keys.length === 1 && keys[0] ? keys[0] : '';
-  }
-  function scriptPath(item) {
-    return scriptBase && item.relPath.indexOf(scriptBase + '/') === 0 ? item.relPath.slice(scriptBase.length + 1) : item.relPath;
-  }
-
   // ---------- Matching ----------
   var running = 0;
   var networkWarned = false;
+  // A subtitle next to a video with the same name ("Film.mkv" + "Film.en.srt") just follows that video's match.
+  function stemKey(item) {
+    var dir = item.relPath.indexOf('/') >= 0 ? item.relPath.slice(0, item.relPath.lastIndexOf('/')) : '';
+    var base = item.name.replace(/\.[^.]+$/, '');
+    if (item.parsed.isSubtitle) for (var k = 0; k < 3; k++) base = base.replace(/\.(?:[a-z]{2,3}|forced|sdh|cc|hi)$/i, '');
+    return (dir + '/' + base).toLowerCase();
+  }
+  function linkSubtitles() {
+    var videos = {};
+    items.forEach(function (i) { if (i.parsed.isVideo) videos[stemKey(i)] = i; });
+    items.forEach(function (i) {
+      if (!i.parsed.isSubtitle || i.unlinked) return;
+      var v = videos[stemKey(i)];
+      i.linkTo = v ? v.id : null;
+    });
+  }
+  function linkedVideo(item) {
+    if (!item.linkTo) return null;
+    return items.filter(function (v) { return v.id === item.linkTo; })[0] || null;
+  }
+  function followVideo(video) {
+    items.forEach(function (sub) {
+      if (sub.linkTo !== video.id || sub.status === 'done') return;
+      sub.kind = video.kind;
+      sub.candidates = video.candidates;
+      sub.choice = video.choice;
+      sub.episode = video.episode;
+      sub.status = video.status === 'pending' ? 'matching' : video.status;
+      sub.confirmed = video.confirmed;
+      sub.error = video.error;
+      sub.needsKey = video.needsKey;
+      sub.sent = null;
+    });
+  }
+
   function matchAll() {
-    items.filter(function (i) { return i.status === 'pending'; }).forEach(function (i) { matchItem(i); });
+    linkSubtitles();
+    items.filter(function (i) { return i.status === 'pending' && !linkedVideo(i); }).forEach(function (i) { matchItem(i); });
+    items.filter(function (i) { return linkedVideo(i); }).forEach(function (i) { followVideo(linkedVideo(i)); });
   }
 
   function matchItem(item, query) {
@@ -229,7 +233,7 @@
       if (err.code === 'nokey' || err.code === 'auth') item.needsKey = true;
       if (err.code === 'network' && !networkWarned) { networkWarned = true; toast(err.message); }
     }).then(function () {
-      running--; scheduleRender();
+      running--; followVideo(item); scheduleRender();
     });
   }
 
@@ -253,6 +257,7 @@
   }
 
   function choose(item, index) {
+    if (item.linkTo) { item.linkTo = null; item.unlinked = true; } // picking for a subtitle on its own
     item.choice = index;
     item.confirmed = true;
     item.status = 'review';
@@ -260,8 +265,9 @@
     if (item.kind === 'episode') {
       item.episode = null;
       render();
-      loadEpisode(item).then(function () { item.confirmed = true; render(); });
+      loadEpisode(item).then(function () { item.confirmed = true; followVideo(item); render(); });
     } else {
+      followVideo(item);
       render();
     }
   }
@@ -360,6 +366,7 @@
     }
     if (item.parsed.resolution) fact('Quality', item.parsed.resolution);
     if (item.sent) fact('Shared with ' + item.sent.to, '“' + item.sent.text + '”');
+    if (linkedVideo(item)) fact('Match', 'Follows its video');
     fact('Original', el('span', { style: 'font-family:var(--mono);font-size:11px;overflow-wrap:anywhere', text: item.relPath }));
 
     var candWrap = $('inspCandWrap'), cands = $('inspCands');
@@ -442,42 +449,11 @@
   }
 
   // ---------- Files in ----------
-  function fromFileList(fileList) {
-    return Array.prototype.map.call(fileList, function (f) {
-      return { name: f.name, relPath: f.webkitRelativePath || f.name, size: f.size };
-    });
-  }
-
-  function readEntry(entry, path, out) {
-    return new Promise(function (resolve) {
-      if (entry.isFile) {
-        entry.file(function (f) { out.push({ name: f.name, relPath: path + f.name, size: f.size }); resolve(); }, function () { resolve(); });
-      } else if (entry.isDirectory) {
-        var reader = entry.createReader();
-        var all = [];
-        (function readBatch() {
-          reader.readEntries(function (batch) {
-            if (!batch.length) {
-              Promise.all(all.map(function (e) { return readEntry(e, path + entry.name + '/', out); })).then(resolve);
-            } else { all = all.concat(Array.prototype.slice.call(batch)); readBatch(); }
-          }, function () { resolve(); });
-        })();
-      } else resolve();
-    });
-  }
-
   function handleDrop(e) {
     e.preventDefault();
     document.body.classList.remove('dragging');
     var dt = e.dataTransfer;
-    if (native) { native.expandDropped(dt.files).then(addFiles); return; }
-    if (dt.items && dt.items.length && dt.items[0].webkitGetAsEntry) {
-      var out = [];
-      var entries = Array.prototype.map.call(dt.items, function (it) { return it.webkitGetAsEntry(); }).filter(Boolean);
-      Promise.all(entries.map(function (en) { return readEntry(en, '', out); })).then(function () { addFiles(out); });
-    } else if (dt.files) {
-      addFiles(fromFileList(dt.files));
-    }
+    native.expandDropped(dt.files).then(addFiles);
   }
 
   // ---------- Sheets ----------
@@ -488,9 +464,8 @@
       $('keyInput').value = settings.tmdbKey;
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
-      $('optRemember').checked = settings.rememberKey;
       $('optPosters').checked = settings.posters;
-      $('keyStatus').textContent = native ? 'Stored encrypted with your computer account. Only ever sent to TMDB.' : 'Saved only in this browser. Only ever sent to TMDB.';
+      $('keyStatus').textContent = 'Stored encrypted with your computer account. Only ever sent to TMDB.';
     }
     if (d.showModal) d.showModal(); else d.setAttribute('open', '');
   }
@@ -512,27 +487,10 @@
     $('renameSummary').textContent =
       [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '');
-    syncPlatform();
     syncMode();
-    if (native) {
-      native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
-      native.canUndo().then(function (yes) { $('undoNow').hidden = !yes; });
-      $('renameNow').textContent = 'Rename ' + r.length + ' Now';
-    }
-  }
-
-  function libKey() { return settings.platform === 'windows' ? 'libraryWin' : 'libraryMac'; }
-  function syncPlatform() {
-    var win = settings.platform === 'windows';
-    document.querySelectorAll('#osSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.os === settings.platform ? 'true' : 'false'); });
-    $('libInput').value = settings[libKey()];
-    $('libInput').placeholder = win ? '~\\Videos or D:\\Plex' : '~/Media';
-    var where = scriptBase ? 'Put the script inside the “' + scriptBase + '” folder you chose.' : 'Put the script in the same folder as your videos.';
-    $('scriptWhere').textContent = where;
-    $('howTo').textContent = win
-      ? 'Then right-click the script and choose “Run with PowerShell”. If Windows asks whether to run it, choose Open or Run once.'
-      : 'Then open Terminal, type “bash ” (with a space), drag the script into the window and press Return.';
-    $('dlScript').textContent = 'Download Rename Script (.' + (win ? 'ps1' : 'sh') + ')';
+    native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
+    native.canUndo().then(function (yes) { $('undoNow').hidden = !yes; });
+    $('renameNow').textContent = 'Rename ' + r.length + ' Now';
   }
 
   function syncMode() {
@@ -540,35 +498,15 @@
     $('modeHelp').textContent = MODE_HELP[settings.mode];
   }
 
-  function download(filename, text) {
-    var blob = new Blob([text], { type: 'application/octet-stream' });
-    var a = el('a', { href: URL.createObjectURL(blob), download: filename });
-    document.body.appendChild(a); a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  }
-
-  function buildScripts() {
-    var k = libKey();
-    settings[k] = $('libInput').value.trim() || (settings.platform === 'windows' ? '~\\Videos' : '~/Media');
-    save(k, settings[k]);
-    var list = readyItems().map(function (i) {
-      var p = plexFor(i);
-      return { source: scriptPath(i), folder: p.folder, file: p.file };
-    });
-    return P.buildScript(list, { library: settings[libKey()], mode: settings.mode, platform: settings.platform });
-  }
-
   // ---------- Events ----------
   function on(id, ev, fn) { $(id).addEventListener(ev, fn); }
 
-  // In the desktop app, use the system's own file pickers (they hand Shelf real file locations).
-  if (native) {
-    ['fileInput', 'folderInput'].forEach(function (id) {
-      on(id, 'click', function (e) {
-        e.preventDefault();
-        (id === 'fileInput' ? native.pickFiles() : native.pickFolder()).then(addFiles);
-      });
-    });
+  // The system's own file pickers hand Shelf the real file locations.
+  function pickFiles() { native.pickFiles().then(addFiles); }
+  function pickFolder() { native.pickFolder().then(addFiles); }
+  on('chooseFiles', 'click', pickFiles);
+  on('chooseFolder', 'click', pickFolder);
+  {
     on('pickLib', 'click', function () {
       native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('renameNow').disabled = !readyItems().length; } });
     });
@@ -616,13 +554,11 @@
     on('openLib', 'click', function () { native.showLibrary(); });
   }
 
-  on('fileInput', 'change', function (e) { addFiles(fromFileList(e.target.files)); e.target.value = ''; });
-  on('folderInput', 'change', function (e) { addFiles(fromFileList(e.target.files)); e.target.value = ''; });
   on('sampleBtn', 'click', function () {
     addFiles(SAMPLES.map(function (n) { return { name: n, relPath: n, size: 0 }; }));
     if (!settings.tmdbKey) toast('Movies need a free TMDB key — add it in Settings. TV works right away.');
   });
-  on('addBtn', 'click', function () { if (native) native.pickFiles().then(addFiles); else $('fileInput').click(); });
+  on('addBtn', 'click', pickFiles);
   on('retryBtn', 'click', retryFailed);
   on('clearBtn', 'click', function () { items = []; selectedId = null; filter = 'all'; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
@@ -631,7 +567,7 @@
     if (idx < 0) return;
     items.splice(idx, 1);
     selectedId = items.length ? items[Math.min(idx, items.length - 1)].id : null;
-    normalisePaths(); render();
+    render();
   });
 
   document.querySelectorAll('[data-open]').forEach(function (b) {
@@ -643,24 +579,6 @@
   document.querySelectorAll('#modeSeg button').forEach(function (b) {
     b.addEventListener('click', function () { settings.mode = b.dataset.mode; save('mode', settings.mode); syncMode(); });
   });
-  document.querySelectorAll('#osSeg button').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var k = libKey(); settings[k] = $('libInput').value.trim() || settings[k]; save(k, settings[k]);
-      settings.platform = b.dataset.os; save('platform', settings.platform); syncPlatform();
-    });
-  });
-
-  on('dlScript', 'click', function () {
-    var s = buildScripts();
-    download('shelf-rename.' + s.ext, s.script);
-    toast('Downloaded shelf-rename.' + s.ext);
-  });
-  on('dlUndo', 'click', function () {
-    var s = buildScripts();
-    download('shelf-undo.' + s.ext, s.undo);
-    toast('Downloaded shelf-undo.' + s.ext);
-  });
-
   on('searchForm', 'submit', function (e) {
     e.preventDefault();
     var item = items.filter(function (i) { return i.id === selectedId; })[0];
@@ -668,6 +586,7 @@
     if (!item || !q) return;
     item.kind = $('searchKind').value;
     item.needsKey = false;
+    if (item.linkTo) { item.linkTo = null; item.unlinked = true; }
     matchItem(item, q);
   });
 
@@ -684,22 +603,17 @@
       saveKey(key); render();
     }).catch(function () { status.textContent = 'TMDB didn\'t accept that key. Copy it again from themoviedb.org → Settings → API.'; });
   });
-  on('optRemember', 'change', function (e) {
-    settings.rememberKey = e.target.checked; save('rememberKey', settings.rememberKey); saveKey(settings.tmdbKey);
-    toast(settings.rememberKey ? 'Your key will be remembered on this device.' : 'Your key will be forgotten when you close this tab.');
-  });
   on('optPosters', 'change', function (e) { settings.posters = e.target.checked; save('posters', settings.posters); render(); });
   on('forgetKey', 'click', function () {
-    saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this browser.'; render();
+    saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this computer.'; render();
   });
   on('eraseAll', 'click', function () {
-    eraseEverything();
-    if (native) native.eraseAll();
+    native.eraseAll();
     items = []; selectedId = null; filter = 'all';
-    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.posters = true; settings.rememberKey = true;
+    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.posters = true; settings.mode = 'move';
     $('privacySheet').close();
     render();
-    toast('Erased. Shelf has nothing stored in this browser.');
+    toast('Erased. Shelf has nothing stored on this computer.');
   });
   on('optIds', 'change', function (e) { settings.movieIds = e.target.checked; save('movieIds', settings.movieIds); render(); });
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
@@ -717,7 +631,19 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { dragDepth = 0; handleDrop(e); });
 
-  // Keyboard: arrow keys move through the list
+  // Keyboard shortcuts
+  document.addEventListener('keydown', function (e) {
+    var mod = e.ctrlKey || e.metaKey;
+    var typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+    var sheetOpen = !!document.querySelector('dialog[open]');
+    var k = e.key.toLowerCase();
+    if (mod && k === 'o') { e.preventDefault(); if (e.shiftKey) pickFolder(); else pickFiles(); return; }
+    if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
+    if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
+    if (mod && k === 'z' && !typing && !sheetOpen) { if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !sheetOpen && selectedId) { e.preventDefault(); $('removeBtn').click(); }
+  });
+  // Arrow keys move through the list
   document.addEventListener('keydown', function (e) {
     if (!items.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -730,9 +656,12 @@
   window.addEventListener('error', function (e) { toast('Something went wrong: ' + (e.message || 'unknown error')); });
   window.addEventListener('unhandledrejection', function (e) { toast('Something went wrong: ' + ((e.reason && e.reason.message) || 'unknown error')); });
 
-  if (native) {
-    native.getKey().then(function (k) { settings.tmdbKey = k || ''; render(); });
-  }
+  native.getKey().then(function (k) { settings.tmdbKey = k || ''; render(); });
+  native.version().then(function (v) { $('appVersion').textContent = 'Version ' + v; });
+  on('checkUpdates', 'click', function () {
+    // Opens the downloads page in your browser. Shelf itself never checks in anywhere.
+    window.open('https://github.com/Groot36-yep/shelf/releases/latest', '_blank');
+  });
 
   render();
   window.Shelf = { addFiles: addFiles, items: function () { return items; } }; // handy for testing

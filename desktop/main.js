@@ -6,13 +6,13 @@
  */
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, safeStorage, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, safeStorage, Menu, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const fileops = require('./fileops');
 
-const APP_ROOT = path.join(__dirname, '..');
+const APP_ROOT = path.join(__dirname, '..', 'app');
 const ORIGIN = 'app://shelf';
 const SERVED = new Set(['index.html', 'css', 'js', 'assets']); // the only things the window can load
 
@@ -32,8 +32,17 @@ const secretPath = () => path.join(app.getPath('userData'), 'tmdb-key.bin');
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
 function writePrefs(p) { fs.mkdirSync(path.dirname(prefsPath()), { recursive: true }); fs.writeFileSync(prefsPath(), JSON.stringify(p)); }
 
+// On Windows the minimise / maximise / close buttons sit inside Shelf's own toolbar.
+function overlayColors() {
+  return nativeTheme.shouldUseDarkColors
+    ? { color: '#232326', symbolColor: '#F2F2F7', height: 52 }
+    : { color: '#FBFBFD', symbolColor: '#1D1D1F', height: 52 };
+}
+
 function createWindow() {
+  const isWin = process.platform === 'win32';
   win = new BrowserWindow({
+    ...(isWin ? { titleBarStyle: 'hidden', titleBarOverlay: overlayColors() } : {}),
     width: 1320,
     height: 840,
     minWidth: 760,
@@ -53,10 +62,12 @@ function createWindow() {
     }
   });
   win.once('ready-to-show', () => win.show());
+  if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayColors()); });
   win.loadURL(ORIGIN + '/index.html');
 
   // Never navigate away; open approved web links in the normal browser instead.
   const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|creativecommons\.org|github\.com)\//;
+  // (The About screen's "Check for Updates" opens the GitHub releases page here, in your browser.)
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (OK_LINKS.test(url)) shell.openExternal(url);
@@ -114,6 +125,7 @@ app.whenReady().then(() => {
     return remember(await fileops.expand(paths.filter((p) => typeof p === 'string' && path.isAbsolute(p)).slice(0, 500)));
   });
 
+  handle('shelf:version', async () => app.getVersion());
   handle('shelf:getLibrary', async () => readPrefs().library || '');
   handle('shelf:pickLibrary', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose your Plex library folder', properties: ['openDirectory', 'createDirectory'] });
