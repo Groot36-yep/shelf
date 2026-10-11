@@ -73,14 +73,27 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 5–30 seconds per video.
 
-## Splitting a half-hour into one file per cartoon
+## Check Episodes: see what's really in a file (and split it, if you want)
 
-When a file's cartoons aren't next to each other in the episode list (or you'd just like each cartoon
-on its own), click **Split…**. After you OK the prompt, a window plays the video with a timeline and
-Shelf's suggested cut: the black, silent moment before the next title card. Scrub, play around the
-cut, or click a frame to move it; check (and **Change…**) which episode each part is; then **Use This
-Split**. Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your
-original is kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
+Every TV file shows **Shelf thinks this file is…** with the episode codes and titles, and *how*
+Shelf knows (title cards, the title in the file name, or just the number). **Change…** opens an
+episode browser (season tabs, search by title or `S01E08`). **Check Episodes…** opens the video,
+after a prompt, in a window built for checking:
+
+- A player with frame-by-frame stepping (hold to repeat), ±1 s / ±5 s, ¼×–2× speed and
+  "Play Around Cut".
+- A timeline you can zoom from the whole video down to 6 seconds, with a picture strip. Press
+  and drag anywhere to scrub; the playhead never moves a cut by accident.
+- Title cards Shelf read are marked; **‹ Card / Card ›** jumps between them, and each episode
+  shows the actual frame Shelf read, so you can see whether it's right.
+- **One File** keeps one name (listing every episode in it, if they're in a row), or **Split Into
+  Files** gives each episode its own file. Shelf suggests each cut at the black, silent moment
+  before the next episode. You move a cut only with **Set Cut Here** (or add and remove cuts).
+- Formats the built-in player can't show (like HEVC) switch to a frame preview that scrubs
+  instantly.
+
+Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your original is
+kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
 
 ## Settings
 

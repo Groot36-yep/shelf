@@ -2,6 +2,17 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.6)
+- **Drag and drop fixed**: dropped files and folders are added (the file locations were being lost).
+- **Check Episodes window** (replaces the split window): works on any TV file without scanning;
+  One File or Split Into Files; true scrubber (cuts only move with Set Cut Here / Add Cut);
+  zoomable timeline with picture strip and overview; frame step, ±1/±5 s, speed; jump between
+  title cards; each part shows the frame Shelf read as its title card; clear button feedback;
+  instant frame preview for formats that can't play.
+- **Episode browser**: season tabs, search across all seasons, keyboard, current episode marked.
+- **Side panel**: "Shelf thinks this file is…" with codes, titles and how it knows.
+- **Second title cards**: Shelf now looks right after black moments first (found on the first try in testing).
+
 ## Done (1.5)
 - Live feedback while reading title cards: Queued / Reading N% per video, a done flash, and a progress bar with Stop.
 - **Split window**: a half-hour holding two cartoons can be split into one file per cartoon, *only if you choose it*.
@@ -12,7 +23,7 @@ Where things stand, and what's left to do. Newest first.
 - "Wrong episode? Choose…" in the side panel, to pick any episode by title or number.
 
 ## To do next
-1. **Try it on real episodes** (your own files) and report anything named wrong: file name, what Shelf picked, what it should be.
+1. **Try 1.6 on real episodes** (your own files) and report anything that feels clunky or named wrong.
 2. **Subtitles for split videos**: split `.srt` files at the same point (shift the second half's times) instead of leaving them alone.
 3. **Apply to the whole show**: "Split every half-hour of this show" in one go, reusing the same cut logic per file,
    with a review list before anything is written.
