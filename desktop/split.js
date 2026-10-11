@@ -108,21 +108,41 @@ async function planCuts(file, cardTimes) {
 }
 
 /** Copy one piece of `file` (from start to end seconds) into `dest`, losslessly. */
+// ffmpeg's name for each container (the piece keeps the original's).
+const FORMAT = { mkv: 'matroska', mp4: 'mp4', m4v: 'mp4', mov: 'mov', avi: 'avi', ts: 'mpegts', m2ts: 'mpegts', webm: 'webm', mpg: 'mpeg', mpeg: 'mpeg', wmv: 'asf' };
+
 async function writePiece(file, start, end, dest) {
-  // Exact cut: read from the start and drop what's before `start` (seeking can land on an
-  // earlier keyframe when a file's index is sparse). Copying is quick, so this is still fast.
-  const args = ['-loglevel', 'error', '-y', '-i', file];
-  if (start > 0) args.push('-ss', String(start));
-  args.push('-t', String(end - start),
-    '-map', '0:v?', '-map', '0:a?', '-map', '0:s?', '-map', '0:t?',
-    '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-map_metadata', '0', '-map_chapters', '-1');
-  args.push(dest);
-  await ffmpeg(args, 900000);
+  // ffmpeg's segment mode cuts a copied stream exactly at keyframes. (Simply trimming with -ss/-t
+  // can drop the keyframe at the cut, because frames are stored in a slightly different order
+  // than they're shown; the piece would then start seconds late and lose its title card.)
+  const ext = path.extname(dest).slice(1).toLowerCase();
+  const fmt = FORMAT[ext] || ext;
+  const secs = await probe.duration(file);
+  const times = [];
+  if (start > 0.05) times.push(start);
+  if (!secs || end < secs - 0.05) times.push(end);
+  const want = start > 0.05 ? 1 : 0; // which segment is this piece
+  const pattern = dest + '.part%d.' + ext;
+  const made = (k) => dest + '.part' + k + '.' + ext;
+  const args = ['-loglevel', 'error', '-y', '-i', file,
+    '-map', '0:v?', '-map', '0:a?', '-map', '0:s?'].concat(fmt === 'matroska' ? ['-map', '0:t?'] : [], [
+    '-c', 'copy', '-map_metadata', '0', '-map_chapters', '-1',
+    '-f', 'segment', '-segment_format', fmt, '-reset_timestamps', '1']);
+  // A hair early (less than a frame): a keyframe at 660.667 may be stored as 660.6669, and the
+  // segment mode would then skip to the next keyframe.
+  if (times.length) args.push('-segment_times', times.map((t) => Math.max(0, t - 0.02).toFixed(3)).join(','));
+  args.push(pattern);
+  try {
+    await ffmpeg(args, 900000);
+    await fsp.rename(made(want), dest);
+  } finally {
+    for (let k = 0; k < 4; k++) if (k !== want || !(await fsp.stat(dest).catch(() => null))) await fsp.unlink(made(k)).catch(() => {});
+  }
   const got = await probe.duration(dest);
-  const want = end - start;
-  if (!got || Math.abs(got - want) > Math.max(3, want * 0.02)) {
+  const len = end - start;
+  if (!got || Math.abs(got - len) > Math.max(3, len * 0.02)) {
     await fsp.unlink(dest).catch(() => {});
-    throw new Error('A piece came out the wrong length (' + Math.round(got || 0) + ' s instead of ' + Math.round(want) + ' s), so it was removed');
+    throw new Error('A piece came out the wrong length (' + Math.round(got || 0) + ' s instead of ' + Math.round(len) + ' s), so it was removed');
   }
   return got;
 }

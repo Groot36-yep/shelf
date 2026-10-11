@@ -22,7 +22,8 @@ function fakeMixed(file) {
   const card = (t, title, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:t=fill,drawtext=enable='between(t,${t},${t + 4})':text='${title}':fontfile=${FONT}:fontsize=48:fontcolor=yellow:borderw=4:bordercolor=0x5a2d0c:x=(w-tw)/2:y=(h-th)/2`;
   execFileSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=480x270:r=12:d=1320', '-f', 'lavfi', '-i', 'sine=f=440:r=16000:d=1320',
     '-vf', `drawbox=enable='between(t,659.0,660.6)':color=black:t=fill,${card(62, 'Pizza Delivery', '0x3d9be9')},${card(663, 'Pickles', '0xe95b3d')}`,
-    '-af', "volume=enable='between(t,659.0,660.6)':volume=0", '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '48', '-c:a', 'aac', '-b:a', '48k', file]);
+    // B-frames like real episodes (frames stored in a different order than shown).
+    '-af', "volume=enable='between(t,659.0,660.6)':volume=0", '-c:v', 'libx264', '-preset', 'veryfast', '-bf', '3', '-g', '48', '-c:a', 'aac', '-b:a', '48k', file]);
 }
 function fakeSingle(file) {
   execFileSync(process.env.FFMPEG || 'ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=480x270:r=12:d=660', '-f', 'lavfi', '-i', 'sine=f=300:r=16000:d=660',
@@ -35,7 +36,7 @@ function fakeSingle(file) {
   fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(lib);
   const src = path.join(dir, 'SpongeBob.S01E05.mp4');
   fakeMixed(src);
-  const single = path.join(dir, 'SpongeBob.S01E30.mp4'); // really "Hall Monitor" (S01E14); no title cards
+  const single = path.join(dir, 'SpongeBob.S01E30.mkv'); // really "Hall Monitor" (S01E14); no title cards
   fakeSingle(single);
   const srcSize = fs.statSync(src).size;
   // Its subtitles: a text one (cut along with the video) and a picture one (left alone).
@@ -72,7 +73,7 @@ function fakeSingle(file) {
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
 
   // ---- A. A file never scanned: Check Episodes works straight away (#2.6) ----
-  await pick('SpongeBob.S01E30.mp4'); await sleep(200);
+  await pick('SpongeBob.S01E30.mkv'); await sleep(200);
   assert.ok(await win.isVisible('#inspEpWrap'), 'episode card shown');
   console.log('card for unscanned file:', (await win.textContent('#inspEpList')).trim(), '|', await win.textContent('#inspEpWhy'));
   await win.click('#checkEps');
@@ -96,7 +97,7 @@ function fakeSingle(file) {
   await win.click('#edSave'); await sleep(400);
   assert.ok(!(await win.isVisible('#editorSheet')));
   const nm = await win.textContent('#inspFile');
-  assert.match(nm, /SpongeBob SquarePants - S01E14 - Hall Monitor\.mp4/, 'saved name: ' + nm);
+  assert.match(nm, /SpongeBob SquarePants - S01E14 - Hall Monitor\.mkv/, 'saved name: ' + nm);
   assert.match(await win.textContent('#inspEpWhy'), /You chose this/);
 
   // ---- B. The mixed file: read title cards, then check and split ----
@@ -141,9 +142,11 @@ function fakeSingle(file) {
   await win.click('#edZoomIn'); await win.click('#edZoomIn'); await sleep(300);
   s = await ed();
   assert.ok(s.view.b - s.view.a < span0, 'zoomed in');
-  await sleep(1200);
+  const tStrip = Date.now();
+  for (let i = 0; i < 80; i++) { await sleep(100); if (await win.evaluate(() => { const s = ShelfEditor._state(), im = document.getElementById('edStripImg'); return !!(s.tlStrip && Math.abs(s.tlStrip.a - s.view.a) < 0.01 && im.complete && im.naturalWidth > 0); })) break; }
+  console.log('zoomed strip ready after', Date.now() - tStrip, 'ms');
   const strip = await win.evaluate(() => { const i = document.getElementById('edStripImg'); const s = ShelfEditor._state(); return { src: i.src, ok: i.complete && i.naturalWidth > 0, a: s.tlStrip && s.tlStrip.a, b: s.tlStrip && s.tlStrip.b, va: s.view.a, vb: s.view.b }; });
-  assert.match(strip.src, /shelf-media:\/\/s\//, 'picture strip loaded for the zoomed view');
+  assert.match(strip.src, /shelf-media:\/\/s\//, 'picture strip loaded for the zoomed view: ' + JSON.stringify(strip) + ' ' + JSON.stringify(await win.evaluate(() => ({ want: ShelfEditor._state().wantStrip, loading: document.getElementById('edStrip').className }))));
   assert.ok(strip.ok && Math.abs(strip.a - strip.va) < 0.01 && Math.abs(strip.b - strip.vb) < 0.01, 'strip matches the view: ' + JSON.stringify(strip));
 
   // Frame step (#2.2): one key press = one frame.
@@ -183,6 +186,7 @@ function fakeSingle(file) {
   await win.click('#edPanel .ed-part:nth-child(2) .pill');
   await win.fill('#ebSearch', 'pickles'); await win.keyboard.press('Enter'); await sleep(200);
   assert.deepStrictEqual((await ed()).parts, [10, 13]);
+  if (process.env.EVAL) console.log('EVAL:', JSON.stringify(await win.evaluate(process.env.EVAL)));
   if (SHOT) { await win.click('#edZoomOut'); await sleep(900); await win.screenshot({ path: path.join(SHOT, 'editor-split.png') }); }
 
   // Save → rename → two files; undo
@@ -204,7 +208,7 @@ function fakeSingle(file) {
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E10 - Pizza Delivery.mp4',
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E13 - Pickles.en.srt',
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E13 - Pickles.mp4',
-    'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E14 - Hall Monitor.mp4'
+    'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E14 - Hall Monitor.mkv'
   ]);
   const sub2 = fs.readFileSync(path.join(lib, made[2]), 'utf8');
   assert.doesNotMatch(summary, /still need/, 'the picture subtitle is not counted twice');
@@ -216,6 +220,13 @@ function fakeSingle(file) {
   const lens = [];
   for (const m of made.filter((x) => x.endsWith('.mp4')).slice(0, 2)) lens.push(await probe.duration(path.join(lib, m)));
   assert.ok(lens[0] >= 659 && lens[0] <= 662 && Math.abs(lens[0] + lens[1] - 1320) <= 2, 'pieces split at the gap: ' + lens);
+  // Each piece's first picture must play right at its start (a piece that starts on a missing
+  // keyframe has the right length but no picture for its first seconds, losing the title card).
+  for (const m of made.filter((x) => x.endsWith('.mp4')).slice(0, 2)) {
+    const info = require('child_process').spawnSync(process.env.FFMPEG || 'ffmpeg', ['-hide_banner', '-i', path.join(lib, m), '-frames:v', '1', '-vf', 'showinfo', '-f', 'null', '-'], { encoding: 'utf8' }).stderr;
+    const first = +((info.match(/pts_time:([\d.]+)/) || [])[1]);
+    assert.ok(first < 0.3, m + ': first picture at ' + first + ' s');
+  }
   assert.strictEqual(fs.statSync(src).size, srcSize, 'original untouched');
   await win.click('#undoBar'); await sleep(1200);
   assert.deepStrictEqual(walk(lib), [], 'undo removed everything');
@@ -236,7 +247,7 @@ function fakeSingle(file) {
   await sleep(200);
   await win.click('#edSaveNext'); await sleep(1200);
   assert.ok(await win.isVisible('#editorSheet'), 'next file opened');
-  assert.match(await win.textContent('#edFile'), /SpongeBob\.S01E30\.mp4.*File 2 of 2/);
+  assert.match(await win.textContent('#edFile'), /SpongeBob\.S01E30\.mkv.*File 2 of 2/);
   let pr = await app.evaluate(() => global.__prompts);
   assert.strictEqual(pr.length, 1, 'asked once for both files: ' + JSON.stringify(pr));
   assert.match(pr[0], /these 2 videos/);

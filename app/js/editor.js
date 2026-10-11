@@ -185,10 +185,17 @@
       if (video.videoWidth === 0) { useFrames('this video’s picture can’t play inside Shelf'); return; }
       seeking = false; pendingSeek = null; doSeek(st.t);
     };
-    video.onseeked = function () { seeking = false; if (pendingSeek != null) { var t = pendingSeek; pendingSeek = null; doSeek(t); } };
-    video.onplay = video.onpause = syncPlay;
+    video.onseeked = function () {
+      seeking = false;
+      if (pendingSeek != null) { var t = pendingSeek; pendingSeek = null; doSeek(t); return; }
+      // The real frame is on screen: take the quick preview picture (and any stand-in frame) away.
+      if (st && st.playable && !st.dragging) { $('edQuick').hidden = true; if (Math.abs(video.currentTime - st.t) < 0.06) { clearTimeout(assistTimer); $('edFrame').hidden = true; } }
+    };
+    video.onplay = function () { clearTimeout(assistTimer); $('edFrame').hidden = true; $('edQuick').hidden = true; syncPlay(); };
+    video.onpause = syncPlay;
     var whole = 'shelf-media://s/' + st.token + '?from=0&to=' + st.secs.toFixed(1) + '&n=48&w=96&key=1';
-    $('edOvStrip').src = whole; $('edStripBase').src = whole; st.baseStrip = { url: whole, a: 0, b: st.secs };
+    $('edStripBase').src = whole; st.baseStrip = { url: whole, a: 0, b: st.secs, n: 48 };
+    st.scrub = null; st.tlStrip = null; st.oldStrip = null;
     ['edStripImg', 'edStripOld'].forEach(function (id) { $(id).removeAttribute('src'); $(id).classList.add('is-off'); });
     $('edTotal').textContent = '/ ' + fmt(st.secs, false);
     lastHead = {}; syncPlay();
@@ -230,32 +237,65 @@
     seeking = true; seekStarted = Date.now();
     video.currentTime = t;
   }
-  function seek(t) {
+  function seek(t, dragging) {
     if (!st) return;
     t = clamp(t, 0, Math.max(0, st.secs - 0.04));
     st.t = t;
     // A jump that never reported back (rare) doesn't block the next one.
     if (seeking && Date.now() - seekStarted > 1500) seeking = false;
-    if (st.playable) { if (seeking || video.readyState < 1) pendingSeek = t; else doSeek(t); }
-    else showFrame(t);
-    keepInView(t);
+    if (st.playable) {
+      // While dragging, a quick preview picture follows your hand at once; the player catches up
+      // behind it, and the real frame replaces it the moment it's ready.
+      if (dragging) proxy($('edQuick'), t);
+      if (seeking || video.readyState < 1) pendingSeek = t; else doSeek(t);
+      if (!dragging) assist(t);
+    } else showFrame(t);
+    if (!dragging) keepInView(t);
     drawHead();
+  }
+  // Some videos (many MKVs) make the player read through the file to reach a spot, so a jump can
+  // take a while. If the player hasn't caught up shortly after you stop, show the exact frame
+  // (fetched directly, which is fast) until it has.
+  var assistTimer = 0;
+  function assist(t) {
+    clearTimeout(assistTimer);
+    assistTimer = setTimeout(function () {
+      if (!st || !st.playable || st.dragging || !video.paused || Math.abs(st.t - t) > 0.001) return;
+      if (!seeking && pendingSeek == null && Math.abs(video.currentTime - t) < 0.06) return;
+      var img = new Image();
+      img.onload = function () {
+        if (!st || Math.abs(st.t - t) > 0.001 || st.dragging) return;
+        if (!seeking && pendingSeek == null && Math.abs(video.currentTime - t) < 0.06) return; // caught up meanwhile
+        var f = $('edFrame'); f.src = img.src; f.hidden = false; $('edQuick').hidden = true;
+      };
+      img.src = 'shelf-media://f/' + st.token + '?t=' + t.toFixed(3) + '&w=1280&slot=exact';
+    }, 120);
+  }
+  // The best quick picture for a moment: the dense one for this view, else the whole-video one.
+  function proxyFor(t) {
+    var list = [st.scrub, st.tlStrip, st.baseStrip];
+    for (var k = 0; k < list.length; k++) { var x = list[k]; if (x && x.n && t >= x.a && t <= x.b) return x; }
+    return null;
+  }
+  function proxy(node, t) {
+    var tl = proxyFor(t);
+    if (!tl) return false;
+    var i = clamp(Math.round((t - tl.a) / (tl.b - tl.a) * tl.n - 0.5), 0, tl.n - 1);
+    node.style.backgroundImage = 'url("' + tl.url + '")';
+    node.style.backgroundSize = (tl.n * 100) + '% 100%';
+    node.style.backgroundPosition = (tl.n > 1 ? i / (tl.n - 1) * 100 : 0) + '% 0';
+    node.hidden = false;
+    return true;
   }
   // Without the player: show the nearest strip frame at once, then the exact frame when you pause.
   function showFrame(t) {
-    var tl = st.scrub && t >= st.scrub.a && t <= st.scrub.b ? st.scrub : st.tlStrip;
-    if (tl && t >= tl.a && t <= tl.b) {
-      var i = clamp(Math.round((t - tl.a) / (tl.b - tl.a) * tl.n - 0.5), 0, tl.n - 1);
-      var q = $('edQuick'); q.style.backgroundImage = 'url("' + tl.url + '")';
-      q.style.backgroundSize = (tl.n * 100) + '% 100%';
-      q.style.backgroundPosition = (tl.n > 1 ? i / (tl.n - 1) * 100 : 0) + '% 0';
-    }
+    proxy($('edQuick'), t);
     clearTimeout(frameTimer);
     frameTimer = setTimeout(function () {
       if (!st) return;
       var img = new Image();
       img.onload = function () { if (st && Math.abs(st.t - t) < 0.01) { $('edFrame').src = img.src; } };
-      img.src = 'shelf-media://f/' + st.token + '?t=' + t.toFixed(3) + '&w=960';
+      img.src = 'shelf-media://f/' + st.token + '?t=' + t.toFixed(3) + '&w=960&slot=exact';
     }, 110);
   }
   function now() { return st ? (st.playable && !seeking && pendingSeek == null ? video.currentTime : st.t) : 0; }
@@ -300,11 +340,10 @@
   function drawHead() {
     if (!st) return;
     var t = st.t, txt = fmt(t);
-    if (lastHead.clock !== txt) { $('edClock').textContent = txt; $('edBubble').textContent = txt; lastHead.clock = txt; }
+    if (lastHead.clock !== txt) { $('edClock').textContent = txt; lastHead.clock = txt; }
     var v = st.view, pct = (t - v.a) / (v.b - v.a) * 100, head = $('edHead');
     head.style.left = pct + '%'; head.hidden = pct < 0 || pct > 100;
-    head.classList.toggle('flip', pct > 82);
-    $('edOvHead').style.left = (t / st.secs * 100) + '%';
+
     // Which part / episode you're in: chip on the picture, highlighted in the lane and the panel.
     var i = partAt(t), split = st.mode === 'split', part = split ? st.parts[i] : null;
     var key = st.mode + ':' + i + ':' + (part && part.entry ? keyOf(part.entry) : '');
@@ -330,6 +369,7 @@
         $('edCardTime').textContent = fmt(tg.c.t, false);
         $('edCardJump').classList.toggle('is-at', tg.at);
         $('edCardJump').title = tg.at ? 'You’re at the title card Shelf read for “' + tg.c.name + '”' : 'Jump to the title card “' + tg.c.name + '” (' + fmt(tg.c.t) + ')';
+        document.querySelectorAll('#edCardList .ed-chip').forEach(function (n) { n.classList.toggle('is-at', tg.at && n.dataset.key === tg.c.key); });
       }
     }
   }
@@ -402,10 +442,8 @@
         : (st.oneEntries.length ? [el('code', { text: st.oneEntries.map(code).join(' + ') }), el('span', { text: st.oneEntries.map(function (x) { return x.name; }).join(' & ') })] : [el('span', { text: 'Choose which episode this is' })]);
       lane.push(el('div', { class: 'ed-seg' + ((split ? !e : !st.oneEntries.length) ? ' is-empty' : '') + (split && i === cur ? ' is-cur' : ''), 'data-part': i % 2,
         style: 'left:' + X(b[i]) + '%;width:' + ((b[i + 1] - b[i]) / span * 100) + '%' }, [el('div', {}, label)]));
-      ov.push(el('div', { class: 'ed-band', 'data-part': i % 2, style: 'left:' + (b[i] / st.secs * 100) + '%;width:' + ((b[i + 1] - b[i]) / st.secs * 100) + '%' }));
     }
     $('edParts').replaceChildren.apply($('edParts'), lane);
-    $('edOvParts').replaceChildren.apply($('edOvParts'), ov);
     // Marks: quiet gaps, title cards, cuts
     var mk = [], om = [];
     st.gaps.forEach(function (g) {
@@ -413,23 +451,16 @@
       mk.push(el('div', { class: 'ed-gap ' + g.kind, title: (g.kind === 'black' ? 'Black screen ' : 'Silence ') + fmt(g.a) + ' – ' + fmt(g.b), style: 'left:' + X(g.a) + '%;width:' + Math.max(0.2, (g.b - g.a) / span * 100) + '%' }));
     });
     st.cards.forEach(function (c) {
-      om.push(el('div', { class: 'ed-card-dot', style: 'left:' + (c.t / st.secs * 100) + '%' }));
       if (c.t < v.a || c.t > v.b) return;
-      mk.push(el('div', { class: 'ed-card', style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', title: 'Title card “' + c.name + '”, read at ' + fmt(c.t) + '. Click to go there.',
-        onpointerdown: function (ev) { ev.stopPropagation(); }, onclick: function (ev) { ev.stopPropagation(); goCard(c); }, text: c.name })]));
+      mk.push(el('div', { class: 'ed-card', style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', 'data-card': c.key, title: 'Title card “' + c.name + '”, read at ' + fmt(c.t) + '. Click to go there.', text: c.name })]));
     });
     if (split) st.cuts.forEach(function (c, k) {
-      om.push(el('div', { class: 'ed-cut-dot', style: 'left:' + (c / st.secs * 100) + '%' }));
       if (c < v.a || c > v.b) return;
-      mk.push(el('button', { type: 'button', class: 'ed-cut' + (k === st.sel ? ' is-sel' : '') + (k === st.justSet ? ' is-new' : ''), style: 'left:' + X(c) + '%', title: 'Cut ' + (k + 1) + ' at ' + fmt(c) + '. Click to select it and go there. It only moves with Set Cut Here.',
-        onpointerdown: function (ev) { ev.stopPropagation(); }, onclick: function (ev) { ev.stopPropagation(); st.sel = k; seek(c); flash(); drawAll(); } }, [el('span', {}, [scissors(), String(k + 1)])]));
+      mk.push(el('div', { class: 'ed-cut' + (k === st.sel ? ' is-sel' : '') + (k === st.justSet ? ' is-new' : '') + (st.dragCut === k ? ' is-drag' : ''), 'data-cut': k, style: 'left:' + X(c) + '%',
+        title: 'Split point ' + (k + 1) + ' at ' + fmt(c) + '. Drag this handle to move it (it snaps to the black gap); click to go there.' }, [el('span', { class: 'ed-cut-grip' }, [scissors(), String(k + 1)])]));
     });
     st.justSet = null;
     $('edMarks').replaceChildren.apply($('edMarks'), mk);
-    $('edOvMarks').replaceChildren.apply($('edOvMarks'), om);
-    // Overview window
-    $('edOvView').style.left = (v.a / st.secs * 100) + '%'; $('edOvView').style.width = (span / st.secs * 100) + '%';
-    $('edOvView').hidden = st.zoom === 0 && span >= st.secs - 0.01;
     lastHead.part = null;
     drawHead();
     // Pictures: the whole-video strip underneath (always there), the last detailed strip stretched
@@ -447,7 +478,7 @@
     var box = $('edStrip'), w = box.clientWidth || 600, h = box.clientHeight || 62;
     var n = clamp(Math.round(w / (h * 16 / 9)), 4, 24);
     var key = span > 150 ? 1 : 0;
-    var url = 'shelf-media://s/' + st.token + '?from=' + v.a.toFixed(2) + '&to=' + v.b.toFixed(2) + '&n=' + n + '&w=192&key=' + key;
+    var url = 'shelf-media://s/' + st.token + '?from=' + v.a.toFixed(2) + '&to=' + v.b.toFixed(2) + '&n=' + n + '&w=192&key=' + key + '&slot=view';
     if (st.tlStrip && st.tlStrip.url === url) return;
     var want = { url: url, a: v.a, b: v.b, n: n };
     st.wantStrip = url;
@@ -463,13 +494,14 @@
     };
     box.classList.add('is-loading');
     img.src = url;
-    // Without the player: a dense strip (2 frames a second) for instant scrubbing in this view.
-    if (!st.playable) {
+    // Quick pictures for this view (up to 2 a second): what you see instantly while scrubbing
+    // and skimming, before the exact frame arrives.
+    {
       var dn = clamp(Math.round(span * 2), 8, 160), dkey = span > 120 ? 1 : 0;
-      var durl = 'shelf-media://s/' + st.token + '?from=' + v.a.toFixed(2) + '&to=' + v.b.toFixed(2) + '&n=' + dn + '&w=192&key=' + dkey;
+      var durl = 'shelf-media://s/' + st.token + '?from=' + v.a.toFixed(2) + '&to=' + v.b.toFixed(2) + '&n=' + dn + '&w=192&key=' + dkey + '&slot=dense';
       if (!st.scrub || st.scrub.url !== durl) {
         var dimg = new Image();
-        dimg.onload = function () { if (st) { st.scrub = { url: durl, a: v.a, b: v.b, n: dn }; showFrame(st.t); } };
+        dimg.onload = function () { if (st) { st.scrub = { url: durl, a: v.a, b: v.b, n: dn }; if (!st.playable) showFrame(st.t); } };
         dimg.src = durl;
       }
     }
@@ -604,8 +636,22 @@
 
   // ---- The parts / episodes panel ----
   function drawAll() { drawTimeline(); drawPanel(); }
+  // The row of title cards under the timeline: every card Shelf read, one click away.
+  function drawCards() {
+    var box = $('edCards'), list = $('edCardList');
+    box.hidden = !st.cards.length;
+    list.replaceChildren.apply(list, st.cards.map(function (c, i) {
+      var part = st.mode === 'split' ? partAt(cardStart(c) + 0.5) : -1;
+      return el('button', { type: 'button', class: 'ed-chip', 'data-key': c.key, title: 'Go to the title card “' + c.name + '” (' + fmt(c.t) + ')', onclick: function () { goCard(c); } }, [
+        el('img', { src: 'shelf-media://f/' + st.token + '?t=' + c.t.toFixed(2) + '&w=160', alt: '' }),
+        el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + fmt(c.t, false) })])
+      ]);
+    }));
+    lastHead.card = null;
+  }
   function drawPanel() {
     if (!st) return;
+    drawCards();
     var box = $('edPanel'); box.textContent = '';
     var split = st.mode === 'split';
     $('edPanelTitle').textContent = split ? 'Parts — each becomes its own file' : 'Episodes in this file';
@@ -716,43 +762,110 @@
   // ---- Wiring ----
   function wire() {
     ebWire();
-    var tl = $('edTimeline'), ov = $('edOverview');
-    var scrubbing = false;
-    function tAt(ev, box, whole) {
-      var r = box.getBoundingClientRect(), f = clamp((ev.clientX - r.left) / r.width, 0, 1);
-      return whole ? f * st.secs : st.view.a + f * (st.view.b - st.view.a);
+    var tl = $('edTimeline');
+    var drag = null; // { mode: 'scrub' | 'cut', k, x }
+    function fracAt(ev) { var r = tl.getBoundingClientRect(); return clamp((ev.clientX - r.left) / r.width, 0, 1); }
+    function tAt(ev) { return st.view.a + fracAt(ev) * (st.view.b - st.view.a); }
+    // Snap a moving split point to the black gap or a title card when it's close (on screen).
+    function snapCut(t) {
+      var near = (st.view.b - st.view.a) * 0.012, best = t, bd = near;
+      st.gaps.forEach(function (g) { if (g.kind !== 'black') return; [g.a, g.b, (g.a + g.b) / 2].forEach(function (x) { if (Math.abs(x - t) < bd) { bd = Math.abs(x - t); best = x; } }); });
+      st.cards.forEach(function (c) { var x = cardStart(c) - 0.5; if (Math.abs(x - t) < bd) { bd = Math.abs(x - t); best = x; } });
+      return best;
     }
-    // Timeline: press and drag anywhere = scrub the playhead (never moves a cut).
+    function moveTo(ev) {
+      if (!drag) return;
+      var t = tAt(ev);
+      if (drag.mode === 'cut') {
+        var k = drag.k, lo = (k ? st.cuts[k - 1] : 0) + minPart(), hi = (k < st.cuts.length - 1 ? st.cuts[k + 1] : st.secs) - minPart();
+        t = clamp(snapCut(t), lo, hi);
+        st.cuts[k] = t; drawTimeline(true);
+      }
+      seek(t, true);
+    }
+    // Near the left or right edge while dragging, the timeline glides along (it never jumps).
+    var edgeRaf = 0;
+    function edgeScroll() {
+      if (!drag || !st) { edgeRaf = 0; return; }
+      var f = drag.f, span = st.view.b - st.view.a, push = f < 0.04 ? (f - 0.04) / 0.04 : f > 0.96 ? (f - 0.96) / 0.04 : 0;
+      if (push) {
+        var a = clamp(st.view.a + push * span * 0.02, 0, Math.max(0, st.secs - span));
+        if (a !== st.view.a) { st.view = { a: a, b: a + span }; drawTimeline(true); moveTo(drag.ev); }
+      }
+      edgeRaf = requestAnimationFrame(edgeScroll);
+    }
     tl.addEventListener('pointerdown', function (ev) {
       if (!st || ev.button !== 0) return;
-      scrubbing = true; tl.setPointerCapture(ev.pointerId); tl.classList.add('is-scrubbing');
+      if (ev.target.closest('.ed-card button')) return; // title-card flags are buttons (click to go)
+      var cutEl = ev.target.closest('.ed-cut');
+      ev.preventDefault();
+      tl.setPointerCapture(ev.pointerId);
       st.wasPlaying = st.playable && !video.paused; video.pause();
-      seek(tAt(ev, tl));
+      drag = { mode: cutEl && st.mode === 'split' ? 'cut' : 'scrub', k: cutEl ? +cutEl.dataset.cut : -1, x: ev.clientX, moved: false, ev: ev, f: fracAt(ev) };
+      st.dragging = true;
+      if (drag.mode === 'cut') { st.sel = drag.k; st.dragCut = drag.k; tl.classList.add('is-cutting'); seek(st.cuts[drag.k], true); drawPanel(); }
+      else { tl.classList.add('is-scrubbing'); seek(tAt(ev), true); }
+      $('edPeek').classList.remove('on');
+      if (!edgeRaf) edgeRaf = requestAnimationFrame(edgeScroll);
     });
     tl.addEventListener('pointermove', function (ev) {
       if (!st) return;
-      var t = tAt(ev, tl);
-      $('edHover').style.left = ((t - st.view.a) / (st.view.b - st.view.a) * 100) + '%';
-      $('edHover').firstChild.textContent = fmt(t);
-      if (scrubbing) seek(t);
+      if (drag) {
+        drag.ev = ev; drag.f = fracAt(ev);
+        if (Math.abs(ev.clientX - drag.x) > 2) drag.moved = true;
+        if (drag.mode === 'scrub' || drag.moved) moveTo(ev);
+        return;
+      }
+      // Skimming: a preview of the frame under the mouse, without moving anything.
+      var t = tAt(ev), f = fracAt(ev), hov = $('edHover'), peek = $('edPeek');
+      hov.style.left = (f * 100) + '%';
+      if (proxy($('edPeekImg'), t)) {
+        var w = tl.clientWidth, pw = 168;
+        peek.style.left = clamp(f * w - pw / 2, 0, Math.max(0, w - pw)) + 'px';
+        $('edPeekTime').textContent = fmt(t);
+        peek.classList.add('on');
+      }
     });
-    tl.addEventListener('pointerleave', function () { $('edHover').style.left = '-100px'; });
-    function endScrub() { if (!scrubbing) return; scrubbing = false; tl.classList.remove('is-scrubbing'); if (st && st.wasPlaying) video.play(); }
-    tl.addEventListener('pointerup', endScrub); tl.addEventListener('pointercancel', endScrub);
-    // Wheel: scroll = move along; Ctrl/⌘ + scroll = zoom around the mouse.
+    tl.addEventListener('pointerleave', function () { if (!drag) { $('edHover').style.left = '-100px'; $('edPeek').classList.remove('on'); } });
+    function endDrag() {
+      if (!drag || !st) { drag = null; return; }
+      var d = drag; drag = null; st.dragging = false;
+      tl.classList.remove('is-scrubbing', 'is-cutting');
+      if (d.mode === 'cut') {
+        st.dragCut = null;
+        if (d.moved) snapAndSet(d.k, st.cuts[d.k]); // settle on the nearest clean cutting point
+        else { seek(st.cuts[d.k]); flash(); }
+        drawAll();
+      } else seek(st.t); // the exact frame (and the timeline follows if needed)
+      if (st.wasPlaying) video.play();
+    }
+    tl.addEventListener('pointerup', endDrag); tl.addEventListener('pointercancel', endDrag);
+    // Title-card flags on the timeline.
+    tl.addEventListener('click', function (ev) {
+      var b = ev.target.closest('.ed-card button');
+      if (b && st) { var c = st.cards.filter(function (x) { return x.key === b.dataset.card; })[0]; if (c) goCard(c); }
+    });
+    // Scroll = move along. Ctrl/⌘ + scroll or a pinch = zoom around the mouse (smoothly, a step at a time).
+    var zoomAcc = 0, zoomT = 0;
     tl.addEventListener('wheel', function (ev) {
       if (!st) return;
       ev.preventDefault();
-      if (ev.ctrlKey || ev.metaKey) { setZoom(st.zoom + (ev.deltaY < 0 ? 1 : -1), tAt(ev, tl)); return; }
-      var span = st.view.b - st.view.a, d = (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) / 600 * span;
-      var a = clamp(st.view.a + d, 0, Math.max(0, st.secs - span));
-      st.view = { a: a, b: a + span }; drawTimeline();
+      if (ev.ctrlKey || ev.metaKey) {
+        zoomAcc += ev.deltaY;
+        if (Date.now() - zoomT > 140 && Math.abs(zoomAcc) >= 24) {
+          var z = st.zoom + (zoomAcc < 0 ? 1 : -1); zoomAcc = 0; zoomT = Date.now();
+          if (z >= 0 && z < ZOOMS.length) {
+            // Keep the moment under the mouse where it is.
+            var f = fracAt(ev), t = tAt(ev), span = Math.min(ZOOMS[z] || st.secs, st.secs);
+            setZoom(z, t + (0.5 - f) * span);
+          }
+        }
+        return;
+      }
+      var span2 = st.view.b - st.view.a, d = (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) / 800 * span2;
+      var a = clamp(st.view.a + d, 0, Math.max(0, st.secs - span2));
+      if (a !== st.view.a) { st.view = { a: a, b: a + span2 }; drawTimeline(); }
     }, { passive: false });
-    // Overview: click or drag to jump there.
-    var ovDrag = false;
-    ov.addEventListener('pointerdown', function (ev) { if (!st) return; ovDrag = true; ov.setPointerCapture(ev.pointerId); if (st.playable) video.pause(); var t = tAt(ev, ov, true); setZoom(st.zoom, t, true); seek(t); });
-    ov.addEventListener('pointermove', function (ev) { if (ovDrag && st) { var t = tAt(ev, ov, true); setZoom(st.zoom, t, true); seek(t); } });
-    ov.addEventListener('pointerup', function () { ovDrag = false; });
     // Buttons
     $('edPlay').addEventListener('click', function () { if (!st || !st.playable) return; if (video.paused) { st.stopAt = null; video.play(); } else video.pause(); });
     document.querySelectorAll('#editorSheet [data-step]').forEach(function (b) {
@@ -795,7 +908,9 @@
       if (!st || !$('editorSheet').open || !$('epBrowser').hidden) return;
       if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
       var k = ev.key, press = function (id) { ev.preventDefault(); hit($(id)); };
-      if (k === ' ' || k === 'k') { press('edPlay'); $('edPlay').click(); }
+      if (k === ' ' || k === 'k' || k === 'K') { press('edPlay'); $('edPlay').click(); }
+      else if (k === 'j' || k === 'J') { ev.preventDefault(); video.pause(); seek(st.t - 5); } // like video editors: J back, K pause, L play
+      else if (k === 'l' || k === 'L') { ev.preventDefault(); if (st.playable) { if (video.paused) { st.stopAt = null; video.play(); } else { var r = Math.min(4, (video.playbackRate || 1) * 2); video.playbackRate = r; } } }
       else if (k === 'ArrowLeft' || k === 'ArrowRight') {
         ev.preventDefault(); video.pause();
         var d = (k === 'ArrowLeft' ? -1 : 1) * (ev.shiftKey ? 1 : ev.altKey ? 5 : 1 / st.fps);

@@ -11,7 +11,6 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
-const { Readable } = require('stream');
 const fileops = require('./fileops');
 const probe = require('./probe');
 const P = require('../app/js/parser.js');
@@ -154,10 +153,22 @@ if (gotLock) app.whenReady().then(() => {
 
   // ---- The split window's player: one video, by token, only after you said yes ----
   const MIME = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska', webm: 'video/webm', avi: 'video/x-msvideo', ts: 'video/mp2t', m2ts: 'video/mp2t', wmv: 'video/x-ms-wmv', mpg: 'video/mpeg', mpeg: 'video/mpeg' };
-  let frameJobs = 0; const frameWaiters = [];
+  // Picture jobs run a few at a time, in two lanes: single frames (what you're looking at right now)
+  // never wait behind film strips. A newer request for the same kind of picture replaces an older one
+  // that hasn't started yet (zooming quickly doesn't pile up strips for views you've already left).
+  function lane(limit) {
+    let running = 0; const queue = [];
+    function next() { while (running < limit && queue.length) { const j = queue.shift(); running++; j.go(); } }
+    return function run(slot, job) {
+      return new Promise((resolve) => {
+        if (slot) queue.filter((q) => q.slot === slot).forEach((q) => { queue.splice(queue.indexOf(q), 1); q.resolve(Buffer.alloc(0)); });
+        queue.push({ slot, resolve, go: () => job().then(resolve, () => resolve(Buffer.alloc(0))).finally(() => { running--; next(); }) });
+        next();
+      });
+    };
+  }
+  const frameLane = lane(2), stripLane = lane(2);
   async function frameJpeg(file, t, w) {
-    if (frameJobs >= 3) await new Promise((r) => frameWaiters.push(r));
-    frameJobs++;
     try {
       const { spawn } = require('child_process');
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
@@ -168,20 +179,19 @@ if (gotLock) app.whenReady().then(() => {
         const timer = setTimeout(() => c.kill(), 20000);
         c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
       });
-    } finally { frameJobs--; const n = frameWaiters.shift(); if (n) n(); }
+    } finally { /* lanes handle the limits */ }
   }
   // n evenly spaced frames from `from` to `to`, tiled in one row. key=true decodes only keyframes
   // (much faster for long stretches; each tile is then the nearest keyframe before its time).
   async function stripJpeg(file, from, to, n, w, keyOnly) {
-    if (frameJobs >= 3) await new Promise((r) => frameWaiters.push(r));
-    frameJobs++;
     try {
       const { spawn } = require('child_process');
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
       const fps = n / (to - from);
       const args = ['-hide_banner', '-nostdin', '-loglevel', 'error'].concat(keyOnly ? ['-skip_frame', 'nokey'] : [],
         ['-ss', String(from), '-t', String(to - from), '-i', file, '-an', '-sn', '-dn',
-          '-vf', 'fps=' + fps.toFixed(6) + ':start_time=' + from.toFixed(3) + ',scale=' + w + ':-2,tile=' + n + 'x1', '-frames:v', '1',
+          // After a seek on the input, timestamps start again at 0, so the frame grid starts at 0 too.
+          '-vf', 'fps=' + fps.toFixed(6) + ':start_time=0,scale=' + w + ':-2,tile=' + n + 'x1', '-frames:v', '1',
           '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '6', '-']);
       return await new Promise((resolve, reject) => {
         const c = spawn(ff, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -189,7 +199,29 @@ if (gotLock) app.whenReady().then(() => {
         const timer = setTimeout(() => c.kill(), 90000);
         c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
       });
-    } finally { frameJobs--; const nx = frameWaiters.shift(); if (nx) nx(); }
+    } finally { /* lanes handle the limits */ }
+  }
+  // Bytes start..end of a file, read only as fast as the player takes them. (After every jump the
+  // player asks for "from here to the end" and soon lets go; reading ahead eagerly would pull the
+  // whole rest of the file into memory each time and make every jump slow.)
+  function fileStream(file, start, end) {
+    let fh = null, pos = start;
+    return new ReadableStream({
+      type: 'bytes',
+      async pull(ctrl) {
+        try {
+          if (!fh) fh = await fs.promises.open(file, 'r');
+          const want = Math.min(256 * 1024, end - pos + 1);
+          if (want <= 0) { await fh.close(); fh = null; ctrl.close(); return; }
+          const buf = Buffer.alloc(want);
+          const { bytesRead } = await fh.read(buf, 0, want, pos);
+          if (!bytesRead) { await fh.close(); fh = null; ctrl.close(); return; }
+          pos += bytesRead;
+          ctrl.enqueue(new Uint8Array(buf.buffer, buf.byteOffset, bytesRead));
+        } catch (e) { if (fh) { fh.close().catch(() => {}); fh = null; } ctrl.error(e); }
+      },
+      cancel() { if (fh) { fh.close().catch(() => {}); fh = null; } }
+    }, { highWaterMark: 0 });
   }
   protocol.handle('shelf-media', async (request) => {
     const u = new URL(request.url);
@@ -199,12 +231,14 @@ if (gotLock) app.whenReady().then(() => {
       const from = Math.max(0, Number(u.searchParams.get('from')) || 0), to = Math.max(from + 0.5, Number(u.searchParams.get('to')) || from + 60);
       const n = Math.min(240, Math.max(1, Math.round(Number(u.searchParams.get('n')) || 12)));
       const w = Math.min(320, Math.max(48, Math.round((Number(u.searchParams.get('w')) || 160) / 2) * 2));
-      const jpg = await stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1');
+      const slot = /^[a-z]{1,8}$/.test(u.searchParams.get('slot') || '') ? u.pathname + ':' + u.searchParams.get('slot') : null;
+      const jpg = await stripLane(slot, () => stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1'));
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' } }) : new Response('', { status: 404 });
     }
     if (u.host === 'f') { // one still frame: shelf-media://f/<token>?t=12.5&w=320
       const t = Math.max(0, Number(u.searchParams.get('t')) || 0), w = Math.min(1280, Math.max(64, Number(u.searchParams.get('w')) || 320));
-      const jpg = await frameJpeg(file, t, Math.round(w / 2) * 2);
+      const slot = /^[a-z]{1,8}$/.test(u.searchParams.get('slot') || '') ? u.pathname + ':' + u.searchParams.get('slot') : null;
+      const jpg = await frameLane(slot, () => frameJpeg(file, t, Math.round(w / 2) * 2));
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } }) : new Response('', { status: 404 });
     }
     if (u.host !== 'v') return new Response('Not found', { status: 404 });
@@ -218,7 +252,7 @@ if (gotLock) app.whenReady().then(() => {
     }
     const headers = { 'Content-Type': MIME[path.extname(file).slice(1).toLowerCase()] || 'application/octet-stream', 'Content-Length': String(end - start + 1), 'Accept-Ranges': 'bytes' };
     if (status === 206) headers['Content-Range'] = 'bytes ' + start + '-' + end + '/' + size;
-    return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), { status, headers });
+    return new Response(fileStream(file, start, end), { status, headers });
   });
 
   // Deny every permission request (camera, microphone, location, notifications, ...).
