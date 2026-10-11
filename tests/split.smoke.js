@@ -38,6 +38,11 @@ function fakeSingle(file) {
   const single = path.join(dir, 'SpongeBob.S01E30.mp4'); // really "Hall Monitor" (S01E14); no title cards
   fakeSingle(single);
   const srcSize = fs.statSync(src).size;
+  // Its subtitles: a text one (cut along with the video) and a picture one (left alone).
+  const srt = path.join(dir, 'SpongeBob.S01E05.en.srt');
+  const srtBody = '1\n00:00:20,000 --> 00:00:22,000\nPizza!\n\n2\n00:11:30,500 --> 00:11:33,000\nPickles!\n';
+  fs.writeFileSync(srt, srtBody);
+  fs.writeFileSync(path.join(dir, 'SpongeBob.S01E05.idx'), '# VobSub index file, v7\n');
 
   const handle = (route) => {
     const u = route.request().url();
@@ -64,7 +69,7 @@ function fakeSingle(file) {
 
   await win.click('.side-item[data-open=settings]'); await win.check('#optCardScan'); await win.keyboard.press('Escape'); await sleep(200);
   await win.click('text=Choose Folder…');
-  for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
+  for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
 
   // ---- A. A file never scanned: Check Episodes works straight away (#2.6) ----
   await pick('SpongeBob.S01E30.mp4'); await sleep(200);
@@ -184,24 +189,36 @@ function fakeSingle(file) {
   assert.match(await win.textContent('#inspEpLabel'), /Will be split into 2 files/);
   await win.click('#renameBtn');
   await win.click('#pickLib'); await sleep(300);
-  console.log('rename summary:', await win.textContent('#renameSummary'));
+  const summary = await win.textContent('#renameSummary');
+  console.log('rename summary:', summary);
+  assert.match(summary, /1 subtitle file will be split to match/);
+  assert.match(summary, /1 picture subtitle \(IDX\/SUB\) can’t be split/);
   await win.click('#renameNow');
   for (let i = 0; i < 100; i++) { await sleep(200); if (!(await win.isVisible('#renameSheet'))) break; }
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.relative(lib, path.join(d, e.name)).split(path.sep).join('/')]);
   const made = walk(lib).sort();
   console.log('library:', made);
   assert.deepStrictEqual(made, [
+    'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E10 - Pizza Delivery.en.srt',
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E10 - Pizza Delivery.mp4',
+    'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E13 - Pickles.en.srt',
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E13 - Pickles.mp4',
     'TV Shows/SpongeBob SquarePants/Season 01/SpongeBob SquarePants - S01E14 - Hall Monitor.mp4'
   ]);
+  const sub2 = fs.readFileSync(path.join(lib, made[2]), 'utf8');
+  assert.doesNotMatch(summary, /still need/, 'the picture subtitle is not counted twice');
+  const cutAt = await win.evaluate(() => window.Shelf.items().find((i) => i.name === 'SpongeBob.S01E05.mp4').split.pieces[1].start);
+  console.log('second subtitle piece (cut at ' + cutAt + '):', JSON.stringify(sub2));
+  assert.match(sub2, /^1\n00:00:\d\d,\d{3} --> 00:00:\d\d,\d{3}\nPickles!\n$/, 'subtitle times moved to the piece');
+  assert.ok(!/Pizza/.test(sub2));
+  assert.strictEqual(fs.readFileSync(srt, 'utf8'), srtBody, 'original subtitle untouched');
   const lens = [];
-  for (const m of made.slice(0, 2)) lens.push(await probe.duration(path.join(lib, m)));
+  for (const m of made.filter((x) => x.endsWith('.mp4')).slice(0, 2)) lens.push(await probe.duration(path.join(lib, m)));
   assert.ok(lens[0] >= 659 && lens[0] <= 662 && Math.abs(lens[0] + lens[1] - 1320) <= 2, 'pieces split at the gap: ' + lens);
   assert.strictEqual(fs.statSync(src).size, srcSize, 'original untouched');
   await win.click('#undoBar'); await sleep(1200);
   assert.deepStrictEqual(walk(lib), [], 'undo removed everything');
-  assert.ok(fs.existsSync(src) && fs.existsSync(single), 'originals back');
+  assert.ok(fs.existsSync(src) && fs.existsSync(single) && fs.existsSync(srt), 'originals back');
 
   // ---- C. Save & Next: one prompt for the run, then straight to the next file ----
   await app.evaluate(() => { global.__prompts = []; });

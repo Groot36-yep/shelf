@@ -163,19 +163,34 @@
 
   function isReady(item) {
     if (item.split && (item.status === 'matched' || item.status === 'review')) return true; // you chose how to split it
-    if (item.linkTo && linkedVideo(item) && linkedVideo(item).split) return false;            // its video is being split
+    var v = item.linkTo && linkedVideo(item);
+    if (v && v.split) return item.status !== 'done' && subSplittable(item) && isReady(v); // cut along with its video
     return !item.epBlock && (item.status === 'matched' || (item.status === 'review' && item.confirmed));
   }
-  // The names each piece of a split video will get.
+  // Text subtitles (SRT, WebVTT, ASS/SSA) can be cut along with their video; picture ones (IDX/SUB) can't.
+  var SUB_SPLIT = ['srt', 'vtt', 'ass', 'ssa'];
+  function subSplittable(item) { return item.parsed.isSubtitle && SUB_SPLIT.indexOf(String(item.parsed.ext).toLowerCase()) >= 0; }
+  // The split that applies to this file: its own, or (for a subtitle) its video's.
+  function splitOf(item) {
+    if (item.split) return item.split;
+    var v = item.parsed.isSubtitle && item.linkTo && linkedVideo(item);
+    return v && v.split && subSplittable(item) ? v.split : null;
+  }
+  // The names each piece of a split video (or its subtitle) will get.
   function pieceNames(item) {
     var m = matchFor(item);
-    if (!m || !item.split) return [];
-    return item.split.pieces.map(function (pc) {
+    var sp = splitOf(item);
+    if (!m || !sp) return [];
+    return sp.pieces.map(function (pc) {
       var mm = Object.assign({}, m, { season: pc.entry.season, episode: pc.entry.number, episodeEnd: null, episodeTitle: pc.entry.name });
       return P.plexName(item.parsed, mm, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(item) });
     });
   }
-  function needsReview(item) { return !item.split && (item.status === 'review' && (!item.confirmed || item.epBlock) || item.status === 'nomatch' || item.status === 'error'); }
+  function needsReview(item) {
+    var v = item.linkTo && linkedVideo(item);
+    if (v && v.split) return false; // goes with its video (split along, or explained in the rename summary)
+    return !splitOf(item) && (item.status === 'review' && (!item.confirmed || item.epBlock) || item.status === 'nomatch' || item.status === 'error');
+  }
 
   function addFiles(list) {
     var added = 0;
@@ -494,7 +509,7 @@
     shown.forEach(function (item) {
       var c = current(item);
       var plex = plexFor(item);
-      var pieces = item.split ? pieceNames(item) : null;
+      var pieces = splitOf(item) ? pieceNames(item) : null;
       // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
       var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title].join('|');
       var cached = rowCache[item.id];
@@ -678,7 +693,7 @@
         crumbs.appendChild(el('span', { class: 'folder', text: f }));
       });
     }
-    $('inspFile').textContent = item.split ? pieceNames(item).map(function (x) { return x.file; }).join('\n') : plex ? plex.file : 'Pick a match to see the new name.';
+    $('inspFile').textContent = splitOf(item) ? pieceNames(item).map(function (x) { return x.file; }).join('\n') : plex ? plex.file : 'Pick a match to see the new name.';
 
     $('searchKind').value = item.kind;
     var si = $('searchInput');
@@ -794,12 +809,14 @@
       [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '') +
       (function () {
-        var sp = r.filter(function (i) { return i.split; });
+        var sp = r.filter(function (i) { return i.split; }); // videos only (subtitles follow along)
         if (!sp.length) return '';
         var pieces = sp.reduce(function (t, i) { return t + i.split.pieces.length; }, 0);
-        var subs = items.filter(function (i) { return i.linkTo && linkedVideo(i) && linkedVideo(i).split; }).length;
+        var subsOfSplit = items.filter(function (i) { return i.parsed.isSubtitle && i.linkTo && linkedVideo(i) && linkedVideo(i).split && isReady(linkedVideo(i)); });
+        var cut = subsOfSplit.filter(isReady).length, left = subsOfSplit.length - cut;
         return ' ' + sp.length + ' video' + (sp.length === 1 ? '' : 's') + ' will be split into ' + pieces + ' files (no re-encoding; originals are kept).' +
-          (subs ? ' Their ' + subs + ' subtitle file' + (subs === 1 ? '' : 's') + ' can’t be split and will be left alone.' : '');
+          (cut ? ' ' + cut + ' subtitle file' + (cut === 1 ? '' : 's') + ' will be split to match.' : '') +
+          (left ? ' ' + left + ' picture subtitle' + (left === 1 ? '' : 's') + ' (IDX/SUB) can’t be split and will be left alone.' : '');
       })();
     syncMode();
     native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
@@ -831,9 +848,9 @@
       var byPath = {};
       var ops = real.map(function (i) {
         byPath[i.fullPath] = i;
-        if (i.split) {
+        if (splitOf(i)) {
           var names = pieceNames(i);
-          return { source: i.fullPath, split: i.split.pieces.map(function (pc, k) { return { start: pc.start, end: pc.end, folder: names[k].folder, file: names[k].file }; }) };
+          return { source: i.fullPath, split: splitOf(i).pieces.map(function (pc, k) { return { start: pc.start, end: pc.end, folder: names[k].folder, file: names[k].file }; }) };
         }
         var p = plexFor(i); return { source: i.fullPath, folder: p.folder, file: p.file };
       });
@@ -845,7 +862,7 @@
         results.forEach(function (r) {
           var item = byPath[r.source];
           if (!item) return;
-          if (r.ok && r.split) { ok++; item.status = 'done'; item.error = 'Split into ' + r.pieces.length + ' files. Your original was kept where it was.'; item.newPath = r.to; }
+          if (r.ok && r.split) { ok++; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; }
           else if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }

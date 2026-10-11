@@ -13,6 +13,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const { safeName, VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
+const subs = require('./subs.js');
 
 const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT));
 const MAX_FILES = 20000;
@@ -148,10 +149,12 @@ async function run(ops, opts) {
  * name (never over an existing file). The original is left exactly where it is.
  */
 async function runSplit(op, from, library, opts, res, journal) {
-  if (!opts.writePiece) throw new Error('Splitting isn’t available');
   if (!op.split.length || op.split.length > 6) throw new Error('Bad split');
-  if (!(await exists(from))) throw new Error('File not found (was it moved?)');
   const ext = path.extname(from);
+  const isSub = subs.CAN_SPLIT.includes(ext.slice(1).toLowerCase());
+  if (!isSub && SUB_EXT.includes(ext.slice(1).toLowerCase())) throw new Error('This kind of subtitle can’t be split');
+  if (!isSub && !opts.writePiece) throw new Error('Splitting isn’t available');
+  if (!(await exists(from))) throw new Error('File not found (was it moved?)');
   // Work out and check every destination first, so nothing is written if any is wrong.
   const plan = op.split.map((p) => {
     if (!Array.isArray(p.folder) || !p.folder.length || p.folder.length > 4) throw new Error('Bad destination');
@@ -166,10 +169,27 @@ async function runSplit(op, from, library, opts, res, journal) {
   });
   if (new Set(plan.map((p) => p.to.toLowerCase())).size !== plan.length) throw new Error('Two pieces would get the same name');
   for (const p of plan) if (await exists(p.to)) { res.skipped = 'A file with this name already exists: ' + path.basename(p.to); return; }
+  // A text subtitle is cut in memory at the same points as its video (times moved to match each piece).
+  let subParts = null;
+  if (isSub) {
+    const st = await fsp.stat(from);
+    if (st.size > 20 * 1024 * 1024) throw new Error('Subtitle file is too big');
+    subParts = subs.splitSubtitleBytes(await fsp.readFile(from), ext.slice(1), plan);
+    if (!subParts) throw new Error('This subtitle’s text format can’t be split');
+  }
   const made = [];
   try {
-    for (const p of plan) {
+    for (let k = 0; k < plan.length; k++) {
+      const p = plan[k];
+      if (subParts && !subParts[k].cues) continue; // nothing is said in this part: no empty file
       await fsp.mkdir(p.dir, { recursive: true });
+      if (subParts) {
+        await fsp.writeFile(p.to, subParts[k].data, { flag: 'wx' }); // never over an existing file
+        made.push(p.to);
+        journal.done.push({ from, to: p.to, split: true, size: subParts[k].data.length });
+        if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+        continue;
+      }
       const tmp = path.join(p.dir, '.shelf-piece-' + process.pid + '-' + Date.now() + ext);
       await opts.writePiece(from, p.start, p.end, tmp);
       await moveNoOverwrite(tmp, p.to).catch(async (e) => { await fsp.unlink(tmp).catch(() => {}); throw e; });
@@ -188,7 +208,9 @@ async function runSplit(op, from, library, opts, res, journal) {
     if (opts.journalPath) await writeJournal(opts.journalPath, journal);
     throw e;
   }
+  if (!made.length) { res.skipped = 'No lines to split'; return; }
   res.ok = true; res.to = made[0]; res.pieces = made; res.split = true;
+  if (isSub) res.subtitle = true;
 }
 
 async function writeJournal(p, journal) {

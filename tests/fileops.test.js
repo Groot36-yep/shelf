@@ -53,6 +53,42 @@ function ok(c, m) { if (c) pass++; else { fail++; console.log('FAIL', m); } }
     ok((await F.undo(journal)).nothing, mode + ': second undo does nothing');
     fs.rmSync(root, { recursive: true, force: true });
   }
+
+  // Subtitles of a split video are cut at the same points; the original subtitle is never touched.
+  {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-subs-'));
+    const lib = path.join(root, 'Plex');
+    fs.mkdirSync(lib);
+    const srt = path.join(root, 'Show.S01E01.en.srt');
+    const body = '1\r\n00:00:05,000 --> 00:00:07,000\r\nCafé\r\n\r\n2\r\n00:11:10,000 --> 00:11:12,000\r\nLater\r\n';
+    fs.writeFileSync(srt, body, 'utf8');
+    const idx = path.join(root, 'Show.S01E01.idx');
+    fs.writeFileSync(idx, 'x');
+    const allowed = new Set([path.resolve(srt), path.resolve(idx)]);
+    const journal = path.join(root, 'j.json');
+    const folder = ['TV Shows', 'Show', 'Season 01'];
+    const piecesOf = (ext) => [
+      { start: 0, end: 660, folder, file: 'Show - S01E01 - A.en' + ext },
+      { start: 660, end: 1320, folder, file: 'Show - S01E02 - B.en' + ext },
+      { start: 1320, end: 1500, folder, file: 'Show - S01E03 - C.en' + ext }
+    ];
+    // Third piece has no lines: no empty file is written for it.
+    const { results } = await F.run([{ source: srt, split: piecesOf('.srt') }, { source: idx, split: piecesOf('.idx') }], { library: lib, mode: 'move', allowed, journalPath: journal });
+    const dir = path.join(lib, ...folder);
+    ok(results[0].ok && results[0].split && results[0].pieces.length === 2, 'subs: split into 2 files (' + JSON.stringify(results[0]) + ')');
+    ok(fs.readFileSync(path.join(dir, 'Show - S01E01 - A.en.srt'), 'utf8').includes('00:00:05,000 --> 00:00:07,000\nCafé'), 'subs: first piece kept its text');
+    ok(fs.readFileSync(path.join(dir, 'Show - S01E02 - B.en.srt'), 'utf8').includes('00:00:10,000 --> 00:00:12,000\nLater'), 'subs: second piece moved to start at 0');
+    ok(!fs.existsSync(path.join(dir, 'Show - S01E03 - C.en.srt')), 'subs: no empty file');
+    ok(fs.readFileSync(srt, 'utf8') === body, 'subs: original untouched even in move mode');
+    ok(!results[1].ok && /can’t be split/.test(results[1].error), 'subs: image subtitles are refused');
+    const again = await F.run([{ source: srt, split: piecesOf('.srt') }], { library: lib, mode: 'move', allowed, journalPath: path.join(root, 'j2.json') });
+    ok(again.results[0].skipped, 'subs: never overwrites');
+    const u = await F.undo(journal);
+    ok(u.undone === 2 && !fs.existsSync(path.join(lib, 'TV Shows')), 'subs: undo removes the pieces (' + u.undone + ')');
+    ok(fs.existsSync(srt), 'subs: original still there after undo');
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
   console.log(`${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();
