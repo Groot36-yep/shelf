@@ -57,7 +57,12 @@ jobs:
 
           $setup = Get-ChildItem dist -Filter 'Shelf-Setup-*.exe' | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/S' -Wait
-          $installed = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Shelf.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $installed = $null
+          for ($i = 0; $i -lt 120 -and -not $installed; $i++) {
+            $installed = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Shelf.exe' -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'Shelf.exe' } | Select-Object -First 1
+            if (-not $installed) { Start-Sleep 1 }
+          }
+          Write-Host "Installed at: $($installed.FullName)"
           if (-not $installed) { Write-Host "::error::Setup did not install Shelf.exe"; $bad++ }
           else {
             Start-Process $installed.FullName
