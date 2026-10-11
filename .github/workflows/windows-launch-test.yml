@@ -1,0 +1,82 @@
+name: Windows launch test
+
+# Started by hand: downloads a published release and checks that Shelf actually opens a window.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to test (e.g. v1.1.0)
+        required: true
+        default: v1.1.0
+
+jobs:
+  launch:
+    runs-on: windows-latest
+    steps:
+      - name: Download the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --dir rel
+          Get-ChildItem rel | Format-Table Name, Length
+
+      - name: Launch helper
+        shell: pwsh
+        run: |
+          @'
+          function Wait-ShelfWindow([int]$seconds) {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt $seconds) {
+              $p = Get-Process | Where-Object { $_.MainWindowTitle -like '*Shelf*' } | Select-Object -First 1
+              if ($p) { return [math]::Round($sw.Elapsed.TotalSeconds, 1) }
+              Start-Sleep -Milliseconds 500
+            }
+            return $null
+          }
+          function Show-Shelf {
+            Get-Process | Where-Object { $_.ProcessName -match 'shelf' } | Format-Table Id, ProcessName, MainWindowTitle, Path -AutoSize | Out-String -Width 300 | Write-Host
+          }
+          function Show-Log {
+            $log = Join-Path $env:APPDATA 'Shelf\startup.log'
+            if (Test-Path $log) { Write-Host "--- startup.log ---"; Get-Content $log | Write-Host }
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'shelf|electron' } | Select-Object -First 5 | Format-List TimeCreated, ProviderName, Message | Out-String -Width 300 | Write-Host
+          }
+          '@ | Set-Content helper.ps1
+
+      - name: Portable
+        shell: pwsh
+        run: |
+          . .\helper.ps1
+          $exe = Get-ChildItem rel -Filter 'Shelf-Portable-*.exe' | Select-Object -First 1
+          Start-Process $exe.FullName
+          $t = Wait-ShelfWindow 90
+          Show-Shelf; Show-Log
+          if ($t -eq $null) { Write-Host "::error::Portable: no Shelf window after 90 s" } else { Write-Host "::notice::Portable: window opened after $t s" }
+          Get-Process | Where-Object { $_.ProcessName -match 'shelf' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep 3
+
+      - name: Setup (silent install, then launch)
+        shell: pwsh
+        run: |
+          . .\helper.ps1
+          $exe = Get-ChildItem rel -Filter 'Shelf-Setup-*.exe' | Select-Object -First 1
+          Start-Process $exe.FullName -ArgumentList '/S' -Wait
+          $installed = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Shelf.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          Write-Host "Installed at: $($installed.FullName)"
+          if (-not $installed) { Write-Host "::error::Setup: Shelf.exe not found after install"; exit 0 }
+          Start-Process $installed.FullName
+          $t = Wait-ShelfWindow 60
+          Show-Shelf; Show-Log
+          if ($t -eq $null) { Write-Host "::error::Setup: no Shelf window after 60 s" } else { Write-Host "::notice::Setup: window opened after $t s" }
+
+          # Run it directly in this console too, so any crash message is printed here.
+          Get-Process | Where-Object { $_.ProcessName -match 'shelf' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep 2
+          $env:ELECTRON_ENABLE_LOGGING = '1'
+          $p = Start-Process $installed.FullName -PassThru -RedirectStandardError err.txt -RedirectStandardOutput out.txt
+          Start-Sleep 15
+          Write-Host "Exited: $($p.HasExited) Code: $(if ($p.HasExited) { $p.ExitCode })"
+          Write-Host "--- stdout ---"; Get-Content out.txt -ErrorAction SilentlyContinue | Select-Object -Last 40 | Write-Host
+          Write-Host "--- stderr ---"; Get-Content err.txt -ErrorAction SilentlyContinue | Select-Object -Last 40 | Write-Host
