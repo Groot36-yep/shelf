@@ -57,16 +57,36 @@ async function stills(file, from, len) {
   const frames = []; for (let i = 0; i < n; i++) frames.push(buf.subarray(i * TW * TH, (i + 1) * TW * TH));
   const diff = (a, b) => { let d = 0; for (let k = 0; k < a.length; k += 2) d += Math.abs(a[k] - b[k]); return d / (a.length / 2); };
   const spread = (a) => { let m = 0; for (let k = 0; k < a.length; k++) m += a[k]; m /= a.length; let v = 0; for (let k = 0; k < a.length; k++) v += (a[k] - m) * (a[k] - m); return Math.sqrt(v / a.length); };
+  const mean = (a) => { let m = 0; for (let k = 0; k < a.length; k += 3) m += a[k]; return m / (a.length / 3); };
   const still = frames.map((f, i) => i > 0 && diff(frames[i - 1], f) < 6 && spread(f) > 10);
+  // Black moments (between cartoons): runs of near-black thumbnails.
+  const dark = frames.map((f) => mean(f) < 18 && spread(f) < 14);
+  const blacks = [];
+  for (let i = 0; i < n; i++) {
+    if (!dark[i]) continue;
+    let j = i; while (j + 1 < n && dark[j + 1]) j++;
+    blacks.push({ a: from + i / RATE, b: from + (j + 1) / RATE });
+    i = j;
+  }
   // Runs of still frames → the middle of each run is a candidate.
   const runs = [];
   for (let i = 0; i < n; i++) {
     if (!still[i]) continue;
     let j = i; while (j + 1 < n && still[j + 1]) j++;
-    runs.push({ t: from + ((i - 1 + j) / 2) / RATE, secs: (j - i + 2) / RATE });
+    runs.push({ t: from + ((i - 1 + j) / 2) / RATE, start: from + (i - 1) / RATE, secs: (j - i + 2) / RATE });
     i = j;
   }
+  runs.blacks = blacks;
   return runs;
+}
+
+// Order still moments by how likely each is to be a title card: right after a black moment is
+// best (a new cartoon starting), then closeness to where a card usually is, longer holds first.
+function rankRuns(runs, likely) {
+  const blacks = runs.blacks || [];
+  const afterBlack = (r) => blacks.some((b) => r.start >= b.b - 0.6 && r.start - b.b <= 25);
+  return runs.map((r) => ({ r, score: Math.abs(r.t - likely) / 30 - (afterBlack(r) ? 3 : 0) - Math.min(r.secs, 4) / 4 }))
+    .sort((x, y) => x.score - y.score).map((x) => x.r);
 }
 
 // ---- 2. One full-size frame, prepared several ways for the text reader ----
@@ -185,8 +205,7 @@ async function scanFile(file, secs, opts) {
     const runs = await stills(file, wins[i].from, wins[i].len);
     report(i, 0.2);
     // Most likely spots first; at most 30 still moments per cartoon.
-    runs.sort((a, b) => Math.abs(a.t - wins[i].likely) - Math.abs(b.t - wins[i].likely));
-    const tryRuns = runs.slice(0, 30);
+    const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
     let k = 0;
     for (const run of tryRuns) {
       if (opts.cancelled && opts.cancelled()) break;
@@ -198,7 +217,7 @@ async function scanFile(file, secs, opts) {
         if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
         if (opts.isMatch && read.length && opts.isMatch(read, i)) break;
       }
-      if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, secs: run.secs, texts: read });
+      if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
       if (opts.isMatch && read.length && opts.isMatch(read, i)) break; // found this cartoon's card
     }
