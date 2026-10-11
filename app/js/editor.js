@@ -150,7 +150,7 @@
     } else {
       st.parts = (ent.length ? ent : [null]).map(function (e) { return { entry: e }; });
     }
-    $('edFile').textContent = o.name;
+    $('edFile').textContent = o.name + (o.position ? '   ·   ' + o.position : '');
     $('edInfo').textContent = '';
     $('edBusy').hidden = true;
     video = $('edVideo');
@@ -177,11 +177,11 @@
     loop();
   }
 
-  function close() {
+  function close(keepBatch) {
     if (!st) return;
     cancelAnimationFrame(rafId); clearTimeout(frameTimer);
     video.pause(); video.removeAttribute('src'); video.load();
-    st.o.native.closeSplit(st.token);
+    st.o.native.closeSplit(st.token, keepBatch === true ? false : true);
     var o = st.o; st = null; ebClose();
     if ($('editorSheet').open) $('editorSheet').close();
     if (o.onClose) o.onClose();
@@ -575,18 +575,23 @@
     var nb = $('edNames'); nb.textContent = '';
     names.forEach(function (n, i) { nb.appendChild(el('div', { class: 'ed-name-row', 'data-part': split ? i % 2 : 0 }, [el('span', { class: 'ed-dot', 'data-part': split ? i % 2 : 0, text: split ? String(i + 1) : '✓' }), el('span', { text: n })])); });
     $('edSave').disabled = !ok || !$('edBusy').hidden;
+    $('edSaveNext').hidden = !st.o.onNext;
+    $('edSaveNext').disabled = $('edSave').disabled;
+    if (st.o.nextName) $('edSaveNext').title = 'Save, then open ' + st.o.nextName;
     $('edSave').textContent = split ? 'Use ' + st.parts.length + ' Files' : 'Use This Name';
     drawHead();
   }
 
-  function save() {
+  function save(goNext) {
     if (!st || $('edSave').disabled) return;
     var b = bounds(), r;
     if (st.mode === 'split') r = { mode: 'split', pieces: st.parts.map(function (p, i) { return { start: Math.round(b[i] * 1000) / 1000, end: Math.round(b[i + 1] * 1000) / 1000, entry: p.entry }; }) };
     else r = { mode: 'one', entries: st.oneEntries.slice() };
     var fn = st.o.onSave;
-    close();
+    var nextFn = goNext === true ? st.o.onNext : null;
+    close(!!nextFn);
     if (fn) fn(r);
+    if (nextFn) nextFn();
   }
 
   // ---- Wiring ----
@@ -658,7 +663,8 @@
     $('edRemoveCut').addEventListener('click', removeCut);
     document.querySelectorAll('#edMode button').forEach(function (b) { b.addEventListener('click', function () { if (st && st.mode !== b.dataset.mode) setMode(b.dataset.mode); }); });
     $('edCancel').addEventListener('click', close);
-    $('edSave').addEventListener('click', save);
+    $('edSave').addEventListener('click', function () { save(false); });
+    $('edSaveNext').addEventListener('click', function () { save(true); });
     $('editorSheet').addEventListener('cancel', function (ev) { ev.preventDefault(); if ($('epBrowser').hidden) close(); else ebClose(); });
     // Every button: a short pressed glow.
     $('editorSheet').addEventListener('pointerdown', function (ev) { var b = ev.target.closest('button'); if (b && !b.disabled) hit(b); });

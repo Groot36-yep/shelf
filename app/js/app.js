@@ -1147,13 +1147,27 @@
     var mm = Object.assign({}, m, { season: first.season, episode: first.number, episodeEnd: last.number > first.number ? last.number : null, episodeTitle: P.joinNames(entries) });
     return P.plexName(v.parsed, mm, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(v) }).file;
   }
+  // Files of the same show, in episode order (for "Save & Next").
+  function showRun(v) {
+    var c = current(v); if (!c) return [];
+    var id = showIdKey(c);
+    return items.filter(function (i) {
+      var cc = current(i);
+      return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && cc && showIdKey(cc) === id && i.status !== 'done';
+    }).sort(function (a, b) {
+      var sa = a.parsed.season != null ? a.parsed.season : 1, sb = b.parsed.season != null ? b.parsed.season : 1;
+      return sa - sb || (a.parsed.episode || 0) - (b.parsed.episode || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+  }
   function openEditor(item) {
     var v = linkedVideo(item) || item;
     var c = current(v);
     if (!c || !v.fullPath) return;
     var btn = $('checkEps'); btn.disabled = true;
+    var run = showRun(v), at = run.indexOf(v), nextItem = at >= 0 ? run[at + 1] : null;
+    var also = at >= 0 ? run.slice(at + 1).map(function (i) { return i.fullPath; }) : [];
     listFor(c).then(function (list) {
-      return native.openSplit(v.fullPath).then(function (r) {
+      return native.openSplit(v.fullPath, also).then(function (r) {
         if (!r) { toast('Cancelled. The video wasn’t opened.'); return; }
         var how = v.episode ? v.episode.how : 'number';
         var entries = v.episode && v.episode.entries && v.episode.entries.length
@@ -1166,6 +1180,9 @@
           entries: entries, cards: cardsFor(v, list),
           mode: v.split || (v.episode && v.episode.needsSplit) ? 'split' : 'one',
           existing: v.split ? { pieces: v.split.pieces } : null,
+          position: run.length > 1 && at >= 0 ? 'File ' + (at + 1) + ' of ' + run.length + ' of this show' : '',
+          nextName: nextItem ? nextItem.name : '',
+          onNext: nextItem ? function () { select(nextItem.id); openEditor(nextItem); } : null,
           preview: function (mode, ents) { return mode === 'split' ? ents.map(function (e) { return nameFor(v, [e]); }) : [nameFor(v, ents)]; },
           onSave: function (res) {
             if (res.mode === 'split') { v.split = { pieces: res.pieces }; toast('Will split into ' + res.pieces.length + ' files when you rename.'); }

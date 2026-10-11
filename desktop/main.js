@@ -263,7 +263,9 @@ if (gotLock) app.whenReady().then(() => {
       onProgress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:progress', p); }
     });
     // A moved file's old path is gone; its new path can be renamed again later.
-    results.forEach((r) => { if (r.ok && r.to && mode === 'move') { allowedSources.delete(path.resolve(r.source)); allowedSources.add(r.to); } });
+    // A moved file's old path is gone; its new path can be renamed again later.
+    // (A split leaves the original where it was, so it stays allowed.)
+    results.forEach((r) => { if (r.ok && r.to && mode === 'move' && !r.split) { allowedSources.delete(path.resolve(r.source)); allowedSources.add(r.to); } });
     return results;
   });
 
@@ -364,17 +366,27 @@ if (gotLock) app.whenReady().then(() => {
   });
 
   // ---- Split window ----
-  handle('shelf:openSplit', async (p) => {
+  // also: other videos you'll step through with "Save & Next" — asked about together, once.
+  const approvedMedia = new Set();
+  handle('shelf:openSplit', async (p, also) => {
     const files = pickedVideos([p]);
     if (!files.length) throw new Error('Not a video you picked');
-    const yes = await askFirst(files, 'Open this video to check its episodes?',
+    if (approvedMedia.has(files[0])) {
+      const token0 = crypto.randomBytes(16).toString('hex');
+      mediaTokens.set(token0, files[0]);
+      return { token: token0, secs: await probe.duration(files[0]), fps: await frameRate(files[0]) };
+    }
+    const batch = pickedVideos([p].concat(Array.isArray(also) ? also.slice(0, 500) : []));
+    const yes = await askFirst(batch, batch.length > 1 ? 'Open these ' + batch.length + ' videos to check their episodes?' : 'Open this video to check its episodes?',
       'Shelf plays the video in its own window so you can see which episodes it holds, check where each one starts, and split it if you want. Nothing is changed until you click Rename Now, your original file is always kept, and nothing leaves this computer.', 'Open Video');
     if (!yes) return null;
+    batch.forEach((f) => approvedMedia.add(f)); // "Save & Next" won't ask again for these
     const token = crypto.randomBytes(16).toString('hex');
     mediaTokens.set(token, files[0]);
     return { token, secs: await probe.duration(files[0]), fps: await frameRate(files[0]) };
   });
-  handle('shelf:closeSplit', async (token) => { mediaTokens.delete(String(token)); return true; });
+  // endBatch: you closed the window (not "Save & Next"), so the next video asks again.
+  handle('shelf:closeSplit', async (token, endBatch) => { mediaTokens.delete(String(token)); if (endBatch !== false) approvedMedia.clear(); return true; });
   // Suggested cuts. hints: [{ card: seconds } | { est: seconds }], one per cut.
   handle('shelf:splitSuggest', async (token, hints) => {
     const file = mediaTokens.get(String(token));

@@ -203,6 +203,31 @@ function fakeSingle(file) {
   assert.deepStrictEqual(walk(lib), [], 'undo removed everything');
   assert.ok(fs.existsSync(src) && fs.existsSync(single), 'originals back');
 
+  // ---- C. Save & Next: one prompt for the run, then straight to the next file ----
+  await app.evaluate(() => { global.__prompts = []; });
+  await pick('SpongeBob.S01E05.mp4'); await sleep(200);
+  await win.click('#checkEps');
+  await win.waitForSelector('#editorSheet[open]'); await sleep(800);
+  assert.match(await win.textContent('#edFile'), /File 1 of 2/);
+  assert.ok(await win.isVisible('#edSaveNext'), 'Save & Next offered');
+  await win.evaluate(() => { document.querySelector('#edMode button[data-mode=one]').click(); });
+  await sleep(200);
+  // one file of E10+E13 can't be saved; choose a single episode then Save & Next
+  await win.evaluate(() => { const s = ShelfEditor._state(); s.oneEntries = [s.oneEntries[0]]; });
+  await win.evaluate(() => { document.querySelector('#edMode button[data-mode=split]').click(); document.querySelector('#edMode button[data-mode=one]').click(); });
+  await sleep(200);
+  await win.click('#edSaveNext'); await sleep(1200);
+  assert.ok(await win.isVisible('#editorSheet'), 'next file opened');
+  assert.match(await win.textContent('#edFile'), /SpongeBob\.S01E30\.mp4.*File 2 of 2/);
+  let pr = await app.evaluate(() => global.__prompts);
+  assert.strictEqual(pr.length, 1, 'asked once for both files: ' + JSON.stringify(pr));
+  assert.match(pr[0], /these 2 videos/);
+  await win.click('#edCancel'); await sleep(300);
+  await win.click('#checkEps'); await win.waitForSelector('#editorSheet[open]'); await sleep(500);
+  pr = await app.evaluate(() => global.__prompts);
+  assert.strictEqual(pr.length, 2, 'after closing, it asks again');
+  await win.click('#edCancel'); await sleep(300);
+
   const prompts = await app.evaluate(() => global.__prompts);
   console.log('prompts:', prompts);
   await app.close();
