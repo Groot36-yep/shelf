@@ -51,7 +51,9 @@ let win = null;
 const allowedSources = new Set(); // files the user picked; nothing else can be touched
 const prefsPath = () => path.join(app.getPath('userData'), 'shelf-prefs.json');
 const journalPath = () => path.join(app.getPath('userData'), 'last-rename.json');
-const secretPath = () => path.join(app.getPath('userData'), 'tmdb-key.bin');
+// Each key lives in its own encrypted file. Only these names exist.
+const SECRETS = { tmdb: 'tmdb-key.bin', tvdb: 'tvdb-key.bin', tvdbPin: 'tvdb-pin.bin' };
+const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] || SECRETS.tmdb);
 
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
 function writePrefs(p) { fs.mkdirSync(path.dirname(prefsPath()), { recursive: true }); fs.writeFileSync(prefsPath(), JSON.stringify(p)); }
@@ -104,7 +106,7 @@ function createWindow() {
   win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
 
   // Never navigate away; open approved web links in the normal browser instead.
-  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|creativecommons\.org|github\.com)\//;
+  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com)\//;
   // (The About screen's "Check for Updates" opens the GitHub releases page here, in your browser.)
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -194,23 +196,25 @@ if (gotLock) app.whenReady().then(() => {
   });
   handle('shelf:showInFolder', async () => { const lib = readPrefs().library; if (lib) shell.openPath(lib); });
 
-  // The TMDB key is encrypted with your Windows account (DPAPI) / macOS Keychain before it's saved.
-  handle('shelf:getKey', async () => {
+  // Keys (TMDB, TheTVDB) are encrypted with your Windows account (DPAPI) / macOS Keychain before they're saved.
+  const keyName = (n) => (Object.prototype.hasOwnProperty.call(SECRETS, n) ? n : 'tmdb');
+  handle('shelf:getKey', async (name) => {
     try {
-      const buf = fs.readFileSync(secretPath());
+      const buf = fs.readFileSync(secretPath(keyName(name)));
       return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : '';
     } catch (e) { return ''; }
   });
-  handle('shelf:setKey', async (key) => {
+  handle('shelf:setKey', async (name, key) => {
+    const file = secretPath(keyName(name));
     key = typeof key === 'string' ? key.trim().slice(0, 600) : '';
-    if (!key) { fs.rmSync(secretPath(), { force: true }); return true; }
+    if (!key) { fs.rmSync(file, { force: true }); return true; }
     if (!safeStorage.isEncryptionAvailable()) return false;
-    fs.mkdirSync(path.dirname(secretPath()), { recursive: true });
-    fs.writeFileSync(secretPath(), safeStorage.encryptString(key));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, safeStorage.encryptString(key));
     return true;
   });
   handle('shelf:eraseAll', async () => {
-    for (const p of [secretPath(), prefsPath(), journalPath()]) fs.rmSync(p, { force: true });
+    for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), journalPath()])) fs.rmSync(p, { force: true });
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();
     return true;

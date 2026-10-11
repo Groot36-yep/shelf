@@ -26,8 +26,8 @@ removes the original.
 
 **The window is locked down.**
 - Sandboxed, with no Node.js access.
-- A strict Content Security Policy: no inline or third-party code, and connections only to TMDB
-  and TVmaze.
+- A strict Content Security Policy: no inline or third-party code, and connections only to TMDB,
+  TheTVDB and TVmaze.
 - It can't navigate away or open pop-ups. Links open in your normal browser.
 - Every permission request (camera, microphone, location, notifications) is refused.
 - Text from the internet is always shown as text, never as HTML.
@@ -40,7 +40,8 @@ removes the original.
 ```
 npm test                         # filename parsing + the file engine on hostile names
 xvfb-run -a node tests/app.smoke.js   # end-to-end: pick, match, Rename Now, Undo
-xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season folders, dates, quality
+xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season folders, dates, two-part cartoons
+xvfb-run -a node tests/sources.smoke.js   # TheTVDB and TMDB TV lookups
 ```
 
 The Windows build on GitHub runs `npm test` on Windows before building the installer.

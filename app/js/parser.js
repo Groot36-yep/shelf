@@ -355,7 +355,10 @@
     var xs = x.split(' '), ys = y.split(' ');
     var common = xs.filter(function (w) { return ys.indexOf(w) >= 0; }).length;
     var jac = common / (xs.length + ys.length - common);
-    return Math.max(lev, jac * 0.95);
+    // A short name that starts the full one: "SpongeBob" → "SpongeBob SquarePants".
+    var shorter = xs.length <= ys.length ? xs : ys, longer = xs.length <= ys.length ? ys : xs;
+    var prefix = shorter.join(' ').length >= 5 && shorter.every(function (w, i) { return longer[i] === w; }) ? 0.84 : 0;
+    return Math.max(lev, jac * 0.95, prefix);
   }
 
   function yearScore(wanted, actual) {
@@ -411,7 +414,172 @@
     return ranked;
   }
 
-  // --- Plex names ------------------------------------------------------------
+  // --- Episodes: two-part cartoons, DVD vs aired order ------------------------
+  // Shows like SpongeBob list each 11-minute cartoon as its own episode, but most files hold a
+  // whole half-hour (two or three cartoons), and DVDs number things differently again.
+  // Shelf trusts episode TITLES first, and only then the numbers.
+
+  function normEp(s) {
+    return ' ' + String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/&/g, ' and ').replace(/'/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  }
+
+  function seasonEntries(list, season) {
+    return (list || []).filter(function (e) { return e.season === season && e.number != null; })
+      .sort(function (a, b) { return a.number - b.number; });
+  }
+
+  /** Which listed cartoons aired together as one half-hour: same air date, about 22 minutes. */
+  function halfHourGroups(entries) {
+    var groups = [], cur = [], mins = 0;
+    entries.forEach(function (e) {
+      var full = cur.length && (e.aired !== cur[0].aired || (mins >= 19) || (!e.runtime && cur.length >= 2));
+      if (full) { groups.push(cur); cur = []; mins = 0; }
+      cur.push(e); mins += e.runtime || 11;
+    });
+    if (cur.length) groups.push(cur);
+    return groups;
+  }
+  function isSegmented(entries) {
+    if (entries.length < 4) return false;
+    var short = entries.filter(function (e) { return e.runtime && e.runtime <= 15; }).length;
+    var groups = halfHourGroups(entries);
+    return groups.length <= entries.length * 0.75 && (short >= entries.length * 0.5 || !entries.some(function (e) { return e.runtime; }));
+  }
+
+  /** Find the listed episode(s) whose titles appear in the file's title. */
+  function matchByTitle(fileTitle, list, preferSeason) {
+    var ft = normEp(fileTitle);
+    var ftLen = ft.trim().length;
+    if (ftLen < 3) return null;
+    var hits = [];
+    (list || []).forEach(function (e) {
+      if (e.number == null) return;
+      var n = normEp(e.name), nt = n.trim();
+      if (nt.length < 3 || /^(episode|pilot|part|chapter) ?\d*$/.test(nt) && nt !== ft.trim()) return;
+      var words = nt.split(' ').length;
+      if (ft.indexOf(n) >= 0 && (nt.length >= 5 || words >= 2 || nt === ft.trim())) hits.push({ e: e, len: nt.length });
+    });
+    if (!hits.length) {
+      // One title with a typo or different punctuation: "Plankton" vs "Plankton!", "Sponge Bob" vs "SpongeBob"
+      var best = null;
+      (list || []).forEach(function (e) {
+        if (e.number == null || !e.name) return;
+        var sim = titleSimilarity(fileTitle, e.name);
+        if (sim >= 0.86 && (!best || sim > best.sim || sim === best.sim && e.season === preferSeason)) best = { e: e, len: ftLen, sim: sim };
+      });
+      if (best) hits.push(best);
+    }
+    if (!hits.length) return null;
+    // "Mermaid Man and Barnacle Boy" is inside "Mermaid Man and Barnacle Boy II": keep the longer one.
+    hits = hits.filter(function (h) {
+      var hn = normEp(h.e.name);
+      return !hits.some(function (o) { return o !== h && o.len > h.len && normEp(o.e.name).indexOf(hn) >= 0; });
+    });
+    var seasons = {};
+    hits.forEach(function (h) { seasons[h.e.season] = (seasons[h.e.season] || 0) + h.len; });
+    var season = seasons[preferSeason] ? preferSeason : +Object.keys(seasons).sort(function (a, b) { return seasons[b] - seasons[a]; })[0];
+    var inSeason = hits.filter(function (h) { return h.e.season === season; }).sort(function (a, b) { return a.e.number - b.e.number; });
+    var covered = inSeason.reduce(function (t, h) { return t + h.len; }, 0);
+    var coverage = Math.min(1, covered / ftLen);
+    // A jump to another season needs a strong, specific match.
+    if (season !== preferSeason && preferSeason != null && !(coverage >= 0.85 && covered >= 8)) return null;
+    if (coverage < 0.5) return null;
+    var nums = inSeason.map(function (h) { return h.e.number; });
+    var contiguous = nums.every(function (n, i) { return i === 0 || n === nums[i - 1] + 1; });
+    return { season: season, entries: inSeason.map(function (h) { return h.e; }), contiguous: contiguous, coverage: coverage };
+  }
+
+  /**
+   * Decide how files of one show+season are numbered: one number per cartoon ("segments"),
+   * or one per half-hour ("halfhours", as on DVDs and streaming services).
+   * files: parsed names of that season's files. Returns { mode, sure, segmented }.
+   */
+  function detectNumbering(files, list, season) {
+    var entries = seasonEntries(list, season);
+    if (!isSegmented(entries)) return { mode: 'segments', sure: true, segmented: false };
+    var groups = halfHourGroups(entries);
+    var half = 0, seg = 0, maxEp = 0;
+    var eps = {};
+    files.forEach(function (p) {
+      if (p.episode) { maxEp = Math.max(maxEp, p.episodeEnd || p.episode); eps[p.episode] = 1; }
+      if (!p.episodeTitle || !p.episode) return;
+      var m = matchByTitle(p.episodeTitle, list, season);
+      if (!m || m.season !== season) return;
+      var first = m.entries[0];
+      if (m.entries.length === 1 && first.number === p.episode && !p.episodeEnd) seg++;
+      else if (groups[p.episode - 1] && groups[p.episode - 1].indexOf(first) >= 0) half++;
+      else if (m.entries.length > 1 && first.number !== p.episode) half++;
+    });
+    if (half > seg) return { mode: 'halfhours', sure: true, segmented: true };
+    if (seg > half) return { mode: 'segments', sure: true, segmented: true };
+    if (maxEp > groups.length) return { mode: 'segments', sure: true, segmented: true };
+    var count = Object.keys(eps).length;
+    if (count >= Math.max(3, groups.length * 0.6)) return { mode: 'halfhours', sure: true, segmented: true };
+    return { mode: 'segments', sure: false, segmented: true };
+  }
+
+  function joinNames(entries) {
+    var names = entries.map(function (e) { return e.name; }).filter(Boolean);
+    // "Pilot (1)" + "Pilot (2)" → "Pilot"
+    var bases = names.map(function (n) { return n.replace(/\s*\(\d+\)$|,?\s*\(?Part\s*(\d+|One|Two|Three|I+)\)?$/i, '').trim(); });
+    if (names.length > 1 && bases.every(function (b) { return b && b === bases[0]; })) return bases[0];
+    return names.join(' & ');
+  }
+
+  /**
+   * Which listed episode(s) this file is. ctx: { mode: 'segments'|'halfhours', sure }.
+   * Returns { season, number, end, name, how: 'title'|'number'|'halfhour'|'date', sure, note } or null.
+   */
+  function resolveEpisode(parsed, list, ctx) {
+    ctx = ctx || {};
+    var season = parsed.season != null ? parsed.season : 1;
+    var said = parsed.airdate ? parsed.airdate : 'S' + pad2(season) + 'E' + pad2(parsed.episode || 1) + (parsed.episodeEnd ? '-E' + pad2(parsed.episodeEnd) : '');
+    function out(entries, how, sure, note) {
+      var first = entries[0], last = entries[entries.length - 1];
+      var r = { season: first.season, number: first.number, end: last.number > first.number ? last.number : null, name: joinNames(entries), how: how, sure: sure, note: note || '' };
+      var now = 'S' + pad2(r.season) + 'E' + pad2(r.number) + (r.end ? '-E' + pad2(r.end) : '');
+      if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'halfhour' ? ' (a half-hour holding ' + entries.length + ' cartoons)' : '') + '.';
+      return r;
+    }
+    if (parsed.airdate) {
+      var onDay = (list || []).filter(function (e) { return e.aired === parsed.airdate && e.number != null; });
+      if (onDay.length) {
+        var t = parsed.episodeTitle && matchByTitle(parsed.episodeTitle, onDay, onDay[0].season);
+        return out(t ? t.entries : [onDay[0]], 'date', true);
+      }
+      return null;
+    }
+    // 1. Titles beat numbers.
+    if (parsed.episodeTitle) {
+      var m = matchByTitle(parsed.episodeTitle, list, season);
+      if (m && m.contiguous && ctx.mode === 'halfhours' && m.season === season) {
+        // Files here are half-hours: a title naming one cartoon means the whole half-hour it's in.
+        var hg = halfHourGroups(seasonEntries(list, season)).filter(function (g) { return g.indexOf(m.entries[0]) >= 0; })[0];
+        if (hg && m.entries.every(function (e) { return hg.indexOf(e) >= 0; })) return out(hg, 'title', true);
+      }
+      if (m && m.contiguous) return out(m.entries, 'title', true);
+      if (m) return out([m.entries[0]], 'title', false, 'This file’s title matches episodes that aren’t next to each other (' + m.entries.map(function (e) { return 'E' + pad2(e.number); }).join(', ') + '). Check it.');
+    }
+    // 2. Numbers, read the way this show's files are numbered.
+    var entries = seasonEntries(list, season);
+    var n = parsed.episode || 1, end = parsed.episodeEnd || n;
+    if (ctx.mode === 'halfhours') {
+      var groups = halfHourGroups(entries);
+      var g1 = groups[n - 1], g2 = groups[end - 1] || g1;
+      if (!g1) return null;
+      return out(g1.concat(g2 === g1 ? [] : groups.slice(n, end).reduce(function (a, g) { return a.concat(g); }, [])), 'halfhour', ctx.sure !== false);
+    }
+    var a = entries.filter(function (e) { return e.number === n; })[0];
+    if (!a) return null;
+    var b = entries.filter(function (e) { return e.number === end; })[0] || a;
+    var picked = entries.filter(function (e) { return e.number >= a.number && e.number <= b.number; });
+    var r = out(picked, 'number', ctx.sure !== false);
+    if (ctx.sure === false && !r.note) r.note = 'This show splits each half-hour into separate cartoons. Is this file one cartoon or a whole half-hour? Choose below.';
+    return r;
+  }
+
+
   var WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 
   // Make a string safe to use as ONE file or folder name on macOS, Windows and Linux.
@@ -461,18 +629,25 @@
     var season = Math.max(0, parseInt(match.season, 10) || 0);
     var episode = Math.max(0, parseInt(match.episode, 10) || 0);
     var show = safeName(match.show) + (opts.showYear && showYear > 1800 ? ' (' + showYear + ')' : '');
+    // {tmdb-387} / {tvdb-75886} in the show folder tells Plex exactly which show this is.
+    var idTag = /^(tmdb|tvdb)-\d{1,9}$/.test(match.idTag || '') ? ' {' + match.idTag + '}' : '';
     var end = parseInt(match.episodeEnd, 10);
     var se = 'S' + pad2(season) + 'E' + pad2(episode) + (end > episode ? '-E' + pad2(end) : '');
     var ep = match.episodeTitle ? ' - ' + safeName(match.episodeTitle) : '';
+    // For TV, Plex reads text after the episode number as a matching hint, unless it's in brackets.
+    var tvQ = q && q !== 'Unknown' ? ' [' + q + ']' : '';
     return {
-      folder: ['TV Shows', show, season === 0 ? 'Specials' : 'Season ' + pad2(season)],
-      file: show + ' - ' + se + ep + qTag + subSuffix + '.' + ext
+      folder: ['TV Shows', show + idTag, season === 0 ? 'Specials' : 'Season ' + pad2(season)],
+      file: show + ' - ' + se + ep + tvQ + subSuffix + '.' + ext
     };
   }
 
   var api = {
     parseFilename: parseFilename,
     parsePath: parsePath,
+    resolveEpisode: resolveEpisode,
+    detectNumbering: detectNumbering,
+    halfHourGroups: halfHourGroups,
     qualityLabel: qualityLabel,
     titleSimilarity: titleSimilarity,
     rankCandidates: rankCandidates,

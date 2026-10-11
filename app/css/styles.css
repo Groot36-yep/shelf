@@ -234,6 +234,9 @@ button.side-source:hover { background: var(--fill); }
 .insp-head { text-align: center; display: flex; flex-direction: column; gap: 4px; }
 .insp-head h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
 .insp-head span { font-size: 12px; }
+.insp-note { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--fill); color: var(--text); font-size: 12px; line-height: 1.4; }
+#inspSegWrap .section-label { display: block; margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 12px; }
+#inspSeg button { flex: 1; }
 .insp-error { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--orange-bg); color: var(--orange-text); font-size: 12px; }
 .insp-section { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-3); }
@@ -296,6 +299,8 @@ select { height: 30px; border-radius: 8px; border: 0; background: var(--fill); p
 label.row { cursor: default; }
 .text { height: 28px; border-radius: 6px; border: 0; background: var(--group); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25); padding: 0 8px; font-family: var(--mono); font-size: 12px; min-width: 0; }
 .row .text { width: 220px; }
+.row.stack > .text { width: 100%; }
+select.text { font-family: inherit; font-size: 13px; }
 .key-row { display: flex; gap: 8px; }
 .key-row .text { flex: 1; width: auto; }
 .callout { padding: 12px 14px; border-radius: 10px; background: var(--select-soft); font-size: 12px; line-height: 1.5; }

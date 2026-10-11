@@ -21,14 +21,27 @@
     movieIds: load('movieIds', false),
     showYear: load('showYear', false),
     quality: load('quality', false),
+    order: load('order', 'tmdb'),      // which episode order Plex uses: tmdb | tvdb | tvdbdvd
+    showIds: load('showIds', true),    // {tmdb-387} in show folders
+    tvdbKey: '', tvdbPin: '',
     posters: load('posters', true),
     mode: load('mode', 'move'),
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
 
-  function saveKey(key) {
-    settings.tmdbKey = key;
-    native.setKey(key).then(function (stored) {
+  // What the lookups need: the keys and the chosen order.
+  function keys() { return { tmdb: settings.tmdbKey, tvdb: settings.tvdbKey, tvdbPin: settings.tvdbPin, order: settings.order }; }
+  // Which service TV lookups actually go to right now (TVmaze when the chosen one has no key).
+  function tvService() {
+    if (settings.order === 'tmdb' && settings.tmdbKey) return 'TMDB';
+    if (settings.order !== 'tmdb' && settings.tvdbKey) return 'TheTVDB';
+    return 'TVmaze';
+  }
+
+  function saveKey(key, name) {
+    name = name || 'tmdb';
+    if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else settings.tvdbPin = key;
+    native.setKey(name, key).then(function (stored) {
       if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
     });
   }
@@ -121,10 +134,11 @@
     if (item.kind === 'movie') return { type: 'movie', title: c.title, year: c.year, id: c.id };
     var ep = item.episode;
     var season = ep && ep.season != null ? ep.season : item.parsed.season != null ? item.parsed.season : 1;
+    var idTag = !settings.showIds ? '' : c.source === 'TMDB' ? 'tmdb-' + c.id : c.source === 'TheTVDB' ? 'tvdb-' + c.id : c.tvdbId ? 'tvdb-' + c.tvdbId : '';
     return {
-      type: 'episode', show: c.title, showYear: c.year, id: c.id,
+      type: 'episode', show: c.title, showYear: c.year, id: c.id, idTag: idTag,
       season: season, episode: ep && ep.number != null ? ep.number : item.parsed.episode || 1,
-      episodeEnd: item.parsed.episodeEnd,
+      episodeEnd: ep ? ep.end : item.parsed.episodeEnd,
       episodeTitle: ep ? ep.name : item.parsed.episodeTitle,
       // Two shows share this name (The Office 2001 / 2005): put the year in the folder so Plex can tell.
       needsYear: item.candidates.some(function (o) { return o !== c && o.id !== c.id && P.titleSimilarity(o.title, c.title) >= 0.99 && o.year !== c.year; })
@@ -144,8 +158,8 @@
     return P.plexName(item.parsed, m, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(item) });
   }
 
-  function isReady(item) { return item.status === 'matched' || (item.status === 'review' && item.confirmed); }
-  function needsReview(item) { return item.status === 'review' && !item.confirmed || item.status === 'nomatch' || item.status === 'error'; }
+  function isReady(item) { return !item.epBlock && (item.status === 'matched' || (item.status === 'review' && item.confirmed)); }
+  function needsReview(item) { return item.status === 'review' && (!item.confirmed || item.epBlock) || item.status === 'nomatch' || item.status === 'error'; }
 
   function addFiles(list) {
     var added = 0;
@@ -204,6 +218,7 @@
       sub.candidates = video.candidates;
       sub.choice = video.choice;
       sub.episode = video.episode;
+      sub.epNote = video.epNote; sub.epBlock = video.epBlock; sub.segmented = video.segmented; sub.showKeyId = video.showKeyId;
       sub.status = video.status === 'pending' ? 'matching' : video.status;
       sub.confirmed = video.confirmed;
       sub.error = video.error;
@@ -232,17 +247,19 @@
       running--; scheduleRender();
       return Promise.resolve();
     }
-    item.sent = { to: item.kind === 'movie' ? 'TMDB' : 'TVmaze', text: title + (item.kind === 'movie' && year ? ' · ' + year : '') };
+    item.sent = { to: item.kind === 'movie' ? 'TMDB' : tvService(), text: title + (item.kind === 'movie' && year ? ' · ' + year : '') };
+    item.epBlock = false; item.epNote = ''; item.episode = null; item.candidates = []; item.choice = 0;
     var lookup;
     if (item.kind === 'movie') {
       lookup = S.searchMovies(title, year, settings.tmdbKey);
     } else {
-      lookup = S.searchShows(title);
+      lookup = S.searchShowsFor(title, keys());
     }
     return lookup.then(function (cands) {
       var ranked = P.rankCandidates(query ? { title: query, year: null } : parsed, cands);
       // Already picked this show for another episode? Use the same one.
       var known = !query && item.kind === 'episode' && showChoices[showKey(parsed)];
+      if (known && known.source !== (ranked[0] && ranked[0].source)) known = null; // order changed since
       if (known) {
         var at = ranked.findIndex(function (r) { return r.id === known.id; });
         if (at < 0) { ranked.unshift(known); at = 0; }
@@ -262,14 +279,10 @@
       var error = ranked.ambiguous ? 'A few titles look alike. Pick the right one below.'
         : status === 'review' ? 'Not sure about this one. Check it below.' : '';
       if (query) { status = 'review'; error = ''; }
-      var finish = function () {
-        // loadEpisode may already have flagged a missing episode — but if the show itself is
-        // unclear, say that instead (the episode is probably in one of the other shows).
-        if (ranked.ambiguous && !known) { item.status = 'review'; item.error = error; }
-        else if (item.status !== 'review') { item.status = status; item.error = error; }
-      };
-      if (item.kind === 'episode') return loadEpisode(item).then(finish);
-      finish();
+      item.showStatus = status; item.showError = error; item.showAmbiguous = !!(ranked.ambiguous && !known);
+      // A TV file only counts as matched once its episode is worked out too.
+      if (item.kind === 'episode') return loadEpisode(item).then(function () { if (item.status === 'matching') { item.status = 'review'; applyStatus(item); } });
+      item.status = status; item.error = error;
     }).catch(function (err) {
       item.status = 'error';
       item.error = err.message || 'Lookup failed';
@@ -280,19 +293,72 @@
     });
   }
 
+  // ---------- Episodes ----------
+  // Each show's full episode list is fetched once (in the order Plex uses), then every file of
+  // that show is worked out together: titles first, then numbers — read as single cartoons or
+  // as half-hours, depending on how this show's files are numbered.
+  var episodeLists = {};   // "TMDB:387:tmdb" → Promise<list>
+  var numbering = {};      // "TMDB:387" → 'segments' | 'halfhours', when you've chosen
+  function showIdKey(c) { return c.source + ':' + c.id; }
+  function listFor(c) {
+    var k = showIdKey(c) + ':' + settings.order;
+    if (!episodeLists[k]) {
+      episodeLists[k] = S.getEpisodeList(c, keys());
+      episodeLists[k].catch(function () { delete episodeLists[k]; });
+    }
+    return episodeLists[k];
+  }
+
   function loadEpisode(item) {
     var c = current(item);
     if (!c) return Promise.resolve();
-    var p = item.parsed;
-    var s = p.season != null ? p.season : 1, e = p.episode || 1;
-    var want = p.airdate ? { airdate: p.airdate } : { season: s, episode: e, episodeEnd: p.episodeEnd };
-    return S.getEpisode(c.id, want).then(function (ep) {
-      item.episode = ep;
-      if (!ep) {
-        item.status = 'review';
-        item.error = (p.airdate ? 'No episode aired on ' + p.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on TVmaze.';
-      }
-    }).catch(function () { item.episode = null; });
+    return listFor(c).then(function () { return resolveShow(c); }, function (err) {
+      item.episode = null; item.epBlock = false;
+      item.epNote = 'Couldn’t load the episode list (' + (err.message || 'error') + '). The numbers from the file name are used.';
+      applyStatus(item);
+    });
+  }
+
+  function applyStatus(item) {
+    if (['error', 'nomatch', 'skipped', 'done', 'pending'].indexOf(item.status) >= 0) return;
+    var problem = item.epProblem || '';
+    if (item.showAmbiguous && !item.confirmed) { item.status = 'review'; item.error = item.showError; return; }
+    if (item.confirmed) { item.status = 'review'; item.error = item.epBlock ? problem : ''; return; }
+    item.status = item.showStatus === 'matched' && !problem ? 'matched' : 'review';
+    item.error = item.showStatus !== 'matched' && item.showError ? item.showError : problem;
+  }
+
+  function resolveShow(c) {
+    var id = showIdKey(c);
+    return listFor(c).then(function (list) {
+      var mine = items.filter(function (i) {
+        var cc = current(i);
+        return i.kind === 'episode' && !i.linkTo && cc && showIdKey(cc) === id && i.status !== 'done' && i.status !== 'skipped';
+      });
+      var bySeason = {};
+      mine.forEach(function (i) { var sn = i.parsed.season != null ? i.parsed.season : 1; (bySeason[sn] = bySeason[sn] || []).push(i); });
+      Object.keys(bySeason).forEach(function (sn) {
+        var group = bySeason[sn];
+        var det = P.detectNumbering(group.map(function (i) { return i.parsed; }), list, +sn);
+        var chosen = numbering[id];
+        var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
+        group.forEach(function (i) {
+          var r = P.resolveEpisode(i.parsed, list, ctx);
+          var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
+          i.showKeyId = id;
+          i.segmented = !!ctx.segmented;
+          i.numberMode = ctx.mode; i.numberSure = ctx.sure !== false && !!(chosen || det.sure);
+          i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how } : null;
+          i.epNote = r && r.sure ? r.note : '';
+          i.epBlock = !!(r && !r.sure);
+          i.epProblem = !r ? (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.'
+            : !r.sure ? r.note : '';
+          applyStatus(i);
+          followVideo(i);
+        });
+      });
+      scheduleRender();
+    });
   }
 
   function retryFailed() {
@@ -329,12 +395,11 @@
           if (at < 0) { o.candidates = [picked].concat(o.candidates).slice(0, 6); at = 0; }
           o.choice = at; o.confirmed = true; o.status = 'review'; o.error = '';
         }
+        o.showAmbiguous = false;
         o.episode = null;
       });
       render();
-      Promise.all([item].concat(siblings).map(function (o) {
-        return loadEpisode(o).then(function () { o.confirmed = true; followVideo(o); });
-      })).then(function () {
+      loadEpisode(item).then(function () {
         if (siblings.length) toast('Used ' + picked.title + (picked.year ? ' (' + picked.year + ')' : '') + ' for ' + (siblings.length + 1) + ' episodes');
         render();
       });
@@ -429,7 +494,8 @@
       else {
         var sN = epInfo ? epInfo.season : item.parsed.season != null ? item.parsed.season : 1;
         var eN = epInfo ? epInfo.number : item.parsed.episode || 1;
-        meta.push((sN === 0 ? 'Special' : 'Season ' + sN + ',') + ' Episode ' + eN + (item.parsed.episodeEnd ? '–' + item.parsed.episodeEnd : ''));
+        var eEnd = epInfo ? epInfo.end : item.parsed.episodeEnd;
+        meta.push((sN === 0 ? 'Special' : 'Season ' + sN + ',') + (eEnd ? ' Episodes ' + eN + '–' + eEnd : ' Episode ' + eN));
       }
       if (item.episode && item.episode.name) meta.push('“' + item.episode.name + '”');
     } else if (c && c.year) meta.push(String(c.year));
@@ -446,6 +512,15 @@
       errBox.appendChild(document.createTextNode(' '));
       errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Open Settings', onclick: function () { openSheet('settings'); } }));
     }
+
+    var note = $('inspNote');
+    note.hidden = !item.epNote || item.epNote === item.error;
+    note.textContent = item.epNote || '';
+    var segWrap = $('inspSegWrap');
+    segWrap.hidden = !(item.kind === 'episode' && item.segmented);
+    document.querySelectorAll('#inspSeg button').forEach(function (b) {
+      b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
+    });
 
     var facts = $('inspFacts');
     facts.textContent = '';
@@ -530,6 +605,9 @@
     var st = $('tmdbStatus');
     st.querySelector('.dot').className = 'dot ' + (settings.tmdbKey ? 'dot-ok' : 'dot-warn');
     st.querySelector('.src-note').textContent = settings.tmdbKey ? 'Ready' : 'Add key';
+    var tv = $('tvdbStatus');
+    tv.querySelector('.dot').className = 'dot ' + (settings.tvdbKey ? 'dot-ok' : 'dot-warn');
+    tv.querySelector('.src-note').textContent = settings.tvdbKey ? 'Ready' : 'Add key';
 
     if (has) { renderList(); renderInspector(); }
     else $('inspector').hidden = true;
@@ -565,6 +643,11 @@
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
       $('optQuality').checked = settings.quality;
+      $('optShowIds').checked = settings.showIds;
+      $('optOrder').value = settings.order;
+      $('tvdbInput').value = settings.tvdbKey;
+      $('tvdbPinInput').value = settings.tvdbPin;
+      syncOrderHelp();
       $('optPosters').checked = settings.posters;
       $('keyStatus').textContent = 'Stored encrypted with your computer account. Only ever sent to TMDB.';
     }
@@ -711,7 +794,8 @@
   on('eraseAll', 'click', function () {
     native.eraseAll();
     items = []; selectedId = null; filter = 'all';
-    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true; settings.mode = 'move';
+    settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
+    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
@@ -719,9 +803,58 @@
   on('optIds', 'change', function (e) { settings.movieIds = e.target.checked; save('movieIds', settings.movieIds); render(); });
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
+  on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
+  function syncOrderHelp() {
+    var svc = tvService();
+    var want = settings.order === 'tmdb' ? 'The Movie Database' : 'TheTVDB';
+    $('orderHelp').textContent = (svc === 'TVmaze'
+      ? 'Add your ' + (settings.order === 'tmdb' ? 'TMDB' : 'TheTVDB') + ' key to use this order. Until then TV shows are looked up on TVmaze, which follows TheTVDB’s aired order. '
+      : '') + (settings.order === 'tmdb'
+      ? 'Plex uses The Movie Database unless you change it in Plex (open the show → Edit → Advanced → Episode ordering).'
+      : 'In Plex, set the show (or the library, under Advanced) to Episode ordering → ' + (settings.order === 'tvdbdvd' ? 'TheTVDB (DVD)' : 'TheTVDB (Aired)') + '.');
+  }
+  // Changing the order or a TV key re-matches every TV show that isn't renamed yet.
+  function rematchTv() {
+    episodeLists = {}; showChoices = {};
+    items.forEach(function (i) {
+      if (i.kind === 'episode' && !i.linkTo && ['done', 'skipped'].indexOf(i.status) < 0 && !i.handPickedQuery) {
+        i.status = 'pending'; i.candidates = []; i.choice = 0; i.confirmed = false; i.handPicked = false; i.needsKey = false;
+      }
+    });
+    matchAll();
+  }
+  on('optOrder', 'change', function (e) { settings.order = e.target.value; save('order', settings.order); syncOrderHelp(); tvDirty = true; });
+  on('tvdbInput', 'change', function (e) { saveKey(e.target.value.trim(), 'tvdb'); syncOrderHelp(); tvDirty = true; render(); });
+  on('tvdbPinInput', 'change', function (e) { saveKey(e.target.value.trim(), 'tvdbPin'); tvDirty = true; });
+  on('testTvdb', 'click', function () {
+    var key = $('tvdbInput').value.trim(), pin = $('tvdbPinInput').value.trim();
+    var st = $('tvdbStatusText');
+    if (!key) { st.textContent = 'Paste your key first.'; return; }
+    st.textContent = 'Checking…';
+    S.testTvdbKey(key, pin).then(function () {
+      st.textContent = 'It works! TV shows can now use TheTVDB.';
+      saveKey(key, 'tvdb'); saveKey(pin, 'tvdbPin'); syncOrderHelp(); tvDirty = true; render();
+    }).catch(function (err) { st.textContent = err.code === 'network' ? err.message : 'TheTVDB didn’t accept that key. Copy it again from thetvdb.com → Dashboard → API Keys.'; });
+  });
+  on('forgetTvdb', 'click', function () {
+    saveKey('', 'tvdb'); saveKey('', 'tvdbPin'); $('tvdbInput').value = ''; $('tvdbPinInput').value = '';
+    $('tvdbStatusText').textContent = 'Key removed from this computer.'; syncOrderHelp(); tvDirty = true; render();
+  });
+  var tvDirty = false;
+  // "One cartoon" / "A half-hour" in the side panel: applies to every file of that show.
+  document.querySelectorAll('#inspSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var item = itemById(selectedId);
+      var c = item && current(linkedVideo(item) || item);
+      if (!c) return;
+      numbering[showIdKey(c)] = b.dataset.mode;
+      resolveShow(c).then(function () { render(); });
+    });
+  });
   on('settingsSheet', 'close', function () {
+    if (tvDirty) { tvDirty = false; rematchTv(); }
     // Retry anything that failed for lack of a key.
-    if (!settings.tmdbKey) return;
+    if (!settings.tmdbKey && !settings.tvdbKey) return;
     items.forEach(function (i) { if (i.needsKey) { i.needsKey = false; i.status = 'pending'; } });
     matchAll();
   });
@@ -758,7 +891,9 @@
   window.addEventListener('error', function (e) { toast('Something went wrong: ' + (e.message || 'unknown error')); });
   window.addEventListener('unhandledrejection', function (e) { toast('Something went wrong: ' + ((e.reason && e.reason.message) || 'unknown error')); });
 
-  native.getKey().then(function (k) { settings.tmdbKey = k || ''; render(); });
+  native.getKey('tmdb').then(function (k) { settings.tmdbKey = k || ''; render(); });
+  native.getKey('tvdb').then(function (k) { settings.tvdbKey = k || ''; render(); });
+  native.getKey('tvdbPin').then(function (k) { settings.tvdbPin = k || ''; });
   native.version().then(function (v) { $('appVersion').textContent = 'Version ' + v; });
   on('checkUpdates', 'click', function () {
     // Opens the downloads page in your browser. Shelf itself never checks in anywhere.

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Privacy & security: the page may only talk to TMDB and TVmaze, load nothing from anywhere else,
+<!-- Privacy & security: the page may only talk to TMDB, TheTVDB and TVmaze, load nothing from anywhere else,
      run no inline or third-party code, and never tell other sites where you came from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://image.tmdb.org https://static.tvmaze.com; connect-src https://api.themoviedb.org https://api.tvmaze.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
 <meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
@@ -46,6 +46,9 @@
       <span class="side-label">Sources</span>
       <button class="side-source" type="button" data-open="settings" id="tmdbStatus">
         <span class="dot dot-warn"></span><span class="src-name">TMDB</span><span class="src-note">Add key</span>
+      </button>
+      <button class="side-source" type="button" data-open="settings" id="tvdbStatus">
+        <span class="dot dot-warn"></span><span class="src-name">TheTVDB</span><span class="src-note">Add key</span>
       </button>
       <div class="side-source">
         <span class="dot dot-ok"></span><span class="src-name">TVmaze</span><span class="src-note">Ready</span>
@@ -110,6 +113,14 @@
       <span id="inspMeta" class="muted"></span>
     </div>
     <p class="insp-error" id="inspError" hidden></p>
+    <p class="insp-note" id="inspNote" hidden></p>
+    <div class="insp-section" id="inspSegWrap" hidden>
+      <span class="section-label">Each file of this show is…</span>
+      <div class="segmented small" role="group" aria-label="Each file is" id="inspSeg">
+        <button type="button" data-mode="segments" aria-pressed="false">One cartoon</button>
+        <button type="button" data-mode="halfhours" aria-pressed="false" title="A half-hour with 2 or 3 cartoons in it">A half-hour</button>
+      </div>
+    </div>
 
     <div class="group" id="inspFacts"></div>
 
@@ -199,6 +210,35 @@
         <button class="pill" type="button" id="forgetKey">Forget Key</button>
       </div>
     </div>
+    <span class="section-label">TV shows</span>
+    <div class="group">
+      <div class="row stack">
+        <label for="optOrder">Episode order — use the same one as your Plex</label>
+        <select id="optOrder" class="text">
+          <option value="tmdb">The Movie Database (Plex’s default)</option>
+          <option value="tvdb">TheTVDB (Aired)</option>
+          <option value="tvdbdvd">TheTVDB (DVD)</option>
+        </select>
+        <span class="row-help" id="orderHelp">Plex uses The Movie Database unless you change it in Plex: open the show → Edit → Advanced → Episode ordering.</span>
+      </div>
+      <div class="row stack">
+        <label for="tvdbInput">TheTVDB API key (for TheTVDB orders)</label>
+        <div class="key-row">
+          <input id="tvdbInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From thetvdb.com → Dashboard → API Keys">
+          <button class="pill" type="button" id="testTvdb">Test</button>
+        </div>
+        <input id="tvdbPinInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Subscriber PIN (only if your key needs one)">
+        <span class="row-help" id="tvdbStatusText">Stored encrypted with your computer account. Only ever sent to TheTVDB.</span>
+      </div>
+      <div class="row">
+        <span class="muted">Remove TheTVDB key from this computer</span>
+        <button class="pill" type="button" id="forgetTvdb">Forget Key</button>
+      </div>
+      <label class="row">
+        <span>Add show ID to folder names<br><small class="muted">SpongeBob SquarePants {tmdb-387} — Plex always picks the right show</small></span>
+        <input type="checkbox" class="switch" id="optShowIds">
+      </label>
+    </div>
     <span class="section-label">Naming</span>
     <div class="group">
       <label class="row">
@@ -243,7 +283,8 @@
     <span class="section-label">The only things that leave</span>
     <div class="group">
       <div class="fact"><span>Movie title + year</span><span>to TMDB</span></div>
-      <div class="fact"><span>Show title + episode number</span><span>to TVmaze</span></div>
+      <div class="fact"><span>Your TheTVDB key</span><span>Encrypted with your computer account</span></div>
+      <div class="fact"><span>Show title</span><span>to TMDB, TheTVDB or TVmaze (the order you chose)</span></div>
       <div class="fact"><span>Posters (optional)</span><span>from TMDB / TVmaze</span></div>
     </div>
     <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB and TVmaze can see your internet address when Shelf asks them something.</p>
@@ -274,6 +315,10 @@
           <img src="assets/tmdb-logo.svg" alt="The Movie Database (TMDB)" width="120" height="16">
         </a>
         <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+      </div>
+      <div class="credit">
+        <a href="https://thetvdb.com" target="_blank" rel="noopener noreferrer" class="tvmaze">TheTVDB</a>
+        <p>Metadata provided by <a href="https://thetvdb.com" target="_blank" rel="noopener noreferrer">TheTVDB</a>. Please consider <a href="https://thetvdb.com/subscribe" target="_blank" rel="noopener noreferrer">adding missing information or subscribing</a>.</p>
       </div>
       <div class="credit">
         <a href="https://www.tvmaze.com" target="_blank" rel="noopener" class="tvmaze">TVmaze</a>

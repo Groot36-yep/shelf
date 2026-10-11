@@ -22,7 +22,8 @@
   // TVmaze: 20 per 10 seconds. TMDB: about 40 per second.
   var limits = {
     'api.themoviedb.org': { parallel: 8, max: 35, windowMs: 1000, margin: 60 },
-    'api.tvmaze.com': { parallel: 4, max: 19, windowMs: 10000, margin: 400 }
+    'api.tvmaze.com': { parallel: 4, max: 19, windowMs: 10000, margin: 400 },
+    'api4.thetvdb.com': { parallel: 6, max: 20, windowMs: 1000, margin: 60 }
   };
   Object.keys(limits).forEach(function (h) { var L = limits[h]; L.active = 0; L.waiting = []; L.sent = []; L.pauseUntil = 0; });
   function slot(host) {
@@ -48,19 +49,22 @@
   var TIMEOUT_MS = 15000;
   var inflight = {}; // the same request asked twice at once is only sent once
 
+  function serviceName(host) { return host.indexOf('tvmaze') >= 0 ? 'TVmaze' : host.indexOf('thetvdb') >= 0 ? 'TheTVDB' : 'TMDB'; }
   function friendlyNetworkError(host, err) {
-    var name = host.indexOf('tvmaze') >= 0 ? 'TVmaze' : 'TMDB';
+    var name = serviceName(host);
     var why = err && err.name === 'AbortError' ? 'it took too long to answer' : 'the connection was blocked or failed';
     var e = new Error('Couldn’t reach ' + name + ' (' + why + '). Check your internet, or whether an ad-blocker, antivirus or firewall is blocking ' + host + '.');
     e.code = 'network';
     return e;
   }
 
-  function fetchWithTimeout(url, headers) {
+  function fetchWithTimeout(url, headers, body) {
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TIMEOUT_MS);
     // No cookies, no referrer: the services learn nothing about where the request came from.
-    return fetch(url, { headers: headers || {}, credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors', signal: ctrl ? ctrl.signal : undefined })
+    var opts = { headers: headers || {}, credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors', signal: ctrl ? ctrl.signal : undefined };
+    if (body) { opts.method = 'POST'; opts.body = JSON.stringify(body); opts.headers['content-type'] = 'application/json'; }
+    return fetch(url, opts)
       .then(function (res) {
         if (!res.ok) return { status: res.status };
         return res.json().then(function (j) { return { status: res.status, json: j }; });
@@ -78,7 +82,7 @@
       }).then(function (r) {
         if (r.status === 429 && n < 3) { backOff(host); return wait(1500 * (n + 1)).then(function () { return attempt(n + 1); }); }
         if (r.status === 404) return null;
-        if (r.status === 401) { var e = new Error('TMDB rejected the key. Check it in Settings.'); e.code = 'auth'; throw e; }
+        if (r.status === 401) { var e = new Error(serviceName(host) + ' rejected the key. Check it in Settings.'); e.code = 'auth'; e.host = host; throw e; }
         if (r.status >= 400 || !r.json) { var e2 = new Error('Lookup failed (error ' + r.status + '). Try again in a moment.'); e2.code = 'server'; throw e2; }
         cache[url] = r.json;
         return r.json;
@@ -162,6 +166,7 @@
       poster: show.image ? safeUrl(show.image.medium || show.image.original, ['https://static.tvmaze.com/']) : null,
       overview: (show.summary || '').replace(/<[^>]+>/g, ''),
       network: (show.network && show.network.name) || (show.webChannel && show.webChannel.name) || '',
+      tvdbId: show.externals && parseInt(show.externals.thetvdb, 10) || null,
       url: safeUrl(show.url, ['https://www.tvmaze.com/'])
     };
   }
@@ -173,47 +178,157 @@
       .then(function (j) { return (j || []).slice(0, 8).map(function (r) { return showToCandidate(r.show, r.score); }); });
   }
 
-  /**
-   * Find one episode. One request per show (cached), then every episode file of that show
-   * is looked up locally, so a whole season costs a single request.
-   * want: { season, episode } or { airdate: 'YYYY-MM-DD' }. Season 0 = specials, in air order.
-   */
-  function getEpisode(showId, want) {
-    return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodes?specials=1')
-      .then(function (list) {
-        list = list || [];
-        var ep = null;
-        if (want.airdate) {
-          ep = list.filter(function (e) { return e.airdate === want.airdate && e.number != null; })[0] ||
-               list.filter(function (e) { return e.airdate === want.airdate; })[0];
-        } else {
-          var s = parseInt(want.season, 10), n = parseInt(want.episode, 10);
-          if (s === 0) {
-            var specials = list.filter(function (e) { return e.number == null || e.season === 0; });
-            ep = specials.filter(function (e) { return e.season === 0 && e.number === n; })[0] || specials[n - 1] || null;
-            if (ep) return { name: String(ep.name || ''), airdate: ep.airdate, season: 0, number: n };
-          } else {
-            ep = list.filter(function (e) { return e.season === s && e.number === n; })[0];
-          }
-        }
-        if (!ep) return null;
-        var out = { name: String(ep.name || ''), airdate: ep.airdate, season: ep.season, number: ep.number };
-        if (want.episodeEnd) {
-          var last = list.filter(function (e) { return e.season === ep.season && e.number === parseInt(want.episodeEnd, 10); })[0];
-          if (last && last.name && last.name !== ep.name) {
-            // "Part 1" + "Part 2" → "Title"; otherwise "First & Second"
-            var a = out.name.replace(/\s*\(\d+\)$|,?\s*Part\s*(\d+|One|I)$/i, ''), b = last.name.replace(/\s*\(\d+\)$|,?\s*Part\s*(\d+|Two|II)$/i, '');
-            out.name = a === b ? a : out.name + ' & ' + last.name;
-          }
-        }
-        return out;
+  // ---------- Episode lists (one shape for every service) ----------
+  // [{ season, number, name, aired, runtime }] — number is null for TVmaze's unnumbered specials.
+  function tvmazeEpisodes(showId) {
+    return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodes?specials=1').then(function (list) {
+      return (list || []).map(function (e) {
+        return { season: e.number == null ? 0 : e.season, number: e.number == null ? null : e.number, name: String(e.name || ''), aired: e.airdate || '', runtime: e.runtime || null };
       });
+    });
+  }
+
+  // ---------- TMDB TV (the order Plex uses by default) ----------
+  function tmdbShowToCandidate(m) {
+    var year = m.first_air_date ? parseInt(m.first_air_date.slice(0, 4), 10) : null;
+    return {
+      type: 'episode', source: 'TMDB', id: parseInt(m.id, 10),
+      title: String(m.name || ''), altTitle: String(m.original_name || ''), year: year,
+      popularity: m.popularity || 0, weight: null,
+      country: (m.origin_country && m.origin_country[0]) || null,
+      poster: /^\/[A-Za-z0-9_.-]+$/.test(m.poster_path || '') ? TMDB_IMG + m.poster_path : null,
+      overview: m.overview || '', network: '',
+      url: 'https://www.themoviedb.org/tv/' + parseInt(m.id, 10)
+    };
+  }
+  function searchShowsTmdb(title, key) {
+    if (!key) { var e = new Error('Add your free TMDB key in Settings, or choose TheTVDB order.'); e.code = 'nokey'; return Promise.reject(e); }
+    return tmdbRequest('/search/tv', { query: String(title).toLowerCase().trim(), include_adult: 'false' }, key)
+        .then(function (j) { return ((j && j.results) || []).slice(0, 10).map(tmdbShowToCandidate); });
+  }
+  // One request gets the show and up to 19 seasons (TMDB's append_to_response), so most shows cost 1 request.
+  function tmdbEpisodes(showId, key) {
+    var id = parseInt(showId, 10);
+    function batch(from) {
+      var seasons = []; for (var n = from; n < from + 19; n++) seasons.push('season/' + n);
+      return tmdbRequest('/tv/' + id, { append_to_response: seasons.join(',') }, key);
+    }
+    return batch(0).then(function (j) {
+      var count = (j && j.number_of_seasons) || 0;
+      var more = [];
+      for (var f = 19; f <= count; f += 19) more.push(batch(f));
+      return Promise.all(more).then(function (rest) { return [j].concat(rest); });
+    }).then(function (pages) {
+      var out = [];
+      pages.forEach(function (j) {
+        Object.keys(j || {}).forEach(function (k) {
+          if (!/^season\/\d+$/.test(k) || !j[k] || !j[k].episodes) return;
+          j[k].episodes.forEach(function (e) {
+            out.push({ season: e.season_number, number: e.episode_number, name: String(e.name || ''), aired: e.air_date || '', runtime: e.runtime || null });
+          });
+        });
+      });
+      return out.sort(function (a, b) { return a.season - b.season || a.number - b.number; });
+    });
+  }
+
+  // ---------- TheTVDB ----------
+  var TVDB = 'https://api4.thetvdb.com/v4';
+  var tvdbAuth = { key: '', pin: '', token: null, pending: null };
+  var COUNTRY3 = { usa: 'US', gbr: 'GB', can: 'CA', aus: 'AU', nzl: 'NZ', irl: 'IE', jpn: 'JP', kor: 'KR', deu: 'DE', fra: 'FR', esp: 'ES', ita: 'IT', swe: 'SE', dnk: 'DK', nor: 'NO', ind: 'IN', bra: 'BR', mex: 'MX' };
+
+  function tvdbLogin(key, pin) {
+    if (!key) { var e = new Error('Add your TheTVDB key in Settings to use TheTVDB.'); e.code = 'nokey'; return Promise.reject(e); }
+    if (tvdbAuth.token && tvdbAuth.key === key && tvdbAuth.pin === (pin || '')) return Promise.resolve(tvdbAuth.token);
+    if (tvdbAuth.pending && tvdbAuth.key === key) return tvdbAuth.pending;
+    tvdbAuth.key = key; tvdbAuth.pin = pin || ''; tvdbAuth.token = null;
+    var body = { apikey: key }; if (pin) body.pin = pin;
+    tvdbAuth.pending = slot('api4.thetvdb.com').then(function (release) {
+      return fetchWithTimeout(TVDB + '/login', { accept: 'application/json' }, body)
+        .then(function (r) { release(); return r; }, function (err) { release(); throw friendlyNetworkError('api4.thetvdb.com', err); });
+    }).then(function (r) {
+      tvdbAuth.pending = null;
+      var token = r.json && r.json.data && r.json.data.token;
+      if (!token) { var e2 = new Error('TheTVDB didn’t accept that key' + (r.status === 401 ? '' : ' (error ' + r.status + ')') + '. Check it in Settings.'); e2.code = 'auth'; e2.host = 'api4.thetvdb.com'; throw e2; }
+      tvdbAuth.token = token; // kept in memory only; it lasts a month, Shelf asks again next launch
+      return token;
+    }, function (err) { tvdbAuth.pending = null; throw err; });
+    return tvdbAuth.pending;
+  }
+  function tvdbGet(path, key, pin) {
+    return tvdbLogin(key, pin).then(function (token) {
+      return getJSON(TVDB + path, { accept: 'application/json', Authorization: 'Bearer ' + token }).catch(function (err) {
+        if (err.code !== 'auth') throw err;
+        tvdbAuth.token = null; // token expired: sign in once more
+        return tvdbLogin(key, pin).then(function (t2) { return getJSON(TVDB + path, { accept: 'application/json', Authorization: 'Bearer ' + t2 }); });
+      });
+    });
+  }
+  function testTvdbKey(key, pin) { tvdbAuth.token = null; return tvdbLogin(key, pin).then(function () { return true; }); }
+
+  function tvdbToCandidate(r, i) {
+    var id = parseInt(r.tvdb_id || r.id, 10);
+    var name = (r.translations && r.translations.eng) || r.name || '';
+    return {
+      type: 'episode', source: 'TheTVDB', id: id, tvdbId: id,
+      title: String(name), altTitle: String(r.name || ''), year: parseInt(r.year, 10) || null,
+      popularity: 10 - i, weight: null,
+      country: COUNTRY3[String(r.country || '').toLowerCase()] || null,
+      poster: safeUrl(r.thumbnail || r.image_url, ['https://artworks.thetvdb.com/']),
+      overview: (r.overviews && r.overviews.eng) || r.overview || '', network: r.network || '',
+      url: r.slug ? 'https://thetvdb.com/series/' + encodeURIComponent(r.slug) : 'https://thetvdb.com/'
+    };
+  }
+  function searchShowsTvdb(title, key, pin) {
+    var q = String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return tvdbGet('/search?type=series&limit=10&query=' + encodeURIComponent(q), key, pin)
+      .then(function (j) { return ((j && j.data) || []).slice(0, 10).map(tvdbToCandidate); });
+  }
+  // order: 'default' (aired) or 'dvd'. Pages of up to 500 episodes; English names when available.
+  function tvdbEpisodes(showId, order, key, pin) {
+    var id = parseInt(showId, 10), type = order === 'dvd' ? 'dvd' : 'default';
+    var out = [];
+    function page(n, lang) {
+      return tvdbGet('/series/' + id + '/episodes/' + type + lang + '?page=' + n, key, pin).then(function (j) {
+        var eps = (j && j.data && j.data.episodes) || [];
+        eps.forEach(function (e) {
+          if (e.number == null || e.seasonNumber == null) return;
+          out.push({ season: e.seasonNumber, number: e.number, name: String(e.name || ''), aired: e.aired || '', runtime: e.runtime || null });
+        });
+        var hasNext = (j && j.links && j.links.next) || eps.length >= 500;
+        return hasNext && n < 20 ? page(n + 1, lang) : out;
+      });
+    }
+    return page(0, '/eng').then(function (list) {
+      if (list.length) return list;
+      out = []; return page(0, ''); // no English listing: use the original language
+    }, function () { out = []; return page(0, ''); })
+      .then(function (list) { return list.sort(function (a, b) { return a.season - b.season || a.number - b.number; }); });
+  }
+
+  /**
+   * The full episode list of a show, in the order Plex will use.
+   * cand: a candidate from searchShows*; keys: { tmdb, tvdb, tvdbPin }; order: 'tmdb' | 'tvdb' | 'tvdbdvd'
+   */
+  function getEpisodeList(cand, keys) {
+    if (cand.source === 'TMDB') return tmdbEpisodes(cand.id, keys.tmdb);
+    if (cand.source === 'TheTVDB') return tvdbEpisodes(cand.id, keys.order === 'tvdbdvd' ? 'dvd' : 'default', keys.tvdb, keys.tvdbPin);
+    return tvmazeEpisodes(cand.id);
+  }
+
+  /** Search shows on the service that matches the chosen Plex order (TVmaze when there's no key). */
+  function searchShowsFor(title, keys) {
+    if (keys.order === 'tmdb' && keys.tmdb) return searchShowsTmdb(title, keys.tmdb);
+    if ((keys.order === 'tvdb' || keys.order === 'tvdbdvd') && keys.tvdb) return searchShowsTvdb(title, keys.tvdb, keys.tvdbPin);
+    return searchShows(title);
   }
 
   root.ShelfSources = {
     searchMovies: searchMovies,
     testTmdbKey: testTmdbKey,
     searchShows: searchShows,
-    getEpisode: getEpisode
+    searchShowsFor: searchShowsFor,
+    getEpisodeList: getEpisodeList,
+    testTvdbKey: testTvdbKey
   };
 })(this);

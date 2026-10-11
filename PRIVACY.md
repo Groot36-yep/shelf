@@ -15,20 +15,21 @@ Shelf is built to know as little about you as possible.
 | What | Sent to | Why |
 |---|---|---|
 | Movie title and year, e.g. `Charade` + `1963` | [TMDB](https://www.themoviedb.org) | To find the right movie |
-| Show title, e.g. `Bonanza`, plus season and episode numbers | [TVmaze](https://www.tvmaze.com) | To find the show and the episode name |
+| Show title, e.g. `Bonanza` | [TMDB](https://www.themoviedb.org), [TheTVDB](https://thetvdb.com) or [TVmaze](https://www.tvmaze.com), whichever matches your episode order | To find the show and its episode list |
 | Requests for poster images (optional, can be turned off) | TMDB / TVmaze image servers | To show posters |
 | Your TMDB key | TMDB only | TMDB requires it |
+| Your TheTVDB key (and PIN, if you have one) | TheTVDB only | TheTVDB requires it |
 
 Each file's details panel shows exactly what was shared for that file.
 
-Like any online service, TMDB and TVmaze can see your internet (IP) address when Shelf asks them
+Like any online service, TMDB, TheTVDB and TVmaze can see your internet (IP) address when Shelf asks them
 something. Shelf sends no cookies and no "referrer".
 
 ## The app
 
 - It renames files itself, on your computer. It can only touch files you picked, and only put
   them inside the library folder you chose.
-- Your TMDB key is encrypted with your Windows account (DPAPI) before it is saved.
+- Your TMDB and TheTVDB keys are encrypted with your Windows account (DPAPI) before they are saved.
 - No telemetry, no automatic update checks, no crash reports, and no spell-check downloads.
 - The app asks for no permissions (camera, microphone, location, notifications) and can't open
   other websites inside its window. Links open in your normal browser.
@@ -46,5 +47,5 @@ something. Shelf sends no cookies and no "referrer".
 ## Never
 
 - No accounts, sign-ups, cookies, tracking, analytics or ads.
-- No code, fonts or images from anywhere else. Shelf's window may only connect to TMDB and TVmaze
+- No code, fonts or images from anywhere else. Shelf's window may only connect to TMDB, TheTVDB and TVmaze
   (and load posters from their image servers). Everything else is blocked.

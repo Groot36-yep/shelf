@@ -20,8 +20,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
   canUndo: () => ipcRenderer.invoke('shelf:canUndo'),
   undo: () => ipcRenderer.invoke('shelf:undo'),
   showLibrary: () => ipcRenderer.invoke('shelf:showInFolder'),
-  getKey: () => ipcRenderer.invoke('shelf:getKey'),
-  setKey: (k) => ipcRenderer.invoke('shelf:setKey', k),
+  getKey: (name) => ipcRenderer.invoke('shelf:getKey', String(name || 'tmdb')),
+  setKey: (name, k) => ipcRenderer.invoke('shelf:setKey', String(name || 'tmdb'), k),
   eraseAll: () => ipcRenderer.invoke('shelf:eraseAll'),
   onProgress: (fn) => {
     const listener = (e, p) => fn({ done: Number(p.done) || 0, total: Number(p.total) || 0 });

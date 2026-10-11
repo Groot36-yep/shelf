@@ -32,7 +32,8 @@ Windows account.
 ## How to use it
 
 1. Open Shelf, click **Settings** and paste your free TMDB key (themoviedb.org → Settings → API).
-   TV shows work without a key, using [TVmaze](https://www.tvmaze.com).
+   TV shows use the same episode order as Plex: The Movie Database by default (same key), or TheTVDB
+   if your Plex is set to it (add your TheTVDB key). Without a key, TV shows use [TVmaze](https://www.tvmaze.com).
 2. Click **Choose Folder…** (or drag files onto the window).
 3. Check anything marked **Review**: click it and pick the right match on the right, or search by title.
 4. Click **Rename…**, choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
@@ -49,11 +50,22 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 - Release junk such as `1080p`, `BluRay`, `x264`, `WEB-DL` and release group tags, which is ignored
 - Remakes with the same title (*Nosferatu* 1922 / 1979 / 2024), which are flagged for you to pick instead of guessed
 - Subtitles next to a video with the same name, which automatically follow that video's match
+- Shows kept in folders, like `Breaking Bad (2008)/Season 1/E01.mkv`, double episodes (`S01E01-E02`),
+  daily shows by date, and Specials
+- **Two-part cartoons** like *SpongeBob SquarePants* and *The Fairly OddParents*. The databases list
+  each 11-minute cartoon as its own episode, but most files hold a whole half-hour. Shelf reads the
+  cartoon titles in the file name (`S01E02 Bubblestand Ripped Pants` → `S01E04-E05`). Without titles it
+  works out from your files whether they're numbered by cartoon or by half-hour, and asks once if it
+  can't tell. DVD numbering is fixed the same way, by title.
 
 ## Settings
 
 - **Add TMDB ID to movie names**: `Charade (1963) {tmdb-4808}.mkv`. Plex then never mismatches it.
 - **Add year to show names**: `Doctor Who (2005)`. Useful when a show has been remade.
+- **Episode order**: The Movie Database (Plex's default), TheTVDB (Aired) or TheTVDB (DVD). Pick the
+  one your Plex uses (in Plex: open the show → Edit → Advanced → Episode ordering).
+- **Add show ID to folder names** (on by default): `SpongeBob SquarePants {tmdb-387}`, so Plex picks the right show.
+- **Add quality to file names**: `Charade (1963) - 1080p BluRay.mkv`, and `[1080p BluRay]` for episodes.
 - **Move, Copy or Hard Link**: hard links use no extra disk space, which is handy for files you keep seeding.
 - **Show posters**: turn off to download no images at all.
 - **Forget Key** removes your TMDB key. **Privacy → Erase All Shelf Data** removes everything Shelf saved.
@@ -63,7 +75,7 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 ```
 app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js)
 desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files)
-tests/            npm test, and tests/app.smoke.js for an end-to-end run of the app
+tests/            npm test; app/tv/sources.smoke.js run the whole app end to end with mocked lookups
 index.html        the download page at groot36-yep.github.io/shelf
 ```
 
@@ -73,6 +85,9 @@ Every release is built by GitHub Actions on Windows, after the safety tests pass
 ## Credits
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+Metadata provided by [TheTVDB](https://thetvdb.com). Please consider adding missing information or
+[subscribing](https://thetvdb.com/subscribe).
 
 TV information is provided by [TVmaze](https://www.tvmaze.com), licensed under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).

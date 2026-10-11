@@ -17,6 +17,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const handle = (route) => {
     const u = route.request().url();
+    if (u.includes('api.themoviedb.org/3/search/tv')) return route.fulfill({ status: 200, body: JSON.stringify({ results: [{ id: 3456, name: 'Bonanza', first_air_date: '1959-09-12', popularity: 20, origin_country: ['US'] }] }), headers: H });
+    if (u.includes('api.themoviedb.org/3/tv/3456')) return route.fulfill({ status: 200, body: JSON.stringify({ id: 3456, number_of_seasons: 1, 'season/1': { episodes: [{ season_number: 1, episode_number: 1, name: 'A Rose for Lotta', air_date: '1959-09-12', runtime: 50 }] } }), headers: H });
     if (u.includes('api.themoviedb.org')) {
       const q = decodeURIComponent((u.match(/query=([^&]+)/) || [])[1] || '').toLowerCase();
       const res = q.includes('charade') ? [{ id: 4808, title: 'Charade', release_date: '1963-12-05', popularity: 9 }] : [{ id: 9, title: 'Weird Name', release_date: '2001-01-01', popularity: 1 }];
@@ -30,7 +32,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   };
 
   const errors = [];
-  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', ROOT] });
+  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-')), ROOT] });
   // Pretend the user picked these folders in the system dialogs.
   await app.evaluate(({ dialog }, dirs) => { const q = [...dirs]; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [q.shift()] }); }, [videos, lib]);
   const win = await app.firstWindow();

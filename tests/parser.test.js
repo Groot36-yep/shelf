@@ -112,6 +112,41 @@ check('TV: country picks the right twin', () => {
   assert.strictEqual(r[0].year, 2001); assert.strictEqual(r.ambiguous, false);
 });
 
+// Two-part cartoons (real TVmaze listings in tests/fixtures/cartoons.json)
+const F = require('./fixtures/cartoons.json');
+const L = (k) => F[k].map(([season, number, name, aired, runtime]) => ({ season, number, name, aired, runtime }));
+const SB = L('spongebob'), FOP = L('fop');
+function resolves(file, list, ctx, want) {
+  check('resolve ' + file, () => {
+    const r = P.resolveEpisode(P.parseFilename(file), list, ctx);
+    const got = r && ('S' + r.season + 'E' + r.number + (r.end ? '-E' + r.end : '') + (r.sure ? '' : ' ?'));
+    assert.strictEqual(got, want, file + ' → ' + JSON.stringify(r));
+  });
+}
+resolves('SpongeBob.SquarePants.S01E02.Bubblestand.Ripped.Pants.1080p.WEB-DL.mkv', SB, {}, 'S1E4-E5');
+resolves('SpongeBob SquarePants - S01E01 - Help Wanted - Reef Blower - Tea at the Treedome.mkv', SB, {}, 'S1E1-E3');
+resolves('SpongeBob.S01E06.Jellyfishing.mkv', SB, {}, 'S1E6');
+resolves('SpongeBob.S01E20.Hooky.Mermaid.Man.and.Barnacle.Boy.II.mkv', SB, {}, 'S1E40-E41');
+resolves('SpongeBob.S01E12.Mermaid.Man.and.Barnacle.Boy.mkv', SB, {}, 'S1E12');
+resolves('SpongeBob.S01E02.mkv', SB, { mode: 'halfhours', sure: true }, 'S1E4-E5');
+resolves('SpongeBob.S02E09.mkv', SB, { mode: 'halfhours', sure: true }, 'S2E17-E18');
+resolves('SpongeBob.S02E10.mkv', SB, { mode: 'halfhours', sure: true }, 'S2E19-E20'); // 4 cartoons aired that day: 2 half-hours
+resolves('SpongeBob.S01E02.mkv', SB, { mode: 'segments', sure: false }, 'S1E2 ?');
+resolves('SpongeBob.S01E02.mkv', SB, { mode: 'segments', sure: true }, 'S1E2');
+resolves('The.Fairly.OddParents.S01E01.The.Big.Problem.Power.Mad.DVDRip.mkv', FOP, {}, 'S1E1-E2');
+resolves('Fairly OddParents - 1x05 - Father Time - Apartnership.avi', FOP, {}, 'S1E7-E8');
+resolves('Fairly OddParents S01E07 Christmas Everyday.mkv', FOP, {}, 'S1E13');
+resolves('Fairly OddParents S02E01 Hex Games.mkv', FOP, { mode: 'halfhours', sure: true }, 'S2E1-E2');
+check('numbering: a full season of half-hour files', () => {
+  const files = Array.from({ length: 20 }, (_, i) => P.parseFilename('SpongeBob.S01E' + String(i + 1).padStart(2, '0') + '.mkv'));
+  assert.deepStrictEqual(P.detectNumbering(files, SB, 1), { mode: 'halfhours', sure: true, segmented: true });
+  const all = Array.from({ length: 41 }, (_, i) => P.parseFilename('SpongeBob.S01E' + String(i + 1).padStart(2, '0') + '.mkv'));
+  assert.strictEqual(P.detectNumbering(all, SB, 1).mode, 'segments');
+  assert.strictEqual(P.detectNumbering(files.slice(0, 3), SB, 1).sure, false);
+  const normal = [{ season: 1, number: 1, name: 'A', aired: '2020-01-01', runtime: 45 }, { season: 1, number: 2, name: 'B', aired: '2020-01-08', runtime: 45 }, { season: 1, number: 3, name: 'C', aired: '2020-01-15', runtime: 45 }, { season: 1, number: 4, name: 'D', aired: '2020-01-22', runtime: 45 }];
+  assert.deepStrictEqual(P.detectNumbering(files.slice(0, 2), normal, 1), { mode: 'segments', sure: true, segmented: false });
+});
+
 // Naming
 check('movie name', () => {
   const p = P.parseFilename('charade.1963.1080p.mkv');
@@ -130,7 +165,12 @@ check('quality in names', () => {
   const n = P.plexName(p, { type: 'movie', title: 'Charade', year: 1963 }, { quality: '1080p BluRay' });
   assert.deepStrictEqual(n, { folder: ['Movies', 'Charade (1963)'], file: 'Charade (1963) - 1080p BluRay.mkv' });
   const e = P.plexName(P.parseFilename('x.s01e01e02.en.srt'), { type: 'episode', show: 'Lost', season: 1, episode: 1, episodeEnd: 2, episodeTitle: 'Pilot' }, { quality: '720p BluRay' });
-  assert.strictEqual(e.file, 'Lost - S01E01-E02 - Pilot - 720p BluRay.en.srt');
+  assert.strictEqual(e.file, 'Lost - S01E01-E02 - Pilot [720p BluRay].en.srt');
+  const id = P.plexName(P.parseFilename('x.s01e01.mkv'), { type: 'episode', show: 'SpongeBob SquarePants', season: 1, episode: 1, idTag: 'tmdb-387' }, {});
+  assert.deepStrictEqual(id.folder, ['TV Shows', 'SpongeBob SquarePants {tmdb-387}', 'Season 01']);
+  assert.strictEqual(id.file, 'SpongeBob SquarePants - S01E01.mkv');
+  const evil = P.plexName(P.parseFilename('x.s01e01.mkv'), { type: 'episode', show: 'X', season: 1, episode: 1, idTag: 'tmdb-1}/../x' }, {});
+  assert.deepStrictEqual(evil.folder, ['TV Shows', 'X', 'Season 01']);
   const bad = P.plexName(p, { type: 'movie', title: 'Charade', year: 1963 }, { quality: '../x/{y}' });
   assert.ok(!/[\\/{}]/.test(bad.file), bad.file);
   assert.deepStrictEqual(P.plexName(P.parseFilename('a.s00e01.mkv'), { type: 'episode', show: 'Lost', season: 0, episode: 1 }, {}).folder, ['TV Shows', 'Lost', 'Specials']);

@@ -20,7 +20,12 @@ const SEARCH = {
   'bonanza': [show(1, 'Bonanza', '1959-09-12', 90, 'US'), show(2, 'Bonanza', '2020-01-01', 6, 'AU')],
   'doctor who': [show(210, 'Doctor Who', '2005-03-26', 98, 'GB'), show(766, 'Doctor Who', '1963-11-23', 92, 'GB'), show(73000, 'Doctor Who', '2023-11-25', 90, 'GB')]
 };
+const F = require('./fixtures/cartoons.json');
+const fx = (k) => F[k].map(([season, number, name, airdate, runtime]) => ({ season, number, name, airdate, runtime }));
+SEARCH['spongebob squarepants'] = [Object.assign(show(713, 'SpongeBob SquarePants', '1999-05-01', 99, 'US'), { externals: { thetvdb: 75886 } })];
+SEARCH['the fairly oddparents'] = [Object.assign(show(2565, 'The Fairly OddParents', '2001-03-30', 97, 'US'), { externals: { thetvdb: 76372 } }), show(53840, 'The Fairly OddParents: Fairly Odder', '2022-03-31', 60, 'US')];
 const EPISODES = {
+  713: fx('spongebob'), 2565: fx('fop'),
   526: [{ season: 2, number: 3, name: 'Office Olympics', airdate: '2005-10-04' }],
   1292: [{ season: 1, number: 1, name: 'Downsize', airdate: '2001-07-09' }, { season: 1, number: 2, name: 'Work Experience', airdate: '2001-07-16' }],
   169: [{ season: 1, number: 1, name: 'Pilot' }, { season: 1, number: 2, name: "Cat's in the Bag..." }, { season: 2, number: 1, name: 'Seven Thirty-Seven' }],
@@ -43,7 +48,13 @@ const EPISODES = {
     'Lost/Season 1/Lost.S01E01E02.Pilot.720p.BluRay.en.srt',
     'The.Daily.Show.2024.01.15.Guest.Night.720p.WEB.h264.mkv',
     'bonanza.s01e01.a.rose.for.lotta.mkv',
-    'Doctor.Who.S01E01.mkv'
+    'Doctor.Who.S01E01.mkv',
+    // Half-hour files from a streaming service: two cartoons each, numbered by half-hour.
+    'SpongeBob SquarePants/Season 1/SpongeBob.SquarePants.S01E02.Bubblestand.Ripped.Pants.1080p.WEB-DL.mkv',
+    'SpongeBob SquarePants/Season 1/SpongeBob.SquarePants.S01E03.1080p.WEB-DL.mkv',
+    // No titles, too few files to tell: Shelf must ask.
+    'The Fairly OddParents/Season 2/The.Fairly.OddParents.S02E02.mkv',
+    'The Fairly OddParents/Season 2/The.Fairly.OddParents.S02E03.mkv'
   ];
   for (const f of files) { fs.mkdirSync(path.dirname(path.join(dl, f)), { recursive: true }); fs.writeFileSync(path.join(dl, f), 'v'); }
   fs.mkdirSync(lib);
@@ -65,7 +76,7 @@ const EPISODES = {
   };
 
   const errors = [];
-  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', ROOT] });
+  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-')), ROOT] });
   await app.evaluate(({ dialog }, dirs) => { const q = [...dirs]; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [q.shift()] }); }, [dl, lib]);
   const win = await app.firstWindow();
   win.on('pageerror', (e) => errors.push(String(e)));
@@ -83,6 +94,7 @@ const EPISODES = {
   const settled = () => win.evaluate(() => window.Shelf.items().length > 0 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)));
   for (let i = 0; i < 80 && !(await settled()); i++) await sleep(100);
   const took = Date.now() - t0;
+  await sleep(300); // let the list redraw
 
   const state = () => win.evaluate(() => {
     const out = {};
@@ -103,7 +115,19 @@ const EPISODES = {
   assert.ok(ready('bonanza.s01e01.a.rose.for.lotta.mkv'), 'Bonanza: obscure namesake should not block');
   assert.strictEqual(s['Doctor.Who.S01E01.mkv'].status, 'review', 'Doctor Who has three real versions: ask');
   const searches = requests.filter((r) => r.includes('search')).length;
-  assert.strictEqual(searches, 6, 'one search per show, got ' + searches);
+  assert.strictEqual(searches, 8, 'one search per show, got ' + searches);
+  assert.ok(ready('SpongeBob.SquarePants.S01E02.Bubblestand.Ripped.Pants.1080p.WEB-DL.mkv') && ready('SpongeBob.SquarePants.S01E03.1080p.WEB-DL.mkv'), 'SpongeBob half-hours');
+  const fopA = 'The.Fairly.OddParents.S02E02.mkv';
+  assert.strictEqual(s[fopA].status, 'review', 'unsure numbering must ask');
+  assert.ok(/one cartoon or a whole half-hour/.test(s[fopA].error), s[fopA].error);
+  // Answer once: "A half-hour" — both files follow.
+  await win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, fopA);
+  await sleep(200);
+  assert.ok(await win.isVisible('#inspSegWrap'), 'chooser visible');
+  await win.click('#inspSeg button[data-mode=halfhours]');
+  await sleep(300);
+  s = await state();
+  assert.ok(ready(fopA) && ready('The.Fairly.OddParents.S02E03.mkv'), 'FOP ready after choosing');
 
   // Pick the UK Office once, for one episode — the other episode should follow.
   await win.evaluate(() => { const it = window.Shelf.items().find((i) => i.name === 'the.office.s01e01.1080p.web-dl.mkv'); document.querySelector('[data-id="' + it.id + '"]').click(); });
@@ -124,12 +148,17 @@ const EPISODES = {
     'TV Shows/Bonanza (1959)/Season 01/Bonanza (1959) - S01E01 - A Rose for Lotta.mkv',
     "TV Shows/Breaking Bad/Season 01/Breaking Bad - S01E01 - Pilot.mkv",
     "TV Shows/Breaking Bad/Season 01/Breaking Bad - S01E02 - Cat's in the Bag.mkv", // Windows drops trailing dots
-    'TV Shows/Lost (2004)/Season 01/Lost (2004) - S01E01-E02 - Pilot - 720p BluRay.en.srt',
-    'TV Shows/Lost (2004)/Season 01/Lost (2004) - S01E01-E02 - Pilot - 720p BluRay.mkv',
-    'TV Shows/The Daily Show/Season 29/The Daily Show - S29E06 - Guest Night - 720p WEB.mkv',
-    'TV Shows/The Office (2001)/Season 01/The Office (2001) - S01E01 - Downsize - 1080p WEB-DL.mkv',
-    'TV Shows/The Office (2001)/Season 01/The Office (2001) - S01E02 - Work Experience - 1080p WEB-DL.mkv',
-    'TV Shows/The Office (2005)/Season 02/The Office (2005) - S02E03 - Office Olympics - 720p HDTV.mkv'
+    'TV Shows/Lost (2004)/Season 01/Lost (2004) - S01E01-E02 - Pilot [720p BluRay].en.srt',
+    'TV Shows/Lost (2004)/Season 01/Lost (2004) - S01E01-E02 - Pilot [720p BluRay].mkv',
+    'TV Shows/The Daily Show/Season 29/The Daily Show - S29E06 - Guest Night [720p WEB].mkv',
+    'TV Shows/The Office (2001)/Season 01/The Office (2001) - S01E01 - Downsize [1080p WEB-DL].mkv',
+    'TV Shows/The Office (2001)/Season 01/The Office (2001) - S01E02 - Work Experience [1080p WEB-DL].mkv',
+    'TV Shows/The Office (2005)/Season 02/The Office (2005) - S02E03 - Office Olympics [720p HDTV].mkv',
+    // The two-part cartoons, named the way Plex lists them:
+    'TV Shows/SpongeBob SquarePants {tvdb-75886}/Season 01/SpongeBob SquarePants - S01E04-E05 - Bubblestand & Ripped Pants [1080p WEB-DL].mkv',
+    'TV Shows/SpongeBob SquarePants {tvdb-75886}/Season 01/SpongeBob SquarePants - S01E06-E07 - Jellyfishing & Plankton! [1080p WEB-DL].mkv',
+    'TV Shows/The Fairly OddParents {tvdb-76372}/Season 02/The Fairly OddParents - S02E03-E04 - Boy Toys & Inspection Detection.mkv',
+    'TV Shows/The Fairly OddParents {tvdb-76372}/Season 02/The Fairly OddParents - S02E05-E06 - Action Packed & Smarty Pants.mkv'
   ];
   const missing = want.filter((w) => !got.includes(w));
   await app.close();
