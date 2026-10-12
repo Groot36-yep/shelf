@@ -85,7 +85,7 @@ const SB = F.spongebob.map(([season, number, name, aired, runtime], i) => ({ id:
   const settled = () => win.evaluate(() => window.Shelf.items().length > 0 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)));
   for (let i = 0; i < 60 && !(await settled()); i++) await sleep(100);
   await sleep(300); // let the list redraw
-  const names = () => win.evaluate(() => window.Shelf.items().map((i) => i.status + ' ' + [...document.querySelectorAll('[data-id="' + i.id + '"] .newname, [data-id="' + i.id + '"] .new-cell .sub')].map((n) => n.textContent).join(' | ')));
+  const names = () => win.evaluate(() => window.Shelf.items().map((i) => i.status + ' ' + [...document.querySelectorAll('[data-id="' + i.id + '"] .newname, [data-id="' + i.id + '"] .new-cell .sub')].map((n) => n.textContent + (n.title ? ' [' + n.title + ']' : '')).join(' | ')));
   let n = await names();
   console.log('TheTVDB order:\n ', n.join('\n  '));
   console.log(' ', log.join('\n  '));

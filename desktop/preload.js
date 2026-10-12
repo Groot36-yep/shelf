@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
   },
   // The look you chose (so the window frame and permission window match).
   setTheme: (name) => ipcRenderer.invoke('shelf:setTheme', String(name || 'studio')),
+  // Windows: the colour under the window's minimise / maximise / close buttons, so they blend in.
+  titleBar: (color, symbol) => ipcRenderer.invoke('shelf:titleBar', String(color), String(symbol)),
   // Shelf's permission window is open (the main window dims behind it).
   onModal: (fn) => { ipcRenderer.on('shelf:modal', (e, open) => fn(open === true)); },
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),

@@ -2,6 +2,21 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.10.0)
+- **Shelves**: the list is grouped by show (and one shelf for movies), episodes in order, each show on
+  its own shelf with its poster and how many files are ready or need a look.
+- **Read Title Cards is always there**: on each show's shelf and in the side panel. No setting to turn
+  on first. It still asks before it looks inside any video.
+- **Questions asked once**: "Is each file one cartoon or a half-hour?" sits on the show's shelf; one
+  answer settles every episode.
+- **Every file says what's wrong** in plain words, right in the list, and **Next to Check** (or N) takes
+  you to the next one. The Rename button says how many files it will rename.
+- **Living Room, refined**: real wood grain instead of noise; colours checked for readability
+  (every text is at least 4.5:1); chocolate text on the orange; fewer stripes, used on purpose.
+- **Windows**: the minimise / maximise / close buttons now blend into whatever is behind them, sit on a
+  trim strip in the Living Room, and never cover Check Episodes.
+- Buttons are solid in every state (no lighter box inside the Rename button).
+
 ## Done (1.9.0)
 - **Looks**: choose how Shelf looks in Settings. **Studio** is the clean look you know. **Living Room** is new:
   a 1970s den with walnut paneling, harvest-gold walls, a rainbow arch mural with a TV you drop files

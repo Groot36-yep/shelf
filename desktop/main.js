@@ -73,9 +73,14 @@ try { theme = readPrefs().theme === 'seventies' ? 'seventies' : 'studio'; } catc
 // On Windows the minimise / maximise / close buttons sit inside Shelf's own toolbar.
 function overlayColors() {
   const dark = nativeTheme.shouldUseDarkColors;
-  if (theme === 'seventies') return dark ? { color: '#2B1B12', symbolColor: '#F3E2BE', height: 52 } : { color: '#F6E7C6', symbolColor: '#3B2416', height: 52 };
+  // Living Room: the buttons sit on the chocolate trim strip along the top of the window.
+  if (theme === 'seventies') return { color: '#2E1B11', symbolColor: '#F3E2BE', height: TRIM };
   return dark ? { color: '#232326', symbolColor: '#F2F2F7', height: 52 } : { color: '#FBFBFD', symbolColor: '#1D1D1F', height: 52 };
 }
+const TRIM = 34; // height of the Living Room's top strip (Windows)
+// The window's own buttons take the colour of whatever is under them (sent by the page).
+let barColor = null;
+function overlayNow() { return Object.assign(overlayColors(), barColor || {}); }
 function windowColor() {
   const dark = nativeTheme.shouldUseDarkColors;
   return theme === 'seventies' ? (dark ? '#1F140E' : '#E4B65C') : (dark ? '#1E1E20' : '#FFFFFF');
@@ -118,7 +123,7 @@ function createWindow() {
     if (d.reason !== 'clean-exit' && win && !win.isDestroyed()) win.reload();
   });
   win.webContents.on('did-finish-load', () => log('Page loaded'));
-  if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayColors()); });
+  if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayNow()); });
   win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
 
   // Never navigate away; open approved web links in the normal browser instead.
@@ -343,9 +348,17 @@ if (gotLock) app.whenReady().then(() => {
     try { const p = readPrefs(); if (p.theme !== theme) { p.theme = theme; writePrefs(p); } } catch (e) { /* not essential */ }
     if (win && !win.isDestroyed()) {
       win.setBackgroundColor(windowColor());
-      if (process.platform === 'win32') win.setTitleBarOverlay(overlayColors());
+      barColor = null;
+      if (process.platform === 'win32') win.setTitleBarOverlay(overlayNow());
     }
     return theme;
+  });
+  handle('shelf:titleBar', async (color, symbol) => {
+    const hex = /^#[0-9a-f]{6}$/i;
+    if (!hex.test(String(color)) || !hex.test(String(symbol))) return false;
+    barColor = { color: String(color), symbolColor: String(symbol) };
+    if (win && !win.isDestroyed() && process.platform === 'win32') win.setTitleBarOverlay(overlayNow());
+    return true;
   });
 
   // ---- Updates: only when you click Check for Updates ----

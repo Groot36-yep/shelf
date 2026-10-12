@@ -63,7 +63,7 @@ function fakeEpisode(file, secs, cards) {
   const pick = (n) => win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, n);
   await pick('SpongeBob.S01E09.mkv'); await sleep(200);
   assert.ok(await win.isVisible('#checkLengths'), 'Check Lengths offered');
-  assert.ok(!(await win.isVisible('#readCards')), 'Read Title Cards hidden until turned on in Settings');
+  assert.ok(await win.isVisible('#readCards'), 'Read Title Cards always offered (it asks first)');
 
   // 1. Cancel at the prompt: nothing is read.
   await win.click('#checkLengths'); await sleep(500);
@@ -81,7 +81,7 @@ function fakeEpisode(file, secs, cards) {
   assert.strictEqual(e14.ep, 'S1E14 number', '11 minutes: one cartoon');
 
   // 3. Turn on title cards (Advanced) and read them: the cards beat the misleading name.
-  await win.click('.side-item[data-open=settings]'); await win.check('#optCardScan'); await win.keyboard.press('Escape'); await sleep(200);
+  await win.click('.side-item[data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
   await pick('SpongeBob.S01E09.mkv'); await sleep(200);
   assert.ok(await win.isVisible('#readCards'));
   const t0 = Date.now();

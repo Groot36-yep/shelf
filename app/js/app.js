@@ -23,7 +23,7 @@
     quality: load('quality', false),
     order: load('order', 'tmdb'),      // which episode order Plex uses: tmdb | tvdb | tvdbdvd
     showIds: load('showIds', true),    // {tmdb-387} in show folders
-    cardScan: load('cardScan', false), // Advanced: offer "Read Title Cards" (always asks first)
+    cardScan: true, // Read Title Cards is always offered (and always asks first)
     theme: load('theme', 'studio'),    // the look: studio | seventies (set before drawing by theme-boot.js)
     tvdbKey: '', tvdbPin: '',
     posters: load('posters', true),
@@ -499,8 +499,8 @@
     switch (item.status) {
       case 'pending': case 'matching':
         t = el('span', { class: 'tag tag-wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Matching']); break;
-      case 'matched': t = el('span', { class: 'tag tag-ok', text: (current(item) ? current(item).score : '') + '%' }); break;
-      case 'review': t = splitOf(item) ? el('span', { class: 'tag tag-ok', text: '✂ Split' }) : item.confirmed ? el('span', { class: 'tag tag-ok', text: 'Confirmed' }) : el('span', { class: 'tag tag-warn', text: 'Review' }); break;
+      case 'matched': t = item.epBlock ? el('span', { class: 'tag tag-warn', text: 'Check' }) : el('span', { class: 'tag tag-ok', text: 'Ready', title: 'Matched (' + (current(item) ? current(item).score : '') + '% sure)' }); break;
+      case 'review': t = splitOf(item) ? el('span', { class: 'tag tag-ok', text: '✂ Split' }) : item.confirmed && !item.epBlock ? el('span', { class: 'tag tag-ok', text: 'Ready' }) : el('span', { class: 'tag tag-warn', text: 'Check' }); break;
       case 'nomatch': t = el('span', { class: 'tag tag-warn', text: 'No match' }); break;
       case 'skipped': t = el('span', { class: 'tag tag-wait', text: 'Skipped' }); break;
       case 'done': t = el('span', { class: 'tag tag-ok', text: '✓ Renamed' }); break;
@@ -509,57 +509,161 @@
     return t;
   }
 
+  // ---------- Shelves: the list, one shelf per show (and one for movies) ----------
+  // A subtitle sits with its video; episodes in episode order.
+  function videoOf(item) { return (item.linkTo && linkedVideo(item)) || item; }
+  function shelfKey(item) {
+    var v = videoOf(item), c = current(v);
+    return v.kind === 'episode' ? 'tv:' + (c ? showIdKey(c) : showKey(v.parsed)) : 'movies';
+  }
+  function epSort(item) {
+    var v = videoOf(item), ep = v.episode;
+    var sn = ep && ep.season != null ? ep.season : v.parsed.season != null ? v.parsed.season : 1;
+    var no = ep && ep.number != null ? ep.number : v.parsed.episode || 0;
+    return [sn, no, v.name, item.parsed.isSubtitle ? 1 : 0];
+  }
+  function cmp(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; }
+  function shelves(list) {
+    var map = {}, order = [];
+    list.forEach(function (i) { var k = shelfKey(i); if (!map[k]) { map[k] = []; order.push(k); } map[k].push(i); });
+    order.sort(function (a, b) { return (a === 'movies') - (b === 'movies'); }); // shows first, then movies
+    return order.map(function (k) {
+      var its = map[k];
+      if (k === 'movies') its.sort(function (a, b) { var ca = current(videoOf(a)), cb = current(videoOf(b)); return cmp([ca ? ca.title : a.parsed.title || a.name, a.parsed.isSubtitle ? 1 : 0], [cb ? cb.title : b.parsed.title || b.name, b.parsed.isSubtitle ? 1 : 0]); });
+      else its.sort(function (a, b) { return cmp(epSort(a), epSort(b)); });
+      return { key: k, items: its };
+    });
+  }
+  function shownItems() { return items.filter(function (i) { return filter === 'all' || needsReview(i); }); }
+  // The order you see (and move through with the arrow keys).
+  function displayOrder() { return shelves(shownItems()).reduce(function (a, sh) { return a.concat(sh.items); }, []); }
+  function epCodeOf(ep) { return 'S' + pad2(ep.season) + 'E' + pad2(ep.number) + (ep.end && ep.end > ep.number ? '–E' + pad2(ep.end) : ''); }
+  // What the file is, in a few words: the episode, or the movie.
+  function rowMain(item) {
+    var v = videoOf(item), c = current(v);
+    if (v.kind === 'episode') {
+      var sp = splitOf(item);
+      if (sp) return { code: '✂', text: sp.pieces.map(function (p) { return epCodeOf(p.entry); }).join(' + ') + ' (' + sp.pieces.length + ' files)' };
+      var ep = v.episode;
+      if (ep) return { code: epCodeOf(ep), text: ep.name || '' };
+      if (v.parsed.episode != null) return { code: epCodeOf({ season: v.parsed.season != null ? v.parsed.season : 1, number: v.parsed.episode }), text: v.parsed.episodeTitle || '' };
+      return { code: '', text: v.parsed.title || item.name };
+    }
+    return { code: '', text: c ? c.title + (c.year ? ' (' + c.year + ')' : '') : v.parsed.title || item.name };
+  }
+  // Why a file needs a look, in plain words (empty when it doesn't).
+  function reasonFor(item) {
+    if (item.status === 'error') return item.needsKey ? 'Movies need a TMDB key. Add one in Settings.' : 'Couldn’t look this up. Try Again at the top.';
+    if (item.status === 'nomatch') return 'No match found. Search by title in the side panel.';
+    if (!needsReview(item)) return '';
+    var iss = item.kind === 'episode' && current(item) && issueFor(item);
+    var v = videoOf(item);
+    if (iss && iss.kind === 'apart') return 'Holds ' + ((v.episode && v.episode.entries) || []).length + ' episodes that aren’t next to each other. Resolve it.';
+    if (iss && iss.kind === 'single') return 'Only one title card found. One long episode, or two?';
+    if (v.segmented && !v.numberSure) return 'Cartoon or half-hour? Answer above.';
+    if (iss) return (String(iss.text || '').split(/(?<=\.)\s/)[0] || iss.title).slice(0, 110);
+    if (item.showAmbiguous) return 'A few shows look alike. Pick the right one in the side panel.';
+    return 'Not sure about this one. Check it in the side panel.';
+  }
+  function shelfHead(sh) {
+    var first = sh.items[0], v = videoOf(first), c = current(v), tv = sh.key !== 'movies';
+    var title = tv ? (c ? c.title : v.parsed.title || 'TV show') : 'Movies';
+    var n = sh.items.length;
+    var ready = sh.items.filter(isReady).length, check = sh.items.filter(needsReview).length;
+    var busy = sh.items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
+    var meta = (tv ? ['TV show', c && c.year] : []).concat([n + (n === 1 ? ' file' : ' files')]).filter(Boolean).join(' · ');
+    var chips = [];
+    if (busy) chips.push(el('span', { class: 'shelf-chip wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Looking up']));
+    if (ready) chips.push(el('span', { class: 'shelf-chip ok', text: ready + ' ready' }));
+    if (check) chips.push(el('span', { class: 'shelf-chip warn', text: check + ' to check' }));
+    var act = null;
+    var vids = tv && c && v.segmented ? showFiles(v) : [];
+    if (vids.length) {
+      var reading = scanning && vids.some(function (i) { return i.scan === 'reading' || i.scan === 'queued'; });
+      var unread = vids.some(function (i) { return !i.cards; });
+      act = el('button', { type: 'button', class: 'pill small-pill shelf-act', disabled: scanning ? 'disabled' : null,
+        title: 'Read the title cards inside this show’s ' + vids.length + ' video' + (vids.length === 1 ? '' : 's') + ' to find which episodes each holds (Shelf asks first)',
+        onclick: function () { if (!scanning) readCardsOf(v, showFiles(v), false); } }, [
+        el('span', { class: 'tc-ico', 'aria-hidden': 'true' }),
+        reading ? 'Reading Title Cards…' : unread ? 'Read Title Cards' : 'Read Title Cards Again'
+      ]);
+    }
+    // A question about the whole show is asked once, here, not on every file.
+    var ask = null;
+    if (tv && c && v.segmented && (!v.numberSure || numbering[showIdKey(c)])) {
+      var mode = v.numberSure ? v.numberMode : '';
+      ask = el('div', { class: 'shelf-ask' }, [
+        el('span', { text: 'Each file is' }),
+        el('div', { class: 'segmented small', role: 'group', 'aria-label': 'Each file of ' + title + ' is' }, [['segments', 'One cartoon'], ['halfhours', 'A half-hour']].map(function (m) {
+          return el('button', { type: 'button', 'aria-pressed': mode === m[0] ? 'true' : 'false', text: m[1], onclick: function () { numbering[showIdKey(c)] = m[0]; resolveShow(c).then(render); } });
+        }))
+      ]);
+    }
+    return el('div', { class: 'shelf-head' + (ask ? ' has-ask' : '') }, [
+      tv ? posterNode('shelf-poster', c && c.poster, title) : el('div', { class: 'shelf-poster movies', 'aria-hidden': 'true' }),
+      el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), el('span', { class: 'shelf-meta', text: meta })]),
+      el('div', { class: 'shelf-chips' }, chips),
+      act,
+      ask
+    ]);
+  }
   function renderList() {
     var list = $('list');
-    var shown = items.filter(function (i) { return filter === 'all' || needsReview(i); });
-    var nodes = [];
+    var shown = shownItems();
     var keep = {};
-    shown.forEach(function (item) {
-      var c = current(item);
-      var plex = plexFor(item);
-      var pieces = splitOf(item) ? pieceNames(item) : null;
-      // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
-      var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title].join('|');
-      var cached = rowCache[item.id];
-      keep[item.id] = 1;
-      if (cached && cached.sig === sig) {
-        var on = item.id === selectedId;
-        cached.node.classList.toggle('is-selected', on);
-        cached.node.setAttribute('aria-selected', on ? 'true' : 'false');
-        nodes.push(cached.node);
-        return;
-      }
-      var title = c ? c.title : item.parsed.title || item.name;
-      var newName = pieces && pieces.length ? pieces.length + ' files: ' + pieces.map(function (x) { return x.file.replace(/\.[^.]+$/, '').replace(/^.* - (S\d+E\d+)/, '$1'); }).join(' + ') : plex ? plex.file : (item.status === 'skipped' ? '—' : item.status === 'matching' || item.status === 'pending' ? 'Looking up “' + (item.parsed.title || item.name) + '”…' : 'Not matched yet');
-      var where = plex ? plex.folder.join(' › ') : (item.parsed.kind === 'episode' ? 'TV episode' : item.parsed.isVideo ? 'Movie' : '');
-      var sel = item.id === selectedId;
-      var row = el('button', {
-        type: 'button', class: 'row-item' + (sel ? ' is-selected' : ''), role: 'option', 'aria-selected': sel ? 'true' : 'false',
-        'data-id': item.id, onclick: function () { select(item.id); }
-      }, [
-        posterNode('thumb', c && c.poster, title),
-        el('div', { class: 'cell orig-cell' }, [
-          el('span', { class: 'orig', text: item.name, title: item.relPath }),
-          el('span', { class: 'sub', text: [fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
-        ]),
-        svgArrow(),
-        el('div', { class: 'cell new-cell' }, [
-          el('span', { class: 'newname', text: newName }),
-          el('span', { class: 'sub', text: where })
-        ]),
-        el('div', { class: 'match-cell' }, [tagFor(item)])
-      ]);
-      if (item.scan === 'reading') row.classList.add('is-scanning');
-      if (item.scan === 'queued') row.classList.add('is-queued');
-      if (item.scan === 'done') row.classList.add('scan-flash');
-      rowCache[item.id] = { sig: sig, node: row };
-      nodes.push(row);
+    var groups = shelves(shown).map(function (sh) {
+      var rows = sh.items.map(function (item) { keep[item.id] = 1; return rowNode(item); });
+      return el('div', { class: 'shelf', role: 'group', 'aria-label': sh.key === 'movies' ? 'Movies' : (current(videoOf(sh.items[0])) || {}).title || 'TV show' }, [shelfHead(sh)].concat(rows));
     });
     Object.keys(rowCache).forEach(function (id) { if (!keep[id] && !itemById(+id)) delete rowCache[id]; });
     if (!shown.length && items.length) {
-      nodes.push(el('p', { class: 'muted center', style: 'padding:40px 0', text: 'Nothing needs review. Everything is matched.' }));
+      groups.push(el('div', { class: 'all-clear' }, [el('b', { text: 'Nothing left to check.' }), el('span', { text: 'Everything is matched. Show All to see every file.' })]));
     }
-    list.replaceChildren.apply(list, nodes);
+    list.replaceChildren.apply(list, groups);
+  }
+  function rowNode(item) {
+    var c = current(item);
+    var plex = plexFor(item);
+    var pieces = splitOf(item) ? pieceNames(item) : null;
+    var main = rowMain(item), reason = reasonFor(item);
+    // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
+    var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title, main.code, main.text, reason].join('|');
+    var cached = rowCache[item.id];
+    if (cached && cached.sig === sig) {
+      var on = item.id === selectedId;
+      cached.node.classList.toggle('is-selected', on);
+      cached.node.setAttribute('aria-selected', on ? 'true' : 'false');
+      return cached.node;
+    }
+    var title = c ? c.title : item.parsed.title || item.name;
+    var newName = pieces && pieces.length ? pieces.map(function (x) { return x.file; }).join('  +  ') : plex ? plex.file : (item.status === 'skipped' ? 'Skipped' : item.status === 'matching' || item.status === 'pending' ? 'Looking up “' + (item.parsed.title || item.name) + '”…' : 'Not matched yet');
+    var sel = item.id === selectedId;
+    var v = videoOf(item), ep = v.kind === 'episode';
+    // Episodes show their number (the shelf already shows the show); movies their poster.
+    var badge = ep && main.code && main.code !== '✂'
+      ? el('div', { class: 'thumb ep-num', 'aria-hidden': 'true' }, [el('b', { text: main.code.replace(/^S\d+/, '').replace('–E', '–') }), el('span', { text: 'S' + (+main.code.slice(1, 3)) })])
+      : ep ? el('div', { class: 'thumb ep-num', 'aria-hidden': 'true' }, [el('b', { text: main.code === '✂' ? '✂' : '?' })]) : posterNode('thumb', c && c.poster, title);
+    var row = el('button', {
+      type: 'button', class: 'row-item' + (sel ? ' is-selected' : '') + (reason ? ' has-reason' : ''), role: 'option', 'aria-selected': sel ? 'true' : 'false',
+      'data-id': item.id, onclick: function () { select(item.id); }
+    }, [
+      badge,
+      el('div', { class: 'cell orig-cell' }, [
+        el('span', { class: 'orig', text: item.name, title: item.relPath }),
+        el('span', { class: 'sub', text: [fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
+      ]),
+      svgArrow(),
+      el('div', { class: 'cell new-cell' }, [
+        el('span', { class: 'newname' }, [main.code && main.code !== '✂' ? el('span', { class: 'ep-code', text: main.code }) : null, main.text || newName]),
+        reason ? el('span', { class: 'sub reason', text: reason }) : el('span', { class: 'sub newfile', text: newName, title: plex ? plex.folder.concat(plex.file).join(' / ') : '' })
+      ]),
+      el('div', { class: 'match-cell' }, [tagFor(item)])
+    ]);
+    if (item.scan === 'reading') row.classList.add('is-scanning');
+    if (item.scan === 'queued') row.classList.add('is-queued');
+    if (item.scan === 'done') row.classList.add('scan-flash');
+    rowCache[item.id] = { sig: sig, node: row };
+    return row;
   }
 
   function renderInspector() {
@@ -604,7 +708,6 @@
     var showId0 = current(linkedVideo(item) || item) ? showIdKey(current(linkedVideo(item) || item)) : '';
     segWrap.hidden = !(item.kind === 'episode' && item.segmented && !item.split && (!item.numberSure || numbering[showId0]));
     $('inspLookWrap').hidden = !(item.kind === 'episode' && item.segmented && (linkedVideo(item) || item).fullPath);
-    $('readCards').hidden = !settings.cardScan;
     $('checkLengths').disabled = $('readCards').disabled = scanning || !item.fullPath;
     document.querySelectorAll('#inspSeg button').forEach(function (b) {
       b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
@@ -647,7 +750,7 @@
         number: 'From the episode number in the file name.'
       }[how] || 'From the file name.';
       var iss = issueFor(item);
-      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : settings.cardScan && src0.segmented ? ' To be sure, read the title cards.' : ' Not sure? Check Episodes… shows you the video.');
+      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, read the title cards.' : ' Not sure? Check Episodes… shows you the video.');
       $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
       var badge = $('inspEpBadge');
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
@@ -747,6 +850,8 @@
     var ready = items.filter(isReady).length;
     var review = items.filter(needsReview).length;
     $('renameBtn').disabled = ready === 0;
+    $('renameBtn').textContent = ready ? 'Rename ' + ready + (ready === 1 ? ' File…' : ' Files…') : 'Rename…';
+    $('nextCheck').hidden = !review;
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('reviewCount').textContent = review;
     $('navCount').hidden = !has;
@@ -754,7 +859,8 @@
     var busy = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
     var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - busy;
     var total = items.filter(function (i) { return i.status !== 'skipped'; }).length;
-    $('subtitle').textContent = has ? items.length + ' item' + (items.length === 1 ? '' : 's') + (busy ? ' · matching ' + done + ' of ' + total + '…' : '') : 'No items';
+    $('subtitle').textContent = !has ? 'Add files to get started' : busy ? 'Looking up ' + done + ' of ' + total + '…'
+      : [items.length + (items.length === 1 ? ' file' : ' files'), ready ? ready + ' ready' : '', review ? review + ' to check' : ''].filter(Boolean).join(', ');
     $('statusText').textContent = has ? ready + ' ready to rename' + (review ? ' · ' + review + ' need' + (review === 1 ? 's' : '') + ' a look' : '') : '';
     document.querySelectorAll('#filterSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.filter === filter ? 'true' : 'false'); });
 
@@ -808,7 +914,6 @@
       $('optShowYear').checked = settings.showYear;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
-      $('optCardScan').checked = settings.cardScan;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
       $('tvdbPinInput').value = settings.tvdbPin;
@@ -986,7 +1091,7 @@
     native.eraseAll();
     dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
-    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; settings.cardScan = false; numbering = {}; episodeLists = {}; settings.mode = 'move';
+    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
@@ -995,7 +1100,6 @@
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
-  on('optCardScan', 'change', function (e) { settings.cardScan = e.target.checked; save('cardScan', settings.cardScan); render(); });
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
   var scanning = false;
@@ -1253,13 +1357,24 @@
     if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
     if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
     if (mod && k === 'z' && !typing && !sheetOpen) { if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
+    if (!mod && k === 'n' && !typing && !sheetOpen && !$('nextCheck').hidden) { e.preventDefault(); nextToCheck(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !sheetOpen && selectedId) { e.preventDefault(); $('removeBtn').click(); }
   });
+  // Next to Check: jump to the next file that needs a look (wraps around).
+  function nextToCheck() {
+    var order = items.filter(needsReview);
+    if (!order.length) return;
+    var all = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []).filter(needsReview);
+    var at = all.findIndex(function (i) { return i.id === selectedId; });
+    var nx = all[(at + 1) % all.length];
+    select(nx.id);
+  }
+  on('nextCheck', 'click', nextToCheck);
   // Arrow keys move through the list
   document.addEventListener('keydown', function (e) {
     if (!items.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    var shown = items.filter(function (i) { return filter === 'all' || needsReview(i); });
+    var shown = displayOrder();
     var idx = shown.findIndex(function (i) { return i.id === selectedId; });
     var next = shown[Math.max(0, Math.min(shown.length - 1, idx + (e.key === 'ArrowDown' ? 1 : -1)))];
     if (next) { e.preventDefault(); select(next.id); }
@@ -1669,6 +1784,48 @@
     setTheme(name); var b = document.querySelector('[data-theme-pick="' + name + '"]'); if (b) b.focus();
   });
   setTheme(settings.theme, true);
+  // ---------- Windows: the window's buttons blend into whatever is under them ----------
+  // (They're drawn by Windows on a flat colour; Shelf tells it which colour, including the dimming
+  // behind an open window, so they never sit on a mismatched box.)
+  function parseRGBA(c) { var m = String(c).match(/rgba?\(([^)]+)\)/); if (!m) return null; var p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; }
+  function bgUnder(node) {
+    for (var n = node; n && n.nodeType === 1; n = n.parentElement) { var c = parseRGBA(getComputedStyle(n).backgroundColor); if (c && c.a > 0.5) return c; }
+    return parseRGBA(getComputedStyle(document.body).backgroundColor) || { r: 255, g: 255, b: 255, a: 1 };
+  }
+  var lastBar = '', barSink = native.platform === 'win32' && native.titleBar ? native.titleBar : null;
+  function syncTitleBar() {
+    if (!barSink) return;
+    var x = innerWidth - 60, y = 12;
+    var dlg = document.querySelector('dialog[open]');
+    var under = document.elementFromPoint(x, y);
+    if (dlg && under === dlg) { var r = dlg.getBoundingClientRect(); if (x < r.left || x > r.right || y < r.top || y > r.bottom) under = null; }
+    var base = bgUnder(under && under !== dlg ? under : dlg ? document.querySelector('.app') : under);
+    if (dlg && !(under && dlg.contains(under) && under !== dlg)) {
+      // Blend in the dim layer behind the open window.
+      var bd = parseRGBA(getComputedStyle(dlg, '::backdrop').backgroundColor);
+      if (bd && bd.a) base = { r: base.r * (1 - bd.a) + bd.r * bd.a, g: base.g * (1 - bd.a) + bd.g * bd.a, b: base.b * (1 - bd.a) + bd.b * bd.a };
+    }
+    if (document.body.classList.contains('is-asking')) base = { r: base.r * 0.68 + 15 * 0.32, g: base.g * 0.68 + 15 * 0.32, b: base.b * 0.68 + 22 * 0.32 };
+    var hex = '#' + [base.r, base.g, base.b].map(function (v) { return ('0' + Math.round(v).toString(16)).slice(-2); }).join('');
+    var lum = (0.299 * base.r + 0.587 * base.g + 0.114 * base.b) / 255;
+    var key = hex + (lum > 0.55 ? 'd' : 'l');
+    if (key === lastBar) return;
+    lastBar = key;
+    barSink(hex, lum > 0.55 ? '#1d1d1f' : '#f2f2f7');
+  }
+  var barQueued = false;
+  function queueTitleBar() { if (barQueued) return; barQueued = true; requestAnimationFrame(function () { barQueued = false; syncTitleBar(); setTimeout(syncTitleBar, 380); }); }
+  function watchTitleBar() {
+    new MutationObserver(queueTitleBar).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open', 'hidden', 'class'], childList: false });
+    new MutationObserver(queueTitleBar).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    window.addEventListener('resize', queueTitleBar);
+    if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', queueTitleBar);
+    queueTitleBar();
+  }
+  if (barSink) watchTitleBar();
+  // For screenshots on other systems: pretend to be Windows, sending the colour to a stand-in.
+  function fakeWindows(sink) { document.documentElement.classList.add('os-win32'); barSink = sink; watchTitleBar(); }
+
   // Renamed: a moment of joy (the Living Room theme throws a little sunburst).
   function celebrate() {
     var c = $('celebrate');
@@ -1678,5 +1835,5 @@
     clearTimeout(celebrate.t); celebrate.t = setTimeout(function () { c.classList.remove('go'); c.textContent = ''; }, 1800);
   }
 
-  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, celebrate: celebrate }; // handy for testing
+  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, celebrate: celebrate, fakeWindows: fakeWindows }; // handy for testing
 })();

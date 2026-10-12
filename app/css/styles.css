@@ -555,7 +555,7 @@ button.btn { border: 0; cursor: default; }
 /* Windows: the system minimise / maximise / close buttons sit at the top right (≈140 px). */
 html.os-win32 .titlebar-space { display: block; height: 30px; margin: -22px -20px -4px; flex: none; }
 html.os-win32 .app:has(.inspector[hidden]) .toolbar { padding-right: 150px; }
-html.os-win32 .inspector { padding-top: 22px; }
+html.os-win32 .inspector { padding-top: 22px; margin: -8px -8px -8px 0; } /* to the window's edges, so its buttons sit on one colour */
 @media (max-width: 1080px) {
   html.os-win32 .toolbar { padding-right: 150px; }
   html.os-win32 .titlebar-space { display: none; }
@@ -1055,3 +1055,51 @@ html.theme-moving::view-transition-new(root) { animation: theme-reveal 700ms cub
   from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
   to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%)); }
 }
+
+/* ---------- Shelves: the list grouped by show (and one for movies) ---------- */
+.shelf { margin: 0 0 10px; }
+.shelf-head {
+  position: sticky; top: -4px; z-index: 2; display: flex; align-items: center; gap: 12px; min-height: 58px;
+  padding: 10px 12px 8px; margin: 0 0 4px; background: var(--bg); border-bottom: 0.5px solid var(--sep);
+}
+.shelf-poster {
+  flex: none; width: 30px; height: 44px; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: rgba(0, 0, 0, 0.5); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); background: var(--fill-strong);
+}
+.shelf-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shelf-poster.movies { background: repeating-linear-gradient(180deg, transparent 0 5px, rgba(255, 255, 255, 0.85) 5px 8px, transparent 8px 11px) left 3px top 0 / 4px 100% no-repeat,
+  repeating-linear-gradient(180deg, transparent 0 5px, rgba(255, 255, 255, 0.85) 5px 8px, transparent 8px 11px) right 3px top 0 / 4px 100% no-repeat, #4A4A50; }
+.shelf-titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.shelf-titles h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf-meta { font-size: 11px; color: var(--text-2); }
+.shelf-chips { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.shelf-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.shelf-chip.ok { background: var(--green-bg); color: var(--green-text); }
+.shelf-chip.warn { background: var(--orange-bg); color: var(--orange-text); }
+.shelf-chip.wait { background: var(--fill); color: var(--text-2); }
+.shelf-act { flex: none; }
+.tc-ico { width: 14px; height: 11px; border-radius: 3px; border: 1.6px solid currentColor; position: relative; flex: none; }
+.tc-ico::after { content: ''; position: absolute; left: 2px; right: 2px; top: 3px; height: 1.6px; background: currentColor; box-shadow: 0 2.6px 0 currentColor; }
+.thumb.ep-num { flex-direction: column; gap: 1px; background: var(--fill); box-shadow: none; color: var(--text); }
+.thumb.ep-num b { font: 700 12px var(--mono); letter-spacing: -0.02em; }
+.thumb.ep-num span { font-size: 9px; font-weight: 600; color: var(--text-3); }
+.row-item.is-selected .thumb.ep-num { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.row-item.is-selected .thumb.ep-num span { color: rgba(255, 255, 255, 0.8); }
+.newname .ep-code { font: 700 11px var(--mono); color: var(--text-2); margin-right: 8px; }
+.row-item.is-selected .newname .ep-code { color: rgba(255, 255, 255, 0.85); }
+.cell .sub.reason { color: var(--orange-text); font-weight: 600; font-size: 12px; }
+.row-item.is-selected .sub.reason { color: #fff; }
+.cell .sub.newfile { font-family: var(--mono); font-size: 11px; }
+.all-clear { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 48px 0; color: var(--text-2); }
+.all-clear b { font-size: 15px; color: var(--text); }
+.pill-check svg { color: var(--orange); }
+.shelf-head.has-ask { flex-wrap: wrap; }
+.shelf-ask { flex-basis: 100%; display: flex; align-items: center; gap: 10px; padding: 6px 0 2px 42px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.shelf-ask .segmented button[aria-pressed="false"] { color: var(--text); }
+.tb-title { min-width: 0; flex: 0 1 auto; }
+.tb-title span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toolbar > .pill, .toolbar > .segmented { flex: none; }
+/* Windows: big windows open below the window's own buttons. */
+html.os-win32 .editor-sheet { margin-top: 56px; max-height: calc(100vh - 64px); }
+html.os-win32 .ed-stage { max-height: max(180px, calc(100vh - 590px)); }
+@media (max-width: 1080px) { html.os-win32 .inspector { margin: 0; } }
