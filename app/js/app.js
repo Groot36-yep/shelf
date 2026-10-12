@@ -535,7 +535,14 @@
       case 'review': t = splitOf(item) ? el('span', { class: 'tag tag-ok', text: '✂ Split' }) : item.confirmed && !item.epBlock ? el('span', { class: 'tag tag-ok', text: 'Ready' }) : el('span', { class: 'tag tag-warn', text: 'Check' }); break;
       case 'nomatch': t = el('span', { class: 'tag tag-warn', text: 'No match' }); break;
       case 'skipped': t = el('span', { class: 'tag tag-wait', text: 'Skipped' }); break;
-      case 'done': t = el('span', { class: 'tag tag-ok', text: '✓ Renamed' }); break;
+      case 'done':
+        t = item.sendState === 'sent' ? el('span', { class: 'tag tag-ok tag-plex', text: '✓ On Plex', title: 'Renamed and sent to your Plex server' })
+          : item.sendState === 'sending' ? el('span', { class: 'tag tag-scan' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Sending'])
+          : item.sendState === 'queued' ? el('span', { class: 'tag tag-queued', text: 'Waiting to send' })
+          : item.sendState === 'failed' ? el('span', { class: 'tag tag-err', text: 'Not sent', title: 'Renamed, but not sent to Plex. Click Send to Plex to try again.' })
+          : item.sendState === 'skipped' ? el('span', { class: 'tag tag-warn', text: 'On server already', title: 'A different file with this name is already on your Plex server' })
+          : el('span', { class: 'tag tag-ok', text: '✓ Renamed' });
+        break;
       default: t = el('span', { class: 'tag tag-err', text: item.needsKey ? 'Needs key' : 'Error' });
     }
     return t;
@@ -646,7 +653,7 @@
     var pieces = splitOf(item) ? pieceNames(item) : null;
     var main = rowMain(item), reason = reasonFor(item);
     // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
-    var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title, main.code, main.text, reason].join('|');
+    var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.sendState || '', item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title, main.code, main.text, reason].join('|');
     var cached = rowCache[item.id];
     if (cached && cached.sig === sig) {
       var on = item.id === selectedId;
@@ -892,6 +899,7 @@
 
     if (has) { renderList(); renderInspector(); }
     else $('inspector').hidden = true;
+    if (window.ShelfSend) window.ShelfSend.paint();
   }
 
   var rowCache = {};
@@ -974,6 +982,11 @@
     native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
     native.canUndo().then(function (yes) { $('undoNow').hidden = !yes; });
     $('renameNow').textContent = 'Rename ' + r.length + ' Now';
+    if (window.ShelfSend) {
+      $('renameSend').checked = window.ShelfSend.autoSend();
+      $('renameSendHelp').textContent = window.ShelfSend.ready() ? 'Straight to your server, checked, in the right folders' : 'Finish setting up your Plex server first (pick its folders)';
+      $('renameSend').disabled = !window.ShelfSend.ready();
+    }
   }
 
   function syncMode() {
@@ -1009,20 +1022,22 @@
       var btn = $('renameNow');
       btn.disabled = true;
       var stop = native.onProgress(function (p) { btn.textContent = 'Renaming ' + p.done + ' of ' + p.total + '…'; });
+      var sendAfter = !$('renameSendRow').hidden && $('renameSend').checked && window.ShelfSend && window.ShelfSend.ready();
       native.rename(ops, settings.mode).then(function (results) {
-        var ok = 0, skipped = 0, failed = 0;
+        var ok = 0, skipped = 0, failed = 0, newPaths = [];
         results.forEach(function (r) {
           var item = byPath[r.source];
           if (!item) return;
-          if (r.ok && r.split) { ok++; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; }
-          else if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; }
+          if (r.ok && r.split) { ok++; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
+          else if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
         $('renameSheet').close();
         $('undoBar').hidden = !ok;
         render();
-        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.');
+        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (sendAfter && newPaths.length ? ' Sending to Plex…' : ''));
+        if (sendAfter && newPaths.length) window.ShelfSend.afterRename(newPaths);
       }).catch(function (err) {
         toast(err.message || 'Renaming failed.');
       }).then(function () { stop(); btn.disabled = false; prepareRename(); });
@@ -1032,7 +1047,7 @@
         $('undoBar').hidden = true;
         if (r.nothing) { toast('Nothing to undo.'); return; }
         items.forEach(function (i) {
-          if (i.status === 'done') { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; }
+          if (i.status === 'done') { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
         });
         $('renameSheet').close();
         toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
@@ -1106,7 +1121,7 @@
     saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this computer.'; render();
   });
   on('eraseAll', 'click', function () {
-    native.eraseAll();
+    native.eraseAll().then(function () { if (window.ShelfSend) window.ShelfSend.refresh(); });
     dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
     settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
@@ -1816,5 +1831,5 @@
 
   // Handy for testing: work every show's episodes out again (after test code fills in title cards).
   function resolveAll() { var seen = {}; return Promise.all(items.map(current).filter(function (c) { if (!c) return false; var k = showIdKey(c); if (seen[k]) return false; return (seen[k] = true); }).map(resolveShow)).then(render); }
-  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll };
+  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender };
 })();

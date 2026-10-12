@@ -39,6 +39,7 @@ jobs:
           node tests/subs.test.js
           node tests/cards-real.test.js
           node tests/updates.test.js
+          node tests/ssh-loopback.test.js
 
       - name: Build installer
         run: npx electron-builder --win --publish never
@@ -52,6 +53,14 @@ jobs:
           $p = Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\packaged-scan.test.js' -Wait -PassThru -NoNewWindow -RedirectStandardOutput scan-out.txt -RedirectStandardError scan-err.txt
           Get-Content scan-out.txt, scan-err.txt | Write-Host
           if ($p.ExitCode -ne 0) { Write-Host "::error::The built app couldn't read a title card"; exit 1 }
+
+      - name: Check the built app can send to a Plex server (SSH)
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $p = Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\ssh-loopback.test.js','packaged' -Wait -PassThru -NoNewWindow -RedirectStandardOutput ssh-out.txt -RedirectStandardError ssh-err.txt
+          Get-Content ssh-out.txt, ssh-err.txt | Write-Host
+          if ($p.ExitCode -ne 0) { Write-Host "::error::The built app couldn't send over SSH"; exit 1 }
 
       - name: Check that Shelf really opens (installed and portable)
         shell: pwsh

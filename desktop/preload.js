@@ -77,6 +77,33 @@ contextBridge.exposeInMainWorld('shelfNative', {
     ipcRenderer.on('shelf:cardProgress', listener);
     return () => ipcRenderer.removeListener('shelf:cardProgress', listener);
   },
+  // Send to Plex: your server over SSH. Passwords go in, never come back out.
+  server: () => ipcRenderer.invoke('shelf:server'),
+  serverFileZilla: () => ipcRenderer.invoke('shelf:serverFileZilla'),
+  serverProbe: (host, port) => ipcRenderer.invoke('shelf:serverProbe', String(host || ''), Number(port) || 22),
+  serverLogin: (a) => ipcRenderer.invoke('shelf:serverLogin', {
+    user: String((a && a.user) || ''), password: String((a && a.password) || ''), trust: String((a && a.trust) || ''),
+    fz: a && Number.isInteger(a.fz) ? a.fz : null, useKey: !(a && a.useKey === false)
+  }),
+  serverList: (where) => ipcRenderer.invoke('shelf:serverList', String(where || '')),
+  serverMkdir: (where, name) => ipcRenderer.invoke('shelf:serverMkdir', String(where || ''), String(name || '')),
+  serverFolder: (kind, where) => ipcRenderer.invoke('shelf:serverFolder', String(kind), String(where || '')),
+  serverPlex: (token) => ipcRenderer.invoke('shelf:serverPlex', String(token || '')),
+  serverForgetPlex: () => ipcRenderer.invoke('shelf:serverForgetPlex'),
+  serverOptions: (o) => ipcRenderer.invoke('shelf:serverOptions', o && typeof o === 'object' ? {
+    autoSend: typeof o.autoSend === 'boolean' ? o.autoSend : undefined, verify: typeof o.verify === 'boolean' ? o.verify : undefined,
+    scan: typeof o.scan === 'boolean' ? o.scan : undefined, tidy: typeof o.tidy === 'boolean' ? o.tidy : undefined
+  } : {}),
+  serverRetrust: (fp) => ipcRenderer.invoke('shelf:serverRetrust', String(fp || '')),
+  serverForget: (removeKey) => ipcRenderer.invoke('shelf:serverForget', !!removeKey),
+  sendPlan: (paths) => ipcRenderer.invoke('shelf:sendPlan', Array.isArray(paths) ? paths.map(String) : null),
+  send: (paths, how) => ipcRenderer.invoke('shelf:send', Array.isArray(paths) ? paths.map(String) : null, { replace: !!(how && how.replace) }),
+  sendStop: () => ipcRenderer.invoke('shelf:sendStop'),
+  onSend: (fn) => {
+    const listener = (e, m) => fn(m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : {});
+    ipcRenderer.on('shelf:sendProgress', listener);
+    return () => ipcRenderer.removeListener('shelf:sendProgress', listener);
+  },
   onProgress: (fn) => {
     const listener = (e, p) => fn({ done: Number(p.done) || 0, total: Number(p.total) || 0 });
     ipcRenderer.on('shelf:progress', listener);

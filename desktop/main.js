@@ -127,7 +127,7 @@ function createWindow() {
   win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
 
   // Never navigate away; open approved web links in the normal browser instead.
-  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com)\//;
+  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com|support\.plex\.tv)\//;
   // (The About screen's "Check for Updates" opens the GitHub releases page here, in your browser.)
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -633,7 +633,16 @@ if (gotLock) app.whenReady().then(() => {
     fs.writeFileSync(file, safeStorage.encryptString(key));
     return true;
   });
+  // ---- Send to Plex (your own server, over SSH) ----
+  const plexSend = require('./plexsend').setup({
+    handle, app, safeStorage, shell, readPrefs, writePrefs, log,
+    send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:sendProgress', msg); },
+    tidyDirs: async (d) => { const lib = readPrefs().library; if (lib) await fileops.removeEmptyDirs(d, await fs.promises.realpath(lib)); }
+  });
+  app.on('before-quit', () => plexSend.close());
+
   handle('shelf:eraseAll', async () => {
+    plexSend.forgetAll();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), journalPath()])) fs.rmSync(p, { force: true });
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();

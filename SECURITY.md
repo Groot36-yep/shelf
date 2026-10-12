@@ -37,6 +37,23 @@ removes the original.
 the window), only for files you picked, and only after a system prompt that lists the files. The
 bundled ffmpeg and OCR engine run offline; frames are handled in memory.
 
+**Send to Plex is SSH only, and checks who it's talking to** (desktop/server.js, desktop/plexsend.js).
+- The server's host-key fingerprint is shown the first time and pinned. A different fingerprint stops
+  the connection before any password, key or file is sent. Trusting a new one needs a fresh look-up
+  and your click.
+- Modern algorithms only (curve25519 / ECDH, AES-GCM / AES-CTR, SHA-2 MACs, Ed25519 / ECDSA /
+  RSA-SHA2 host keys).
+- Shelf makes its own Ed25519 key and forgets your password. Secrets are encrypted with your Windows
+  account (DPAPI), live only in the app, and never go back to the window.
+- The window can only ask to send files that are inside your library's Movies / TV Shows folders
+  (checked after resolving links). Each file only goes under the server folder you chose for its kind.
+  `..`, slashes and line breaks in names are refused.
+- Uploads go to a hidden `.shelf-part` file, are checked (size, plus SHA-256 computed by the server),
+  and only then renamed. Existing files are never replaced unless you choose **Replace Them**.
+- The only command Shelf runs on the server is `sha256sum` on a file it just sent, with the path
+  safely quoted. Plex is reached through the SSH connection (to the server's own 127.0.0.1:32400).
+- The log file never contains file names, paths, hosts' passwords or keys.
+
 **No surprises.** No telemetry, automatic update calls, crash reports or spell-check downloads. Updates are
 checked only when you click **Updates**; a downloaded installer must match the SHA-256 fingerprint GitHub
 publishes for it, or it is deleted and never run. Permission prompts are a separate window run by the app;
@@ -51,9 +68,14 @@ xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season fo
 xvfb-run -a node tests/sources.smoke.js   # TheTVDB and TMDB TV lookups
 node tests/scan.test.js               # bundled ffmpeg + OCR read a (made-up) title card
 xvfb-run -a node tests/cards.smoke.js # Auto Mode (title cards), including Cancel
+node tests/ssh-loopback.test.js       # Send to Plex against a built-in test SSH server (runs on Windows too)
+node tests/server.test.js             # …and against real OpenSSH (Linux, as root): fingerprints, resume, damage, Plex
+node tests/plexsend.test.js           # the send queue: checks while sending, Stop/resume, re-send bad copies, Forget
+xvfb-run -a node tests/send.smoke.js  # the whole setup and send, clicked through in the app
 ```
 
-The Windows build on GitHub runs `npm test` on Windows before building the installer.
+The Windows build on GitHub runs the safety tests on Windows before building the installer, then
+checks the built app can read a title card and send a file over SSH.
 
 ## Reporting a problem
 

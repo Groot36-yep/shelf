@@ -4,7 +4,8 @@ Shelf is built to know as little about you as possible.
 
 ## Stays on your computer, always
 
-- **Your video files.** Shelf never uploads them. It only reads their names.
+- **Your video files.** Shelf never uploads them anywhere, except to your own Plex server when you
+  use **Send to Plex**.
 - **Your original file names and folders.** Shelf works out the title on your computer. Only the
   cleaned-up title is ever looked up (see below).
 - **Your file list.** It is kept in memory only, and disappears when you close Shelf.
@@ -21,6 +22,9 @@ Shelf is built to know as little about you as possible.
 | Your TheTVDB key (and PIN, if you have one) | TheTVDB only | TheTVDB requires it |
 
 Each file's details panel shows exactly what was shared for that file.
+
+**Send to Plex** (only if you set it up) sends your renamed files to **your own Plex server**, over
+your network, encrypted with SSH. Nothing goes through anyone else's computer. See below.
 
 Like any online service, TMDB, TheTVDB and TVmaze can see your internet (IP) address when Shelf asks them
 something. Shelf sends no cookies and no "referrer".
@@ -52,6 +56,22 @@ Shelf's prompt listing those files, where you choose OK or Cancel.
 - **Split…** asks before opening a video, then plays it inside Shelf (only that one file, through a
   private one-time link that stops working when the window closes) and reads it to suggest a cut.
 - What was read is kept only in memory until you close Shelf or clear the list.
+
+## Send to Plex (your own server)
+
+- Files go only to the server you set up, over SSH (encrypted). Plain FTP isn't supported.
+- Shelf checks the server's fingerprint every time, and stops before sending your password or any
+  file if it has changed.
+- With the secure key (the default), your password is used once to add Shelf's key to your server,
+  then forgotten. Shelf's key, your password (if you chose to keep it) and your Plex token are
+  encrypted with your Windows account. The window never sees them after you type them.
+- **From FileZilla** reads FileZilla's saved servers on this PC, only when you open the setup.
+  Its saved password or key file is used on this PC and isn't copied anywhere.
+- Your Plex token is only sent to Plex on your server, inside the SSH connection.
+- Only files in your Shelf library's Movies and TV Shows folders can be sent, and only into the
+  server folders you chose.
+- **Forget This Server…** and **Erase All Shelf Data** delete everything Shelf saved about your
+  server. Forget can also take Shelf's key back off the server.
 
 ## Your TMDB key
 

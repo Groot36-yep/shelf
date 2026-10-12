@@ -335,3 +335,13 @@ html.os-win32[data-theme="seventies"] .inspector { padding-top: 22px; margin: 0;
   [data-theme="seventies"] .sheet[open] { animation: none !important; }
   [data-theme="seventies"] .pill, [data-theme="seventies"] .btn { transition: none; }
 }
+
+/* Send to Plex, in the Living Room */
+[data-theme="seventies"] .dot-off { box-shadow: inset 0 0 0 1.5px rgba(246, 234, 211, 0.6); }
+[data-theme="seventies"] .send-tray { background: var(--paper-3); box-shadow: 0 0 0 1px var(--hairline), 0 6px 20px rgba(60, 30, 10, 0.12); border-radius: 14px; }
+[data-theme="seventies"] .send-tray .send-line b, [data-theme="seventies"] .sv-head h2 { font-weight: 800; }
+[data-theme="seventies"] .sv-art { background: linear-gradient(160deg, var(--orange), var(--orange-lip)); }
+[data-theme="seventies"] .fp-card, [data-theme="seventies"] .sv-key, [data-theme="seventies"] .sv-card { background: var(--paper-3); box-shadow: 0 0 0 1px var(--hairline); }
+[data-theme="seventies"] .br-folder { background: var(--gold); }
+[data-theme="seventies"] .sv-more summary { font-weight: 800; }
+[data-theme="seventies"] .fp-card.changed { background: var(--orange-bg); box-shadow: 0 0 0 1.5px var(--orange); }

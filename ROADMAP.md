@@ -2,6 +2,16 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (2.0.0)
+- **Send to Plex**: Shelf copies renamed files to your Plex server over SSH, like FileZilla, but
+  built in. Set up from FileZilla's saved servers in one click; the server's fingerprint is checked
+  every time; Shelf uses its own key and forgets your password; Plex's Movies / TV Shows folders are
+  found for you when Shelf can see Plex.
+- **Automatic**: Send after renaming, tell Plex about new files, double-check every file (SHA-256,
+  done while the next file sends), free up space on this PC, retry dropped connections, resume.
+- **Tidier toolbar**: Clear moved to the bottom bar as **Clear List**; on a narrower window the longer
+  buttons drop their extra words instead of covering the title.
+
 ## Done (1.11.0)
 - **Much faster**: matching title cards to episode names (the slowest thing Shelf did) is now about
   20 times quicker and remembers its answers, so marking or removing a title card, opening and
@@ -141,3 +151,5 @@ Where things stand, and what's left to do. Newest first.
 7. **Speed pass**: time start-up, big folders, matching and renaming to make sure nothing got slower.
 8. **Mac version**: build and test a macOS app (the code is mostly ready; needs a Mac build in CI).
 9. **Code signing** so Windows stops showing "unknown publisher" (needs a paid certificate).
+10. **Send to Plex, next**: send several files at once on very fast networks; Wake-on-LAN for a sleeping
+    server; check free space per folder when Movies and TV Shows are on different drives.

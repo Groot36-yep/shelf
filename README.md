@@ -12,7 +12,8 @@ bonanza.s01e01.a.rose.for.lotta.mkv           →  TV Shows/Bonanza/Season 01/Bo
 bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bonanza - S01E01 - A Rose for Lotta.en.srt
 ```
 
-> **Private by design.** Your videos, folders and file list never leave your computer. Only a
+> **Private by design.** Your videos, folders and file list never leave your computer (unless you send
+> the videos to your own Plex server). Only a
 > cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts or tracking, and it
 
 
@@ -20,6 +21,10 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 calm palette to match the wood. Pick one in Settings → Look; both follow
 Windows light or dark mode. The Living Room's fonts (Fraunces, Nunito, Courier Prime) are under the
 SIL Open Font License (see `app/assets/fonts/OFL.txt`) and are built in, so nothing is downloaded.
+
+**Send to Plex.** Shelf can put your renamed files straight onto your Plex server over SSH (the
+same secure way FileZilla does), into the right Movies and TV Shows folders. See
+[Send to Plex](#send-to-plex-your-own-server-over-ssh) below.
 
 ## Get Shelf for Windows
 
@@ -43,6 +48,7 @@ Windows account.
 3. Check anything marked **Review**: click it and pick the right match on the right, or search by title.
 4. Click **Rename…**, choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
 5. Changed your mind? **Undo Rename** puts everything back.
+6. Have a Plex server? Click **Send to Plex** (see below).
 
 Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter** rename ·
 **Ctrl+Z** undo rename · **Ctrl+,** settings · **Delete** remove from list.
@@ -106,6 +112,41 @@ under the title, so it never just looks frozen.
 Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your original is
 kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
 
+## Send to Plex (your own server, over SSH)
+
+If your Plex server is another computer (for example Ubuntu) and you used to copy files with
+FileZilla, Shelf can do it for you.
+
+**Set it up once** (click **Plex Server** in the sidebar, or **Send to Plex**):
+1. Pick your server from FileZilla's saved servers (one click), or type its address.
+2. Check the server's fingerprint and click **Yes, This Is My Server**. Shelf remembers it, and if it
+   ever changes, Shelf stops before sending your password or any file.
+3. Log in. Shelf makes its own secure key, adds it to your server, and forgets your password.
+4. Choose your server's Movies and TV Shows folders. If Shelf can see Plex on the server it finds
+   them for you.
+
+**Then:** rename as usual and click **Send to Plex**, or turn on **Send after renaming** so
+**Rename Now** does both. A tray at the bottom shows progress, speed and time left. You can keep
+working while it sends.
+
+- **Safe copies.** Each file arrives under a hidden temporary name and only gets its real name once
+  it's complete. Plex never sees half a file. **Double-check every file** compares a SHA-256
+  fingerprint of each file on both ends, while the next file is already sending.
+- **Never overwrites.** Files already on the server are skipped. If a *different* file has the same
+  name, Shelf asks: **Skip Them** or **Replace Them**.
+- **Picks up where it stopped.** Stop at any time, or lose the connection. Shelf retries by itself,
+  and the next send continues from where it was.
+- **Plex finds them right away.** With **Tell Plex about new files**, Shelf asks Plex to look at
+  just the new folders (through the same encrypted connection).
+- **Free up space on this PC** (off by default): each file goes to the Recycle Bin, but only once
+  it's on the server and its fingerprint matched.
+- **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
+- **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
+  the server.
+
+Needs SSH on the server (Ubuntu: `sudo apt install openssh-server`). Your account must be allowed
+to save files in the folders you pick. Shelf tells you if it isn't.
+
 ## Settings
 
 - **Add TMDB ID to movie names**: `Charade (1963) {tmdb-4808}.mkv`. Plex then never mismatches it.
@@ -122,7 +163,8 @@ kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's n
 
 ```
 app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js)
-desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files)
+desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files),
+                  server.js + plexsend.js (Send to Plex over SSH)
 tests/            npm test; app/tv/sources.smoke.js run the whole app end to end with mocked lookups
 index.html        the download page at groot36-yep.github.io/shelf
 ```

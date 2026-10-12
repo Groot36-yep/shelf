@@ -271,4 +271,4 @@ async function removeEmptyDirs(dir, library) {
   }
 }
 
-module.exports = { expand, run, undo, readJournal, inside };
+module.exports = { expand, run, undo, readJournal, inside, removeEmptyDirs };
