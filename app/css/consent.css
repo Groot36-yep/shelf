@@ -75,31 +75,26 @@ h1 { margin: 0 0 3px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em
 @font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito.woff2") format("woff2"); font-weight: 200 1000; }
 @font-face { font-family: "Courier Prime"; src: url("../assets/fonts/courier-prime.woff2") format("woff2"); font-weight: 400; }
 [data-theme="seventies"] {
-  --bg: #FBF0D9; --inset: #F4E2BD; --sep: rgba(59, 36, 22, 0.14); --edge: rgba(59, 36, 22, 0.3);
-  --text: #3B2416; --text-2: #6B4529; --text-3: #80603F;
-  --accent: #E6773A; --accent-press: #B5531F; --tint: rgba(233, 180, 76, 0.32);
-  --btn: #FFF8E9; --btn-hover: #FFF2D6; --green: #4F5B1D;
+  --bg: #FBF5EA; --inset: #F2E7D3; --sep: rgba(58, 36, 23, 0.12); --edge: rgba(58, 36, 23, 0.25);
+  --text: #3A2417; --text-2: #6A4A33; --text-3: #7D6049;
+  --accent: #B04E1E; --accent-press: #7E3412; --tint: rgba(216, 161, 58, 0.26);
+  --btn: #FFFCF6; --btn-hover: #FFF4E2; --green: #44501A;
 }
 @media (prefers-color-scheme: dark) {
   [data-theme="seventies"] {
-    --bg: #2E1E15; --inset: #3A271C; --sep: rgba(243, 226, 190, 0.12); --edge: rgba(243, 226, 190, 0.18);
-    --text: #F3E2BE; --text-2: #CDAE89; --text-3: #9C7D60;
-    --accent: #E6773A; --accent-press: #B5531F; --tint: rgba(233, 180, 76, 0.18);
-    --btn: #45301F; --btn-hover: #523A27; --green: #C3D277;
+    --bg: #261A13; --inset: #30221A; --sep: rgba(243, 230, 207, 0.1); --edge: rgba(243, 230, 207, 0.16);
+    --text: #F3E6CF; --text-2: #CFB596; --text-3: #A88E72;
+    --accent: #B04E1E; --accent-press: #7E3412; --tint: rgba(216, 161, 58, 0.16);
+    --btn: #3A2A1F; --btn-hover: #46332A; --green: #C9D883;
   }
 }
-[data-theme="seventies"] body[data-kind="deep"] { --accent: #4FA3A5; --accent-press: #2F6A6B; --tint: rgba(63, 133, 134, 0.22); }
-[data-theme="seventies"] body {
-  font-family: "Nunito", "Segoe UI", sans-serif; font-weight: 500;
-  background: linear-gradient(180deg, #B8432B 0 3px, #E6773A 3px 6px, #E9B44C 6px 9px) top / 100% 9px no-repeat, var(--bg);
-}
-[data-theme="seventies"] .c { padding-top: 30px; }
-[data-theme="seventies"] h1 { font-family: "Fraunces", Georgia, serif; font-variation-settings: "SOFT" 100, "WONK" 1; font-size: 19px; font-weight: 800; }
-[data-theme="seventies"] .c-icon { border-radius: 50% 50% 12px 12px; color: var(--accent); }
+[data-theme="seventies"] body[data-kind="deep"] { --accent: #6F7D32; --accent-press: #4F5B1D; --tint: rgba(111, 125, 50, 0.18); }
+[data-theme="seventies"] body { font-family: "Nunito", "Segoe UI", sans-serif; font-weight: 500; }
+[data-theme="seventies"] h1 { font-family: "Fraunces", Georgia, serif; font-variation-settings: "SOFT" 100; font-size: 18px; font-weight: 750; }
+[data-theme="seventies"] .c-icon { color: #9A3E12; }
+@media (prefers-color-scheme: dark) { [data-theme="seventies"] .c-icon { color: #F0A06A; } }
 [data-theme="seventies"] .c-files li span { font-family: "Courier Prime", monospace; font-size: 13px; }
 [data-theme="seventies"] .c-files-k { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 800; }
-[data-theme="seventies"] .c-btn { font-weight: 800; border-radius: 999px; height: 34px; box-shadow: 0 0 0 1.5px var(--sep), 0 2px 0 var(--sep); }
-[data-theme="seventies"] .c-btn:active { transform: translateY(2px); box-shadow: 0 0 0 1.5px var(--sep); }
-[data-theme="seventies"] .c-btn.primary { color: #2A160C; box-shadow: 0 3px 0 var(--accent-press); }
-[data-theme="seventies"] .c-btn.primary:active { transform: translateY(3px); box-shadow: none; background: var(--accent); }
+[data-theme="seventies"] .c-btn { font-weight: 750; border-radius: 999px; height: 32px; box-shadow: 0 0 0 1px var(--sep); }
+[data-theme="seventies"] .c-btn.primary { color: #FFF8EE; box-shadow: 0 1px 0 var(--accent-press); }
 [data-theme="seventies"] .c-private { font-weight: 750; }

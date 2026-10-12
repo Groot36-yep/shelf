@@ -24,7 +24,6 @@ const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') 
   let { app, win, errors } = await launch();
   const theme = () => win.evaluate(() => document.documentElement.dataset.theme);
   assert.strictEqual(await theme(), 'studio', 'Studio is the default');
-  assert.ok(!(await win.isVisible('.room')), 'no living room in Studio');
 
   await win.click('.side-item[data-open=settings]'); await sleep(300);
   assert.strictEqual(await win.getAttribute('[data-theme-pick=studio]', 'aria-checked'), 'true');
@@ -32,7 +31,7 @@ const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') 
   assert.strictEqual(await theme(), 'seventies');
   assert.strictEqual(await win.getAttribute('[data-theme-pick=seventies]', 'aria-checked'), 'true');
   await win.keyboard.press('Escape'); await sleep(200);
-  assert.ok(await win.isVisible('.room .tv'), 'the TV is in the room');
+  assert.match(await win.evaluate(() => getComputedStyle(document.querySelector('.sidebar')).backgroundImage), /wood\.png/, 'walnut sidebar');
   await win.evaluate(() => document.fonts.ready);
   const fonts = await win.evaluate(() => ['Fraunces', 'Nunito', 'Courier Prime'].map((f) => document.fonts.check('16px "' + f + '"')));
   assert.deepStrictEqual(fonts, [true, true, true], 'bundled fonts load');
@@ -50,7 +49,7 @@ const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') 
   ({ app, win, errors } = await launch());
   assert.strictEqual(await theme(), 'seventies', 'remembered');
   const bg = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor());
-  assert.match(bg, /#E4B65C|#1F140E/i, 'window opens in the room’s colour: ' + bg);
+  assert.match(bg, /#E8DCC6|#17100B/i, 'window opens in the room’s colour: ' + bg);
   // Arrow keys move between looks.
   await win.click('.side-item[data-open=settings]'); await sleep(300);
   await win.focus('[data-theme-pick=seventies]'); await win.keyboard.press('ArrowLeft'); await sleep(900);

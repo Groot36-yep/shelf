@@ -40,7 +40,8 @@ const F = require('./fixtures/cartoons.json');
   assert.deepStrictEqual(heads, ['SpongeBob SquarePants', 'Movies'], 'one shelf per show, movies last');
   const codes = await win.$$eval('.shelf:first-child .ep-code', (x) => x.map((n) => n.textContent));
   assert.deepStrictEqual(codes, ['S01E06', 'S01E07', 'S01E09'], 'episodes in order');
-  assert.match(await win.textContent('.shelf:first-child .shelf-head'), /Read Title Cards/, 'title cards on the show’s shelf, no setting needed');
+  assert.ok(await win.isVisible('#autoMode'), 'Auto Mode is in the toolbar whenever there are TV videos');
+  assert.strictEqual(await win.$$eval('.shelf-head button.pill', (x) => x.length), 0, 'no second copy of it on the shelves');
   assert.ok(await win.isVisible('.shelf:first-child .shelf-ask'), 'the cartoon / half-hour question is asked once, on the shelf');
   const reasons = await win.$$eval('.sub.reason', (x) => x.map((n) => n.textContent));
   assert.ok(reasons.some((r) => /TMDB key/.test(r)), 'the movie says why: ' + JSON.stringify(reasons));
@@ -48,7 +49,7 @@ const F = require('./fixtures/cartoons.json');
 
   // Next to Check walks through the files that need a look, in the order shown.
   const sel = () => win.evaluate(() => { const r = document.querySelector('.row-item.is-selected'); return r && r.querySelector('.orig').textContent; });
-  await win.click('#nextCheck'); const a = await sel();
+  await win.keyboard.press('n'); const a = await sel();
   await win.keyboard.press('n'); const b = await sel();
   assert.ok(a && b && a !== b, 'Next to Check moves on: ' + a + ' → ' + b);
 
@@ -59,9 +60,10 @@ const F = require('./fixtures/cartoons.json');
   assert.match(await win.textContent('#renameBtn'), /^Rename 3 Files…$/, 'the button says how many');
   assert.match(await win.textContent('.shelf:first-child .shelf-chips'), /3 ready/);
 
-  // The shelf's Read Title Cards asks first (and here we say no).
-  await win.click('.shelf:first-child .shelf-act'); await sleep(400);
+  // Auto Mode asks first (and here we say no); while it waits, Shelf says what it's doing.
+  await win.click('#autoMode'); await sleep(400);
   assert.deepStrictEqual(await app.evaluate(() => global.__prompts), ['Read the title cards of 3 videos?']);
+  assert.ok(await win.isHidden('#activity'), 'nothing left “working” after saying no');
   assert.deepStrictEqual(errors, []);
   await app.close();
   fs.rmSync(tmp, { recursive: true, force: true }); fs.rmSync(profile, { recursive: true, force: true });

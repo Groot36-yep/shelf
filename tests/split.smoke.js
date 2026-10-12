@@ -102,8 +102,8 @@ function fakeSingle(file) {
 
   // ---- B. The mixed file: read title cards, then check and split ----
   await pick('SpongeBob.S01E05.mp4'); await sleep(200);
-  await win.click('#readCards');
-  for (let i = 0; i < 900; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent('#scanStatus'))) break; }
+  await win.click('#autoMode');
+  for (let i = 0; i < 900; i++) { await sleep(200); if (await win.evaluate(() => window.Shelf.items().filter((x) => x.kind === 'episode' && x.fullPath).every((x) => x.cards) && document.getElementById('activity').hidden)) break; }
   await sleep(500);
   await pick('SpongeBob.S01E05.mp4'); await sleep(200);
   const cardText = (await win.textContent('#inspEpList')).replace(/\s+/g, ' ');

@@ -130,8 +130,9 @@ const EPISODES = {
   // Answer once: "A half-hour" — both files follow.
   await win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, fopA);
   await sleep(200);
-  assert.ok(await win.isVisible('#inspSegWrap'), 'chooser visible');
-  await win.click('#inspSeg button[data-mode=halfhours]');
+  const fopShelf = '.shelf:has(h3:has-text("Fairly OddParents"))';
+  assert.ok(await win.isVisible(fopShelf + ' .shelf-ask.unsure'), 'the show asks, on its shelf');
+  await win.click(fopShelf + ' .shelf-ask button:has-text("A half-hour")');
   await sleep(300);
   s = await state();
   assert.ok(ready(fopA) && ready('The.Fairly.OddParents.S02E03.mkv'), 'FOP ready after choosing');

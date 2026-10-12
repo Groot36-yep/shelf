@@ -115,6 +115,36 @@
     var t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
   }
+  // ---------- "Working…": whatever Shelf is busy with, shown under the title (never a silent freeze) ----------
+  var jobs = [], lookups = '';
+  function syncActivity() {
+    var top = jobs.filter(function (j) { return j.shown; }).pop();
+    var label = top ? top.label : lookups;
+    var a = $('activity');
+    a.hidden = !label; $('subtitle').hidden = !!label;
+    if (label && $('activityText').textContent !== label) $('activityText').textContent = label;
+    document.body.classList.toggle('is-busy', !!label);
+  }
+  // Start a job; it shows at once (or after a moment for quick ones), and .done() takes it away.
+  function busy(label, quiet) {
+    var job = { label: label, shown: !quiet };
+    jobs.push(job);
+    if (quiet) job.timer = setTimeout(function () { job.shown = true; syncActivity(); }, 180);
+    syncActivity();
+    return {
+      set: function (l) { job.label = l; syncActivity(); },
+      done: function () { clearTimeout(job.timer); var i = jobs.indexOf(job); if (i >= 0) jobs.splice(i, 1); syncActivity(); }
+    };
+  }
+  // Heavier work: show what's happening first (it gets painted), then do it.
+  function work(label, fn) {
+    var job = busy(label);
+    return new Promise(function (resolve) {
+      requestAnimationFrame(function () { setTimeout(function () {
+        Promise.resolve().then(fn).then(resolve, function (e) { toast('Something went wrong: ' + (e && e.message || e)); resolve(); }).then(job.done);
+      }, 0); });
+    });
+  }
 
   // ---------- Items ----------
   function makeItem(name, relPath, size, fullPath, parents) {
@@ -429,6 +459,8 @@
             : !r.sure ? r.note : '';
           applyStatus(i);
           followVideo(i);
+          // Get the title cards ready for Check Episodes while nothing else is going on.
+          if (i.cards && window.requestIdleCallback) requestIdleCallback(function () { cardsForCached(i, list); }, { timeout: 4000 });
         });
       });
       scheduleRender();
@@ -576,26 +608,14 @@
     if (busy) chips.push(el('span', { class: 'shelf-chip wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Looking up']));
     if (ready) chips.push(el('span', { class: 'shelf-chip ok', text: ready + ' ready' }));
     if (check) chips.push(el('span', { class: 'shelf-chip warn', text: check + ' to check' }));
-    var act = null;
-    var vids = tv && c ? showFiles(v) : [];
-    if (vids.length) {
-      var reading = scanning && vids.some(function (i) { return i.scan === 'reading' || i.scan === 'queued'; });
-      var unread = vids.some(function (i) { return !i.cards; });
-      act = el('button', { type: 'button', class: 'pill small-pill shelf-act', disabled: scanning ? 'disabled' : null,
-        title: 'Read the title cards inside this show’s ' + vids.length + ' video' + (vids.length === 1 ? '' : 's') + ' to find which episodes each holds (Shelf asks first)',
-        onclick: function () { if (!scanning) readCardsOf(v, showFiles(v), false); } }, [
-        el('span', { class: 'tc-ico', 'aria-hidden': 'true' }),
-        reading ? 'Reading Title Cards…' : unread ? 'Read Title Cards' : 'Read Title Cards Again'
-      ]);
-    }
-    // A question about the whole show is asked once, here, not on every file.
+    // How this show's files are numbered (cartoon shows only): asked once, here, and always yours to change.
     var ask = null;
-    if (tv && c && v.segmented && (!v.numberSure || numbering[showIdKey(c)])) {
+    if (tv && c && v.segmented) {
       var mode = v.numberSure ? v.numberMode : '';
-      ask = el('div', { class: 'shelf-ask' }, [
-        el('span', { text: 'Each file is' }),
+      ask = el('div', { class: 'shelf-ask' + (v.numberSure ? '' : ' unsure') }, [
+        el('span', { text: v.numberSure ? 'Each file is' : 'Shelf isn’t sure. Each file is' }),
         el('div', { class: 'segmented small', role: 'group', 'aria-label': 'Each file of ' + title + ' is' }, [['segments', 'One cartoon'], ['halfhours', 'A half-hour']].map(function (m) {
-          return el('button', { type: 'button', 'aria-pressed': mode === m[0] ? 'true' : 'false', text: m[1], onclick: function () { numbering[showIdKey(c)] = m[0]; resolveShow(c).then(render); } });
+          return el('button', { type: 'button', 'aria-pressed': mode === m[0] ? 'true' : 'false', text: m[1], onclick: function () { numbering[showIdKey(c)] = m[0]; work('Working out the episodes…', function () { return resolveShow(c); }).then(render); } });
         }))
       ]);
     }
@@ -603,7 +623,6 @@
       tv ? posterNode('shelf-poster', c && c.poster, title) : el('div', { class: 'shelf-poster movies', 'aria-hidden': 'true' }),
       el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), el('span', { class: 'shelf-meta', text: meta })]),
       el('div', { class: 'shelf-chips' }, chips),
-      act,
       ask
     ]);
   }
@@ -703,15 +722,6 @@
     var note = $('inspNote');
     note.hidden = !item.epNote || item.epNote === item.error;
     note.textContent = item.epNote || '';
-    // The cartoon/half-hour switch only when Shelf isn't sure (or you've used it for this show).
-    var segWrap = $('inspSegWrap');
-    var showId0 = current(linkedVideo(item) || item) ? showIdKey(current(linkedVideo(item) || item)) : '';
-    segWrap.hidden = !(item.kind === 'episode' && item.segmented && !item.split && (!item.numberSure || numbering[showId0]));
-    $('inspLookWrap').hidden = !(item.kind === 'episode' && (linkedVideo(item) || item).fullPath);
-    $('checkLengths').disabled = $('readCards').disabled = scanning || !item.fullPath;
-    document.querySelectorAll('#inspSeg button').forEach(function (b) {
-      b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
-    });
 
     // What Shelf thinks this file is, how it knows, and ways to check or change it.
     var epWrap = $('inspEpWrap');
@@ -723,6 +733,9 @@
       var rowsEp = episodeRows(src0, item);
       var how = src0.split ? 'split' : src0.episode ? src0.episode.how : '';
       var sure = !item.epBlock && (item.status === 'matched' || item.confirmed);
+      var many = rowsEp.length > 1 || !!src0.split;
+      document.querySelectorAll('#epCount button').forEach(function (b) { b.setAttribute('aria-pressed', (b.dataset.count === 'more') === many ? 'true' : 'false'); b.disabled = item.status === 'done'; });
+      $('epAdd').hidden = !many || !!src0.split || item.status === 'done';
       rowsEp.forEach(function (e, i) {
         var thumb = null;
         if (e.card != null && src0.fullPath) {
@@ -735,11 +748,12 @@
             el('span', { class: 'ep-card-code', text: 'S' + pad2(e.season) + 'E' + pad2(e.number) }),
             el('span', { class: 'ep-card-name', text: e.name || '(no title listed)', title: e.name || '' })
           ]),
-          src0.split ? null : el('button', { type: 'button', class: 'ep-change', 'data-opens-browser': '1', id: i === 0 ? 'changeEp' : null, text: 'Change', title: 'Pick a different episode for this', onclick: function (ev) { changeEntry(src0, i, ev.currentTarget); } })
+          src0.split ? null : el('button', { type: 'button', class: 'ep-change', 'data-opens-browser': '1', id: i === 0 ? 'changeEp' : null, text: 'Change', title: 'Pick a different episode for this', onclick: function (ev) { changeEntry(src0, i, ev.currentTarget); } }),
+          !src0.split && rowsEp.length > 1 ? el('button', { type: 'button', class: 'ep-remove', 'aria-label': 'Remove ' + (e.name || 'this episode'), title: 'Not in this file: remove it', text: '✕', onclick: function () { removeEntry(src0, i); } }) : null
         ]);
         list0.appendChild(row);
       });
-      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : rowsEp.length > 1 ? 'In this file' : 'This file is';
+      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : 'This file holds';
       var why = {
         split: '✂ You chose to split it. Each part gets its own name.',
         manual: '✓ You chose this.',
@@ -750,7 +764,7 @@
         number: 'From the episode number in the file name.'
       }[how] || 'From the file name.';
       var iss = issueFor(item);
-      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, read the title cards.' : ' Not sure? Check Episodes… shows you the video.');
+      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Auto Mode or Deep Scan.' : ' Not sure? Check Episodes… shows you the video.');
       $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
       var badge = $('inspEpBadge');
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
@@ -759,9 +773,9 @@
       $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Check Episodes…';
       $('checkEps').disabled = scanning;
       $('clearSplit').hidden = !src0.split;
-      // Deep Scan once a quick read has missed a card for this video.
-      $('deepScan').hidden = !(canDeep(item) && src0.cards && rowsEp.some(function (e) { return e.card == null; }));
-      $('deepScan').disabled = scanning;
+      // Deep Scan: always there for a TV video (you decide when it's worth it).
+      $('deepScan').hidden = !canDeep(item);
+      $('deepScan').disabled = scanning || item.status === 'done';
     }
     // The problem card.
     var iss1 = showEp ? issueFor(item) : null, issBox = $('inspIssue');
@@ -771,7 +785,7 @@
       $('issueTitle').textContent = iss1.title;
       $('issueText').textContent = iss1.text;
       var acts = $('issueActions'); acts.textContent = '';
-      iss1.actions.forEach(function (a, k) { acts.appendChild(el('button', { type: 'button', class: 'pill small-pill' + (k === 0 ? ' pill-primary' : ''), text: a.label, title: a.title || '', onclick: a.run })); });
+      iss1.actions.forEach(function (a, k) { acts.appendChild(el('button', { type: 'button', class: a.link ? 'link-btn' : 'pill small-pill' + (k === 0 ? ' pill-primary' : ''), text: a.label, title: a.title || '', onclick: a.run })); });
     }
 
     var facts = $('inspFacts');
@@ -851,20 +865,21 @@
     var review = items.filter(needsReview).length;
     $('renameBtn').disabled = ready === 0;
     $('renameBtn').textContent = ready ? 'Rename ' + ready + (ready === 1 ? ' File…' : ' Files…') : 'Rename…';
-    $('nextCheck').hidden = !review;
-    // Read Title Cards, always in the toolbar when there are TV videos to read.
-    var tvVids = items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; });
-    $('readCardsTop').hidden = !tvVids.length;
-    $('readCardsTop').disabled = scanning;
+    // Auto Mode: in the toolbar whenever there are TV videos (not only when Shelf thinks it's needed).
+    var tvVids = tvVideos();
+    $('autoMode').hidden = !tvVids.length;
+    $('autoMode').disabled = scanning;
+    $('autoMode').title = scanning ? 'Shelf is reading title cards right now' : 'Auto Mode: Shelf looks at the title cards inside your ' + tvVids.length + ' TV video' + (tvVids.length === 1 ? '' : 's') + ' and works out which episodes each one holds (it asks first)';
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('reviewCount').textContent = review;
     $('navCount').hidden = !has;
     $('navCount').textContent = items.length;
-    var busy = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
-    var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - busy;
+    var looking = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
+    var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - looking;
     var total = items.filter(function (i) { return i.status !== 'skipped'; }).length;
-    $('subtitle').textContent = !has ? 'Add files to get started' : busy ? 'Looking up ' + done + ' of ' + total + '…'
-      : [items.length + (items.length === 1 ? ' file' : ' files'), ready ? ready + ' ready' : '', review ? review + ' to check' : ''].filter(Boolean).join(', ');
+    $('subtitle').textContent = !has ? 'Add files to get started'
+      : [items.length + (items.length === 1 ? ' file' : ' files'), review ? review + ' to check' : 'all ready'].join(' · ');
+    lookups = looking ? 'Looking up ' + done + ' of ' + total + '…' : ''; syncActivity();
     $('statusText').textContent = has ? ready + ' ready to rename' + (review ? ' · ' + review + ' need' + (review === 1 ? 's' : '') + ' a look' : '') : '';
     document.querySelectorAll('#filterSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.filter === filter ? 'true' : 'false'); });
 
@@ -1008,7 +1023,6 @@
         $('undoBar').hidden = !ok;
         render();
         toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.');
-        if (ok && !failed) celebrate();
       }).catch(function (err) {
         toast(err.message || 'Renaming failed.');
       }).then(function () { stop(); btn.disabled = false; prepareRename(); });
@@ -1117,22 +1131,10 @@
       return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && cc && showIdKey(cc) === id && ['done', 'skipped'].indexOf(i.status) < 0;
     });
   }
-  function setScanStatus(text) { $('scanStatus').textContent = text || ''; }
-  on('checkLengths', 'click', function () {
-    var item = itemById(selectedId); if (!item || scanning) return;
-    var files = showFiles(item); if (!files.length) return;
-    scanning = true; setScanStatus('Waiting for your OK…');
-    native.checkLengths(files.map(function (i) { return i.fullPath; })).then(function (res) {
-      if (!res) { setScanStatus('Cancelled. Nothing was read.'); return; }
-      scanBar('Checked the length of ' + files.length + ' video' + (files.length === 1 ? '' : 's'), 1);
-      setTimeout(function () { if (!scanning) scanBar(null); }, 1500);
-      var got = 0;
-      files.forEach(function (i) { var secs = res[i.fullPath]; if (secs) { i.minutes = secs / 60; got++; } });
-      setScanStatus(got ? 'Checked ' + got + ' of ' + files.length + ' videos.' : 'Couldn’t tell the length of these videos (unusual format).');
-      return resolveShow(current(linkedVideo(item) || item));
-    }).catch(function (e) { setScanStatus('Couldn’t check: ' + e.message); })
-      .then(function () { scanning = false; render(); });
-  });
+  // Every TV video in the list that can still be renamed (what Auto Mode reads).
+  function tvVideos() { return items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; }); }
+  var scanJob = null;
+  function setScanStatus(text) { if (scanJob) scanJob.set(text); }
   // The bar at the bottom while Shelf reads videos.
   function scanBar(text, frac) {
     var bar = $('scanBar');
@@ -1151,7 +1153,7 @@
     function step(text) {
       var n = $('readerStep');
       if (n.textContent === text) return;
-      n.textContent = text; n.classList.remove('swap'); void n.offsetWidth; n.classList.add('swap');
+      n.textContent = text; n.classList.remove('swap'); requestAnimationFrame(function () { requestAnimationFrame(function () { n.classList.add('swap'); }); });
     }
     function draw(p) {
       if (!p.image) return;
@@ -1218,26 +1220,32 @@
   })();
 
   on('deepScan', 'click', function () { var item = itemById(selectedId); if (item) deepScan(item); });
-  on('readCards', 'click', function () {
-    var item = itemById(selectedId); if (!item || scanning) return;
-    readCardsOf(item, showFiles(item), false);
-  });
   // Deep Scan: one video, much more thorough (for title cards the quick read missed).
   function deepScan(item) {
     var v = linkedVideo(item) || item;
     if (scanning || !v.fullPath) return;
-    readCardsOf(item, [v], true);
+    readCardsOf([v], true);
   }
-  function readCardsOf(item, files, deepNext) {
+  // Auto Mode: every TV video not read yet (or all of them again, if they all have been).
+  function autoMode() {
+    if (scanning) return;
+    var all = tvVideos(), unread = all.filter(function (i) { return !i.cards; });
+    readCardsOf(unread.length ? unread : all, false);
+  }
+  on('autoMode', 'click', autoMode);
+  function readCardsOf(files, deepNext) {
     if (!files.length) return;
-    var c = current(linkedVideo(item) || item);
-    scanning = true; setScanStatus('Waiting for your OK…');
+    // The shows these videos belong to (each is worked out again as its videos are read).
+    var shows = [], seenShow = {};
+    files.forEach(function (i) { var c0 = current(i); if (c0 && !seenShow[showIdKey(c0)]) { seenShow[showIdKey(c0)] = 1; shows.push(c0); } });
+    if (!shows.length) return;
+    scanning = true; scanJob = busy('Waiting for your OK…'); render();
     var read = 0, titlesFound = 0;
     // The answer can arrive before the last progress messages do, so keep listening until "end" (or a few seconds).
     var ended, endedP = new Promise(function (res) { ended = res; });
     var stop = native.onCardProgress(function (p) {
       var it = p.path ? itemByPath(p.path) : null;
-      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); $('cancelCards').hidden = false; reader.start(p.total, deepNext); }
+      if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); reader.start(p.total, deepNext); }
       if (p.kind === 'start' && it) { it.scan = 'reading'; it.scanFrac = 0; }
       if (p.kind === 'start') reader.file(p.file || (it && it.name) || '', p.index, p.total);
       if (p.kind === 'step' && it) it.scanFrac = p.frac;
@@ -1245,7 +1253,7 @@
       if (p.kind === 'found') { titlesFound++; reader.found(p); return; }
       if (p.kind === 'start' || p.kind === 'step') {
         reader.progress((p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
-        setScanStatus('Reading title cards: video ' + (p.index + 1) + ' of ' + p.total + '…');
+        setScanStatus((deepNext ? 'Deep scan' : 'Auto Mode') + ': reading video ' + (p.index + 1) + ' of ' + p.total + '…');
       }
       if (p.kind === 'file' && it) {
         var r = p.result || {};
@@ -1253,7 +1261,8 @@
         if (r.texts) { it.cards = r.texts; it.cardParts = r.parts; read++; }
         it.scan = p.stopped && !r.texts ? null : 'done'; it.scanFrac = 1;
         // Show this episode's answer straight away, then settle back to the normal tag.
-        resolveShow(c).then(function () {
+        var cIt = current(it);
+        (cIt ? resolveShow(cIt) : Promise.resolve()).then(function () {
           scheduleRender();
           setTimeout(function () { if (it.scan === 'done') { it.scan = null; scheduleRender(); } }, 1800);
         });
@@ -1267,27 +1276,29 @@
       }
       scheduleRender();
     });
-    listFor(c).then(function (list) {
-      var titles = list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; });
+    Promise.all(shows.map(listFor)).then(function (lists) {
+      var listOf = function (i) { var ci = current(i); return lists[shows.findIndex(function (c0) { return ci && showIdKey(c0) === showIdKey(ci); })] || []; };
       // Episodes the file's name points near: a slightly weaker reading is enough for these.
-      var nearFor = function (i) {
+      var nearFor = function (i, list) {
         var es = i.episode ? (i.episode.entries && i.episode.entries.length ? i.episode.entries : [i.episode]) : [];
         return list.filter(function (e) { return e.number != null && es.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); }).map(function (e) { return e.name; });
       };
-      return native.readCards(files.map(function (i) { return { path: i.fullPath, titles: titles, near: nearFor(i) }; }), { deep: !!deepNext });
+      return native.readCards(files.map(function (i) {
+        var list = listOf(i);
+        return { path: i.fullPath, titles: list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; }), near: nearFor(i, list) };
+      }), { deep: !!deepNext });
     }).then(function (res) {
       if (!res) return res;
       return Promise.race([endedP, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { return res; });
     }).then(function (res) {
-      if (!res) { reader.hide(); setScanStatus('Cancelled. No videos were read.'); return; }
-      setScanStatus('Read ' + read + ' of ' + files.length + ' videos.');
-      return resolveShow(c);
-    }).catch(function (e) { setScanStatus('Couldn’t read the title cards: ' + e.message); })
-      .then(function () { stop(); scanning = false; $('cancelCards').hidden = true; render(); });
+      if (!res) { reader.hide(); toast('Cancelled. No videos were read.'); return; }
+      setScanStatus('Working out the episodes…');
+      return Promise.all(shows.map(resolveShow));
+    }).catch(function (e) { toast('Couldn’t read the title cards: ' + e.message); })
+      .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); });
   }
   on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
   on('readerStop', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
-  on('cancelCards', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
   function syncOrderHelp() {
     var svc = tvService();
     var want = settings.order === 'tmdb' ? 'The Movie Database' : 'TheTVDB';
@@ -1325,16 +1336,6 @@
     $('tvdbStatusText').textContent = 'Key removed from this computer.'; syncOrderHelp(); tvDirty = true; render();
   });
   var tvDirty = false;
-  // "One cartoon" / "A half-hour" in the side panel: applies to every file of that show.
-  document.querySelectorAll('#inspSeg button').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var item = itemById(selectedId);
-      var c = item && current(linkedVideo(item) || item);
-      if (!c) return;
-      numbering[showIdKey(c)] = b.dataset.mode;
-      resolveShow(c).then(function () { render(); });
-    });
-  });
   on('settingsSheet', 'close', function () {
     if (tvDirty) { tvDirty = false; rematchTv(); }
     // Retry anything that failed for lack of a key.
@@ -1361,7 +1362,7 @@
     if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
     if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
     if (mod && k === 'z' && !typing && !sheetOpen) { if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
-    if (!mod && k === 'n' && !typing && !sheetOpen && !$('nextCheck').hidden) { e.preventDefault(); nextToCheck(); return; }
+    if (!mod && k === 'n' && !typing && !sheetOpen && items.some(needsReview)) { e.preventDefault(); nextToCheck(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !sheetOpen && selectedId) { e.preventDefault(); $('removeBtn').click(); }
   });
   // Next to Check: jump to the next file that needs a look (wraps around).
@@ -1373,14 +1374,6 @@
     var nx = all[(at + 1) % all.length];
     select(nx.id);
   }
-  on('nextCheck', 'click', nextToCheck);
-  // Toolbar: read the title cards of the selected file's show (or the first show in the list).
-  on('readCardsTop', 'click', function () {
-    if (scanning) return;
-    var sel = itemById(selectedId), v = sel && videoOf(sel);
-    if (!v || v.kind !== 'episode' || !current(v)) v = items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && current(i); })[0];
-    if (v) readCardsOf(v, showFiles(v), false);
-  });
   // Arrow keys move through the list
   document.addEventListener('keydown', function (e) {
     if (!items.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;
@@ -1503,6 +1496,14 @@
       return { part: Math.min(parts - 1, Math.floor(m.t / (secs / parts))), t: m.t, texts: [], mark: { season: m.season, number: m.number } };
     });
   }
+  // The same answer is kept until the readings, your marks or the list change (opening the window stays quick).
+  function cardsForCached(v, list) {
+    var k = v._cardsFor;
+    if (k && k.cards === v.cards && k.marks === v.marks && k.list === list) return k.out;
+    var out = cardsFor(v, list);
+    v._cardsFor = { cards: v.cards, marks: v.marks, list: list, out: out };
+    return out;
+  }
   function cardsFor(v, list) {
     var out = {};
     (v.marks || []).forEach(function (m) {
@@ -1570,28 +1571,27 @@
     var v = linkedVideo(item) || item, ep = v.episode;
     if (!ep || v.split || item.status === 'done' || item.kind !== 'episode') return null;
     var names = function (es) { return es.map(function (e) { return epCode(e) + ' “' + e.name + '”'; }); };
+    var look = v.fullPath ? [{ label: 'Check Episodes…', title: 'Open the video to see for yourself', run: function () { openEditor(item); } }] : [];
     if (ep.needsSplit) {
       var es = ep.entries || [];
       return { kind: 'apart', title: 'This file holds ' + es.length + ' separate episodes',
         text: joinAnd(names(es)) + ' aren’t next to each other in the episode list, so Plex needs a separate file for each. Shelf can split it for you, without re-encoding.',
-        actions: [{ label: 'Resolve…', run: function () { openResolve(item); } }] };
+        actions: (v.fullPath ? [{ label: 'Split into ' + es.length + ' Files', run: function () { return work('Finding where to split…', function () { return autoSplit(v, es); }); } }] : []).concat(look) };
     }
     if (!item.epBlock) return null;
     var note = item.epProblem || '';
     if (ep.how === 'card' && /one long episode/.test(note)) {
       return { kind: 'single', title: 'One long episode?',
-        text: 'Shelf read one title card (“' + ep.name + '”) and no second one. Is the whole file this episode?',
-        actions: [{ label: 'Yes, One Episode', run: function () { useEntries(v, [episodeRows(v)[0]], 'Confirmed: one episode.'); } }, { label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item))
-          .concat(v.fullPath ? [{ label: 'Mark 2nd Card…', title: 'Find the second title card in the video yourself and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
+        text: 'Shelf read one title card (“' + ep.name + '”) and no second one. Is the whole file this episode, or are there two?',
+        actions: [
+          { label: 'One Episode', run: function () { setCount(item, 'one'); } },
+          { label: 'Two Episodes', title: 'Add the episode that comes after it (change it if it’s a different one)', run: function () { setCount(item, 'more'); } }
+        ].concat(v.fullPath ? [{ label: 'Find It in the Video…', link: true, title: 'Find the second title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
     }
-    return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.',
-      actions: [{ label: 'Resolve…', run: function () { openResolve(item); } }].concat(deepAction(item)) };
+    return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
   }
-  // Deep Scan, offered where a title card is missing (if title-card reading is turned on).
+  // Deep Scan works on any TV video you've added from your computer.
   function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && v.fullPath && v.parsed.isVideo && !v.split); }
-  function deepAction(item) {
-    return canDeep(item) ? [{ label: 'Deep Scan', title: 'Take a much closer look for the title cards in this video (a few minutes)', run: function () { deepScan(item); } }] : [];
-  }
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
     var clean = es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; });
@@ -1599,8 +1599,30 @@
     v.manualEp = { season: clean[0].season, number: clean[0].number, end: inRow(clean) && last.number > clean[0].number ? last.number : null, name: P.joinNames(clean), entries: clean };
     v.split = null; v.confirmed = true;
     var c = current(v);
-    if (c) resolveShow(c).then(render);
-    if (msg) toast(msg);
+    return (c ? work('Updating the name…', function () { return resolveShow(c); }).then(render) : Promise.resolve()).then(function () { if (msg) toast(msg); });
+  }
+  // The episode listed after this one (for "Two Episodes").
+  function nextEntry(list, e) {
+    var l = list.filter(function (x) { return x.number != null; });
+    var i = l.findIndex(function (x) { return x.season === e.season && x.number === e.number; });
+    return i >= 0 && l[i + 1] ? l[i + 1] : null;
+  }
+  // One episode, or more than one: always yours to say.
+  function setCount(item, count) {
+    var v = linkedVideo(item) || item, c = current(v);
+    if (!c) return;
+    var rows = episodeRows(v, item).map(function (e) { return Object.assign({}, e); });
+    if (count === 'one') { useEntries(v, [rows[0]], 'Saved: one episode.'); return; }
+    if (rows.length > 1 && !v.split) return;
+    listFor(c).then(function (list) {
+      var nx = nextEntry(list, rows[rows.length - 1]);
+      if (!nx) { toast('There’s no next episode in the list. Use Change… to pick one.'); return; }
+      useEntries(v, rows.concat([{ season: nx.season, number: nx.number, name: nx.name, runtime: nx.runtime || null }]), 'Added ' + epCode(nx) + ' ' + nx.name + '. Wrong one? Click Change.');
+    });
+  }
+  function removeEntry(v, i) {
+    var rows = episodeRows(v).filter(function (e, k) { return k !== i; });
+    if (rows.length) useEntries(v, rows, 'Removed.');
   }
   // "Change" on one episode row: pick it from the show's list.
   function changeEntry(v, i, anchor) {
@@ -1612,6 +1634,23 @@
         onPick: function (x) {
           rows[i] = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, card: rows[i] ? rows[i].card : null };
           useEntries(v, rows, 'Changed to ' + epCode(x) + ' ' + x.name);
+        }
+      });
+    });
+  }
+  // "+ Add Another Episode": pick one from the show's list.
+  function addEntry(v, anchor) {
+    var c = current(v); if (!c) return;
+    listFor(c).then(function (list) {
+      var rows = episodeRows(v).map(function (e) { return Object.assign({}, e); });
+      var last = rows[rows.length - 1];
+      ShelfEditor.browse(anchor, {
+        list: list, marked: rows, season: last ? last.season : null, title: 'Add an episode that’s also in this file',
+        onPick: function (x) {
+          if (rows.some(function (e) { return e.season === x.season && e.number === x.number; })) return;
+          rows.push({ season: x.season, number: x.number, name: x.name, runtime: x.runtime || null });
+          rows.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+          useEntries(v, rows, 'Added ' + epCode(x) + ' ' + x.name);
         }
       });
     });
@@ -1634,77 +1673,7 @@
       v.manualEp = null;
       var g0 = res.cuts[0];
       toast('Will split into ' + parts.length + ' files' + (g0 ? ' at ' + fmtClock(g0.at) + (g0.why === 'black + silence' ? ' (a black, silent moment)' : '') : '') + '. Check it any time with Edit Split…');
-      if (c) resolveShow(c).then(render);
-      return true;
-    });
-  }
-  // The Resolve window: the title cards Shelf read, each episode changeable, and one clear choice.
-  function openResolve(item) {
-    var v = linkedVideo(item) || item, c = current(v);
-    if (!c) return;
-    var iss = issueFor(item) || { kind: 'check', title: 'Check this file' };
-    listFor(c).then(function (list) {
-      var parts = episodeRows(v, item).map(function (e) { return Object.assign({}, e); });
-      var single = iss.kind === 'single';
-      $('rsTitle').textContent = iss.title;
-      $('rsFile').textContent = v.name;
-      $('rsIcon').className = 'rs-icon ' + iss.kind;
-      $('rsLead').textContent = single
-        ? 'Is the whole file this one episode, or does it also hold a cartoon whose title card Shelf couldn’t read?'
-        : 'These are the title cards Shelf read. Check each part is the right episode (Change… if not), then choose below.';
-      function act(btn, label, run) {
-        btn.hidden = !label; btn.textContent = label || ''; btn.disabled = false;
-        btn.onclick = function () {
-          btn.disabled = true;
-          Promise.resolve(run()).then(function (done) { if (done !== false) $('resolveSheet').close(); else btn.disabled = false; })
-            .catch(function (e) { btn.disabled = false; toast('Couldn’t do that: ' + e.message); });
-        };
-      }
-      function draw() {
-        var box = $('rsParts'); box.textContent = '';
-        box.className = 'rs-parts n' + parts.length;
-        parts.forEach(function (e, i) {
-          var frame = el('div', { class: 'rs-frame' }, [el('span', { class: 'rs-noframe' }, e.card != null ? [] : [
-            'No title card read for this part',
-            el('span', { class: 'rs-noframe-btns' }, [
-              el('button', { type: 'button', class: 'pill small-pill', text: 'Mark It Yourself…', title: 'Find this title card in the video and say which episode it is', onclick: function () { $('resolveSheet').close(); openEditor(item, { part: i, of: parts.length }); } }),
-              canDeep(item) ? el('button', { type: 'button', class: 'pill small-pill', text: 'Deep Scan', title: 'Take a much closer look for this video’s title cards (a few minutes)', onclick: function () { $('resolveSheet').close(); deepScan(item); } }) : null
-            ])
-          ])]);
-          if (e.card != null) cardFrame(v, e.card, 480).then(function (url) { if (url) frame.replaceChildren(el('img', { src: url, alt: 'Title card of ' + e.name })); else frame.firstChild.textContent = 'Picture not available'; });
-          var change = el('button', { type: 'button', class: 'pill small-pill', 'data-opens-browser': '1', text: 'Change…' });
-          change.onclick = function () {
-            ShelfEditor.browse(change, { list: list, marked: [e], season: e.season, title: parts.length > 1 ? 'Which episode is part ' + (i + 1) + '?' : 'Which episode is this?',
-              onPick: function (x) { parts[i] = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, card: e.card }; draw(); } });
-          };
-          box.appendChild(el('div', { class: 'rs-part', 'data-part': i % 2 }, [
-            frame,
-            el('span', { class: 'rs-part-k' }, [parts.length > 1 ? el('i', { text: String(i + 1) }) : null, e.card != null ? 'Title card at ' + fmtClock(e.card) : 'No title card']),
-            el('div', { class: 'rs-ep' }, [el('span', { class: 'ep-card-code', text: epCode(e) }), el('span', { class: 'ep-card-name', text: e.name, title: e.name }), change])
-          ]));
-        });
-        var verdict = $('rsVerdict'), names;
-        if (single || parts.length === 1) {
-          names = [nameFor(v, [parts[0]])];
-          verdict.replaceChildren(el('span', { text: 'Will be named' }), el('code', { text: names[0] }));
-          act($('rsMain'), single ? 'Yes, One Episode' : 'Use This Episode', function () { useEntries(v, [parts[0]], 'Saved: ' + names[0]); });
-          act($('rsAlt'), single ? 'It Has a Second Cartoon…' : null, function () { v.wantSplit = true; $('resolveSheet').close(); openEditor(item); return false; });
-        } else if (inRow(parts)) {
-          names = [nameFor(v, parts)];
-          verdict.replaceChildren(el('span', { class: 'ok', text: '✓ These are next to each other, so one file can hold them:' }), el('code', { text: names[0] }));
-          act($('rsMain'), 'Keep One File', function () { useEntries(v, parts, 'Saved: ' + names[0]); });
-          act($('rsAlt'), 'Split Anyway', function () { return autoSplit(v, parts); });
-        } else {
-          names = parts.map(function (e) { return nameFor(v, [e]); });
-          verdict.replaceChildren.apply(verdict, [el('span', { text: 'Not next to each other, so each gets its own file:' })].concat(names.map(function (n) { return el('code', { text: n }); })));
-          act($('rsMain'), 'Split into ' + parts.length + ' Files', function () { $('rsMain').textContent = 'Finding the gap…'; return autoSplit(v, parts); });
-          act($('rsAlt'), null);
-        }
-      }
-      $('rsEditor').onclick = function () { $('resolveSheet').close(); openEditor(item); };
-      $('rsClose').onclick = function () { $('resolveSheet').close(); };
-      draw();
-      $('resolveSheet').showModal();
+      return c ? resolveShow(c).then(function () { render(); return true; }) : true;
     });
   }
 
@@ -1713,6 +1682,7 @@
     var c = current(v);
     if (!c || !v.fullPath) return;
     var btn = $('checkEps'); btn.disabled = true;
+    var job = busy('Opening the video…');
     var run = showRun(v), at = run.indexOf(v), nextItem = at >= 0 ? run[at + 1] : null;
     var also = at >= 0 ? run.slice(at + 1).map(function (i) { return i.fullPath; }) : [];
     listFor(c).then(function (list) {
@@ -1727,11 +1697,11 @@
         entries.forEach(function (e) { var f = list.filter(function (x) { return x.season === e.season && x.number === e.number; })[0]; if (f) { e.runtime = e.runtime || f.runtime; e.name = e.name || f.name; } });
         ShelfEditor.open({
           native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list,
-          entries: entries, cards: cardsFor(v, list), lookFor: lookFor || null,
+          entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
-            v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null;
-            resolveShow(c).then(render);
+            v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null; v._cardsFor = null;
+            work('Updating the episodes…', function () { return resolveShow(c); }).then(render);
           },
           mode: v.split || wantSplit || (v.episode && v.episode.needsSplit) ? 'split' : 'one',
           existing: v.split ? { pieces: v.split.pieces } : null,
@@ -1748,15 +1718,19 @@
               v.confirmed = true;
               toast('Saved: ' + nameFor(v, es));
             }
-            resolveShow(c).then(render);
+            work('Updating the name…', function () { return resolveShow(c); }).then(render);
           }
         });
       });
     }).catch(function (e) { toast('Couldn’t open the video: ' + e.message); })
-      .then(function () { btn.disabled = false; });
+      .then(function () { btn.disabled = false; job.done(); });
   }
   on('checkEps', 'click', function () { var item = itemById(selectedId); if (item) openEditor(item); });
   on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { v.split = null; render(); } });
+  document.querySelectorAll('#epCount button').forEach(function (b) {
+    b.addEventListener('click', function () { var item = itemById(selectedId); if (item && b.getAttribute('aria-pressed') !== 'true') setCount(item, b.dataset.count); });
+  });
+  on('epAdd', 'click', function (ev) { var item = itemById(selectedId); if (item) addEntry(linkedVideo(item) || item, ev.currentTarget); });
   render();
   // ---------- Looks (themes) ----------
   var THEMES = ['studio', 'seventies'];
@@ -1827,7 +1801,10 @@
   var barQueued = false;
   function queueTitleBar() { if (barQueued) return; barQueued = true; requestAnimationFrame(function () { barQueued = false; syncTitleBar(); setTimeout(syncTitleBar, 380); }); }
   function watchTitleBar() {
-    new MutationObserver(queueTitleBar).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open', 'hidden', 'class'], childList: false });
+    // Only what can change the colour under the buttons: a window opening, a panel showing or
+    // hiding, the page stepping back. (Not every class change: the video window changes those all the time.)
+    new MutationObserver(queueTitleBar).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open', 'hidden'], childList: false });
+    new MutationObserver(queueTitleBar).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     new MutationObserver(queueTitleBar).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     window.addEventListener('resize', queueTitleBar);
     if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', queueTitleBar);
@@ -1837,14 +1814,7 @@
   // For screenshots on other systems: pretend to be Windows, sending the colour to a stand-in.
   function fakeWindows(sink) { document.documentElement.classList.add('os-win32'); barSink = sink; watchTitleBar(); }
 
-  // Renamed: a moment of joy (the Living Room theme throws a little sunburst).
-  function celebrate() {
-    var c = $('celebrate');
-    if (!c || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
-    c.replaceChildren.apply(c, [0, 1, 2, 3, 4, 5].map(function () { return el('i'); }));
-    c.classList.remove('go'); void c.offsetWidth; c.classList.add('go');
-    clearTimeout(celebrate.t); celebrate.t = setTimeout(function () { c.classList.remove('go'); c.textContent = ''; }, 1800);
-  }
-
-  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, celebrate: celebrate, fakeWindows: fakeWindows }; // handy for testing
+  // Handy for testing: work every show's episodes out again (after test code fills in title cards).
+  function resolveAll() { var seen = {}; return Promise.all(items.map(current).filter(function (c) { if (!c) return false; var k = showIdKey(c); if (seen[k]) return false; return (seen[k] = true); }).map(resolveShow)).then(render); }
+  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll };
 })();

@@ -208,6 +208,8 @@
         result.episode = parseInt(m[2], 10);
         var end = parseInt(m[3] || m[4], 10);
         if (end > result.episode && end - result.episode < 10) result.episodeEnd = end;
+        // "S03E01aE01b": the name itself says the file holds two cartoons.
+        if (t === 0 && /E\d{1,3}[ab]\s?-?\s?E\d{1,3}[ab]/i.test(m[0])) result.halves = 2;
         result.episodeTitle = titleCase(cleanSpaces(epJ.text));
         result.resolution = epJ.resolution || showJ.resolution;
         return result;
@@ -515,16 +517,26 @@
     for (var x = 0; x < g.length; x++) for (var y = 0; y < g.length; y++) if (x !== y) LOOKALIKE[g[x] + g[y]] = 1;
   });
   function subCost(a, b) { return a === b ? 0 : LOOKALIKE[a + b] ? 0.5 : 1; }
+  // The same costs as a table of character codes (no strings made in the inner loops).
+  var COST = new Float32Array(128 * 128).fill(1);
+  for (var ci = 0; ci < 128; ci++) COST[ci * 128 + ci] = 0;
+  Object.keys(LOOKALIKE).forEach(function (k) { COST[k.charCodeAt(0) * 128 + k.charCodeAt(1)] = 0.5; });
+  function codes(s) { var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); a[i] = c < 128 ? c : 127; } return a; }
   // Fewest edits to turn `t` into some stretch of `s` (approximate substring search).
+  var fbPrev = new Float32Array(64), fbCur = new Float32Array(64);
   function fuzzyFind(t, s) {
-    var prev = new Array(t.length + 1), cur = new Array(t.length + 1), best = t.length;
-    for (var i = 0; i <= t.length; i++) prev[i] = i;
-    for (var j = 1; j <= s.length; j++) {
+    var n = t.length;
+    if (n + 1 > fbPrev.length) { fbPrev = new Float32Array(n + 1); fbCur = new Float32Array(n + 1); }
+    var tc = codes(t), prev = fbPrev, cur = fbCur, best = n;
+    for (var i = 0; i <= n; i++) prev[i] = i;
+    for (var j = 0; j < s.length; j++) {
+      var sj = s.charCodeAt(j); if (sj > 127) sj = 127;
       cur[0] = 0; // a match may start anywhere in s
-      for (var k = 1; k <= t.length; k++) {
-        cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + subCost(t[k - 1], s[j - 1]));
+      for (var k = 1; k <= n; k++) {
+        var a = prev[k] + 1, b = cur[k - 1] + 1, c = prev[k - 1] + COST[tc[k - 1] * 128 + sj];
+        cur[k] = a < b ? (a < c ? a : c) : (b < c ? b : c);
       }
-      if (cur[t.length] < best) best = cur[t.length];
+      if (cur[n] < best) best = cur[n];
       var tmp = prev; prev = cur; cur = tmp;
     }
     return best;
@@ -534,20 +546,29 @@
     return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, ' and ').replace(/['’`]/g, '')
       .split(/[^a-z0-9]+/).filter(Boolean);
   }
+  var edCache = new Map();
   function editDist(a, b, cap) {
     if (Math.abs(a.length - b.length) > cap) return cap + 1;
-    var prev = [], cur = [];
+    if (a === b) return 0;
+    var key = a + '|' + b + '|' + cap, hitd = edCache.get(key);
+    if (hitd !== undefined) return hitd;
+    var prev = new Float32Array(b.length + 1), cur = new Float32Array(b.length + 1), out;
     for (var i = 0; i <= b.length; i++) prev[i] = i;
-    for (var x = 1; x <= a.length; x++) {
-      cur = [x]; var low = x;
+    for (var x = 1; x <= a.length && out === undefined; x++) {
+      cur[0] = x; var low = x, ax = a.charCodeAt(x - 1); if (ax > 127) ax = 127;
       for (var y = 1; y <= b.length; y++) {
-        cur[y] = Math.min(prev[y] + 1, cur[y - 1] + 1, prev[y - 1] + subCost(a[x - 1], b[y - 1]));
+        var by = b.charCodeAt(y - 1); if (by > 127) by = 127;
+        var p = prev[y] + 1, q = cur[y - 1] + 1, r = prev[y - 1] + COST[ax * 128 + by];
+        cur[y] = p < q ? (p < r ? p : r) : (q < r ? q : r);
         if (cur[y] < low) low = cur[y];
       }
-      if (low > cap) return cap + 1;
-      prev = cur;
+      if (low > cap) out = cap + 1;
+      var tmp = prev; prev = cur; cur = tmp;
     }
-    return prev[b.length];
+    if (out === undefined) out = prev[b.length];
+    if (edCache.size > 200000) edCache.clear();
+    edCache.set(key, out);
+    return out;
   }
   var CARD_STOP = { the: 1, a: 1, an: 1, of: 1, and: 1, in: 1, to: 1, for: 1, on: 1, at: 1, or: 1, not: 1 };
   // How much of a title's words appear in what was read (each word allowed a few OCR slips, more for long words).
@@ -636,7 +657,27 @@
    * Which listed episode a title card's text shows. texts: OCR readings of one card (several
    * versions of the frame). Returns { entry, score } or null if nothing is clearly it.
    */
+  // The answer never changes for the same readings and the same list, and working it out is the
+  // slowest thing Shelf does on this computer's processor, so each answer is kept (by content).
+  var listKeys = new WeakMap(), cardMemo = new Map();
+  function listKey(arr) {
+    if (!arr) return '';
+    var k = listKeys.get(arr);
+    if (k === undefined) { k = arr.map(function (e) { return e.season + 'x' + e.number + ':' + e.name; }).join('\u0001'); listKeys.set(arr, k); }
+    return k;
+  }
   function matchCardText(texts, entries, near) {
+    var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-');
+    if (cardMemo.has(key)) {
+      var hit = cardMemo.get(key);
+      return hit && { entry: entries[hit.i], score: hit.score };
+    }
+    var res = matchCardTextNow(texts, entries, near);
+    if (cardMemo.size > 5000) cardMemo.clear();
+    cardMemo.set(key, res && { i: entries.indexOf(res.entry), score: res.score });
+    return res;
+  }
+  function matchCardTextNow(texts, entries, near) {
     var all = (Array.isArray(texts) ? texts : [texts]);
     // A title card reads as a few words. A busy picture reads as a long jumble, and the more
     // jumble there is, the easier it is for a title to "appear" by chance. So long readings only
@@ -806,6 +847,8 @@
         // One title card at the start, and none further in although Shelf looked there: one long
         // episode (a special like "SpongeBob's Last Stand"), not a half-hour with a second cartoon.
         var onlyFirst = found.length === 1 && Object.keys(best).join() === '0' && file.parts > 1 &&
+          // ...and the file's name doesn't say there are two ("S03E01aE01b", "S01E01-E02")...
+          !parsed.halves && !parsed.episodeEnd &&
           // ...unless Shelf saw another cartoon start further in (a card between two black fades,
           // or its opening credits).
           !cardsIn.some(function (c) { return c.part >= 1 && c.boundary; });
@@ -853,7 +896,7 @@
     var b = entries.filter(function (e) { return e.number === end; })[0] || a;
     var picked = entries.filter(function (e) { return e.number >= a.number && e.number <= b.number; });
     var r = out(picked, 'number', ctx.sure !== false);
-    if (ctx.sure === false && !r.note) r.note = 'This show splits each half-hour into separate cartoons. Is this file one cartoon or a whole half-hour? Choose below.';
+    if (ctx.sure === false && !r.note) r.note = 'This show splits each half-hour into separate cartoons. Is this file one cartoon or a whole half-hour? Answer on the show’s shelf, at the top of its files.';
     return r;
   }
 

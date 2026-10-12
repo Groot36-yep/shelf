@@ -47,15 +47,15 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   await win.click('text=Choose Folder…');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 1 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await pick(file); await sleep(200);
-  await win.click('#readCards');
-  for (let i = 0; i < 900; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent('#scanStatus'))) break; }
+  await win.click('#autoMode');
+  for (let i = 0; i < 900; i++) { await sleep(200); if (await win.evaluate(() => window.Shelf.items().filter((x) => x.kind === 'episode' && x.fullPath).every((x) => x.cards) && document.getElementById('activity').hidden)) break; }
   await sleep(500);
   await pick(file); await sleep(300);
   console.log('before:', JSON.stringify(await item()), '|', await win.textContent('#issueTitle'));
   assert.match(await win.textContent('#issueTitle'), /One long episode/);
 
   // ---- Mark the second card ----
-  await win.click('#issueActions button:has-text("Mark 2nd Card")');
+  await win.click('#issueActions button:has-text("Find It in the Video")');
   await win.waitForSelector('#editorSheet[open]');
   await sleep(800);
   const t0 = await edT();
@@ -82,7 +82,7 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT });
 
   // ---- Remove it, then mark it again and save ----
-  await win.click('#edMarkCard'); await sleep(600);
+  await win.click('#edMarkCard'); await sleep(1200);
   s = await item();
   assert.deepStrictEqual(s.marks, []);
   assert.match(await win.textContent('#edMarkCard'), /Mark Title Card Here/);
@@ -93,6 +93,19 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   console.log('saved:', JSON.stringify(s));
   assert.deepStrictEqual(s.ep.slice(0, 2), [6, 7]);
   assert.match(await win.textContent('#inspEpList'), /Plankton/);
+
+  // ---- One episode, or more: always yours to say, right in the side panel ----
+  assert.strictEqual(await win.getAttribute('#epCount button[data-count=more]', 'aria-pressed'), 'true');
+  await win.click('#epCount button[data-count=one]'); await sleep(600);
+  s = await item();
+  assert.deepStrictEqual(s.ep.slice(0, 2), [6, null], 'one episode');
+  assert.strictEqual(await win.$$eval('#inspEpList .ep-card-row', (x) => x.length), 1);
+  await win.click('#epCount button[data-count=more]'); await sleep(600);
+  s = await item();
+  assert.deepStrictEqual(s.ep.slice(0, 2), [6, 7], 'two: the next one is added');
+  assert.ok(await win.isVisible('#epAdd'), '+ Add Another Episode');
+  await win.click('#inspEpList .ep-card-row:nth-child(2) .ep-remove'); await sleep(600);
+  assert.deepStrictEqual((await item()).ep.slice(0, 2), [6, null], 'removed again');
 
   console.log('prompts:', JSON.stringify(await app.evaluate(() => global.__prompts)));
   assert.deepStrictEqual(errors, []);

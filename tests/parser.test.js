@@ -193,6 +193,13 @@ check('a long special read from its one title card is one episode, for sure', ()
   assert.strictEqual(r2.number + (r2.end ? '-' + r2.end : '') + (r2.sure ? '' : '?'), '32?');
   assert.match(r2.note, /one long episode/);
 });
+check('a name that says two cartoons ("E01aE01b") is never taken for one long episode', () => {
+  const list = [{ season: 3, number: 1, name: 'The Algae’s Always Greener', runtime: 11 }, { season: 3, number: 2, name: 'SpongeGuard on Duty', runtime: 11 }, { season: 3, number: 3, name: 'Club SpongeBob', runtime: 11 }];
+  const f = { minutes: 22, parts: 2, cards: [{ part: 0, t: 40, texts: ['The Algae’s Always Greener'] }, { part: 1, t: 700, texts: ['=n Ne PE BY Fy'] }] };
+  const r = P.resolveEpisode(P.parseFilename('SpongeBob_SquarePants_S03E01aE01b_The_Algaes_Always_Greener___Sponge_Guard_on_Duty.mkv'), list, { segmented: true, mode: 'halfhours', file: f });
+  assert.ok(!/one long episode/.test(r.note || ''), r.note);
+  assert.strictEqual(r.number + '-' + r.end, '1-2');
+});
 withFile('SpongeBob.S01E05.mkv', { minutes: 22, parts: 2, cards: cards('Pizza Delivery', 'Pickles') }, 'S1E10 ?');
 // Title cards you mark yourself (when Shelf couldn't read them) count, and beat what Shelf read.
 const mark = (name, part, t) => { const e = SB.find((x) => x.name === name); return { part, t, texts: [], mark: { season: e.season, number: e.number } }; };

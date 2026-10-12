@@ -36,8 +36,14 @@
     return s;
   }
   // Brief "pressed" glow on a button, also when triggered by a key.
-  function hit(btn) { if (!btn) return; btn.classList.remove('is-hit'); void btn.offsetWidth; btn.classList.add('is-hit'); }
-  function replay(node, cls) { if (!node) return; node.classList.remove(cls); void node.offsetWidth; node.classList.add(cls); }
+  // (Restarted a frame later rather than by forcing the page to lay itself out on the spot,
+  // which on a big window costs a noticeable moment every time.)
+  function replay(node, cls) {
+    if (!node) return;
+    node.classList.remove(cls);
+    requestAnimationFrame(function () { requestAnimationFrame(function () { node.classList.add(cls); }); });
+  }
+  function hit(btn) { replay(btn, 'is-hit'); }
   // The status line under the timeline (eases in when it changes).
   function info(text) { var n = $('edInfo'); if (n.textContent === text) return; n.textContent = text; replay(n, 'swap'); }
   function scissors() {
@@ -150,6 +156,16 @@
   // The Check Episodes window
   // =====================================================================
   var st = null;
+  // Still frames of title cards, fetched once per window (each one is a small job for the video
+  // tool; redrawing the panel must never ask for them again).
+  var frames = new Map();
+  function frameImg(t, w, alt) {
+    var key = st.token + '@' + t.toFixed(2) + '@' + w, img = el('img', { alt: alt || '', decoding: 'async' });
+    if (!frames.has(key)) frames.set(key, st.o.native.mediaFrame(st.token, t, w).then(function (b) { return b ? URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })) : null; }).catch(function () { return null; }));
+    frames.get(key).then(function (u) { if (u) img.src = u; });
+    return img;
+  }
+  function dropFrames() { frames.forEach(function (p) { p.then(function (u) { if (u) URL.revokeObjectURL(u); }); }); frames = new Map(); }
   var ZOOMS = [0, 600, 180, 60, 20, 6]; // 0 = whole video
   var video, seeking = false, pendingSeek = null, rafId = 0, frameTimer = 0;
 
@@ -213,11 +229,21 @@
 
   function close(keepBatch) {
     if (!st) return;
-    cancelAnimationFrame(rafId); clearTimeout(frameTimer);
-    video.pause(); video.removeAttribute('src'); video.load();
-    st.o.native.closeSplit(st.token, keepBatch === true ? false : true);
-    var o = st.o; st = null; ebClose();
+    cancelAnimationFrame(rafId); clearTimeout(frameTimer); clearTimeout(assistTimer); clearTimeout(stripTimer); clearTimeout(marksTimer);
+    var o = st.o, token = st.token, marks = st.pendingMarks;
+    st = null; ebClose();
+    video.pause();
+    // The window goes away at once; letting go of the video and its pictures happens just after,
+    // so closing never waits on them.
     if ($('editorSheet').open) $('editorSheet').close();
+    if (marks) o.onMarks(marks.list, marks.secs);
+    setTimeout(function () {
+      if (st) return; // opened again meanwhile
+      video.removeAttribute('src'); video.load();
+      ['edStripBase', 'edStripImg', 'edStripOld'].forEach(function (id) { $(id).removeAttribute('src'); });
+      dropFrames();
+    }, 60);
+    o.native.closeSplit(token, keepBatch === true ? false : true);
     if (o.onClose) o.onClose();
   }
 
@@ -241,7 +267,7 @@
     video.currentTime = t;
   }
   function seek(t, dragging) {
-    if (!st) return;
+    if (!st || !isFinite(t)) return;
     t = clamp(t, 0, Math.max(0, st.secs - 0.04));
     st.t = t;
     // A jump that never reported back (rare) doesn't block the next one.
@@ -645,8 +671,14 @@
     var want = m ? 'Remove Mark' : 'Mark Title Card Here';
     if (b.lastChild.textContent !== want) { b.lastChild.textContent = want; b.classList.toggle('is-remove', !!m); b.title = m ? 'Remove the title card you marked here (“' + m.name + '”)' : 'The title card is on screen right now: say which episode it is  (M)'; }
   }
+  // Your marks are passed on a moment after the last change (so marking and unmarking quickly
+  // doesn't make Shelf work the episodes out again each time), and at the latest when you close.
+  var marksTimer = 0;
   function marksChanged() {
-    if (st.o.onMarks) st.o.onMarks(st.cards.filter(function (c) { return c.manual; }).map(function (c) { return { t: c.t, season: c.season, number: c.number, name: c.name }; }), st.secs);
+    if (!st.o.onMarks) return;
+    st.pendingMarks = { list: st.cards.filter(function (c) { return c.manual; }).map(function (c) { return { t: c.t, season: c.season, number: c.number, name: c.name }; }), secs: st.secs };
+    clearTimeout(marksTimer);
+    marksTimer = setTimeout(function () { if (!st || !st.pendingMarks) return; var m = st.pendingMarks; st.pendingMarks = null; st.o.onMarks(m.list, m.secs); }, 600);
   }
   function markCard() {
     if (!st) return;
@@ -708,7 +740,7 @@
     list.replaceChildren.apply(list, st.cards.map(function (c, i) {
       var part = st.mode === 'split' ? partAt(cardStart(c) + 0.5) : -1;
       return el('button', { type: 'button', class: 'ed-chip' + (c.manual ? ' is-manual' : ''), 'data-key': c.key, title: 'Go to the title card “' + c.name + '” (' + fmt(c.t) + ')' + (c.manual ? ', marked by you' : ''), onclick: function () { goCard(c); } }, [
-        el('img', { src: 'shelf-media://f/' + st.token + '?t=' + c.t.toFixed(2) + '&w=160', alt: '' }),
+        frameImg(c.t, 160, ''),
         el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + fmt(c.t, false) }), c.manual ? el('i', { text: 'Marked by you' }) : null])
       ]);
     }));
@@ -760,7 +792,7 @@
         var sure = card.score >= 0.85 ? 'hi' : 'mid';
         if (card.manual) row.push(el('div', { class: 'ed-proof' }, [
           el('button', { type: 'button', class: 'ed-thumb', title: 'Go to this title card in the video', onclick: function () { goCard(card); } },
-            [el('img', { src: 'shelf-media://f/' + st.token + '?t=' + card.t.toFixed(2) + '&w=320', alt: 'The title card you marked' })]),
+            [frameImg(card.t, 320, 'The title card you marked')]),
           el('div', { class: 'ed-proof-text' }, [
             el('span', { class: 'ed-sure hi', text: '✓ You marked this title card · ' + fmt(card.t, false) }),
             el('span', { text: 'Wrong spot? Go to it and click Remove Mark.' })
@@ -768,7 +800,7 @@
         ]));
         else row.push(el('div', { class: 'ed-proof' }, [
           el('button', { type: 'button', class: 'ed-thumb', title: 'Go to this title card in the video', onclick: function () { goCard(card); } },
-            [el('img', { src: 'shelf-media://f/' + st.token + '?t=' + card.t.toFixed(2) + '&w=320', alt: 'The frame Shelf read' })]),
+            [frameImg(card.t, 320, 'The frame Shelf read')]),
           el('div', { class: 'ed-proof-text' }, [
             el('span', { class: 'ed-sure ' + sure, text: (sure === 'hi' ? '✓ Title card matches' : '≈ Title card looks like it') + ' · ' + fmt(card.t, false) }),
             el('q', { title: 'Everything Shelf read on that frame: ' + card.text }, marked(card.text, card.name)),

@@ -50,7 +50,7 @@ xvfb-run -a node tests/app.smoke.js   # end-to-end: pick, match, Rename Now, Und
 xvfb-run -a node tests/tv.smoke.js    # TV matching: look-alike shows, Season folders, dates, two-part cartoons
 xvfb-run -a node tests/sources.smoke.js   # TheTVDB and TMDB TV lookups
 node tests/scan.test.js               # bundled ffmpeg + OCR read a (made-up) title card
-xvfb-run -a node tests/cards.smoke.js # Check Lengths / Read Title Cards, including Cancel
+xvfb-run -a node tests/cards.smoke.js # Auto Mode (title cards), including Cancel
 ```
 
 The Windows build on GitHub runs `npm test` on Windows before building the installer.

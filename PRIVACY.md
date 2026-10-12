@@ -43,11 +43,10 @@ something. Shelf sends no cookies and no "referrer".
 
 ## Looking inside your videos
 
-Shelf only reads a video's contents when you click **Check Lengths** or **Read Title Cards**, and
-only after a Windows prompt listing those files, where you choose OK or Cancel.
+Shelf only reads a video's contents when you click **Auto Mode** or **Deep Scan**, and only after
+Shelf's prompt listing those files, where you choose OK or Cancel.
 
-- **Check Lengths** reads the few bytes of each file's header that hold its running time.
-- **Read Title Cards** (off unless you turn it on in Settings → Advanced) decodes still moments of
+- **Auto Mode** and **Deep Scan** read each video's running time and decode still moments of
   the video in memory and reads the words on them with an OCR engine that ships inside Shelf. No
   pictures are written to disk, nothing is uploaded, and no data is downloaded for it.
 - **Split…** asks before opening a video, then plays it inside Shelf (only that one file, through a

@@ -2,6 +2,27 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.11.0)
+- **Much faster**: matching title cards to episode names (the slowest thing Shelf did) is now about
+  20 times quicker and remembers its answers, so marking or removing a title card, opening and
+  closing Check Episodes no longer freeze (from up to 10 seconds to a fraction of a second).
+  Check Episodes fetches each picture once, stops its picture jobs the moment it closes, and no
+  longer blurs over the playing video.
+- **Shelf shows when it's working**: what it's doing appears under the title with a moving line,
+  for opening a video, updating names, finding where to split, reading title cards and looking up.
+- **Fewer, clearer buttons**: **Auto Mode** (top toolbar) reads every TV video's title cards;
+  **Deep Scan** and **Check Episodes…** are always in the side panel. Gone: Check Lengths (Auto Mode
+  reads the lengths too), the extra Read Title Cards buttons, Next to Check (press N), the Resolve
+  window (its answers are now right on the problem card).
+- **You decide**: a **One Episode / Two or More** switch for every TV file, with **+ Add Another
+  Episode** and ✕ to remove one. "One long episode?" now answers with **One Episode** or **Two
+  Episodes**. The cartoon / half-hour question stays on each cartoon show's shelf.
+- **Better one-or-two detection**: a file named like `S03E01aE01b` is never taken for one long
+  episode; Shelf uses the half-hour the title card it read belongs to.
+- **Living Room, calmer**: kept the walnut and the fonts; one palette that goes with the wood
+  (cream, burnt orange, harvest gold, avocado). Removed the rainbow mural, the TV set, the CRT
+  reader, the stripes and the sunburst.
+
 ## Done (1.10.1)
 - **Read Title Cards** is now a button in the top toolbar whenever there are TV videos, and on every
   show's shelf (not only shows Shelf thinks are split into cartoons).

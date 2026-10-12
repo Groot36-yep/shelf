@@ -1,7 +1,7 @@
-// End-to-end: problems in the side panel and the Resolve window.
-//  A. Two cartoons that aren't next to each other → "holds 2 separate episodes" → Resolve → Split into 2 Files.
+// End-to-end: problems in the side panel, answered right there.
+//  A. Two cartoons that aren't next to each other → "holds 2 separate episodes" → Split into 2 Files.
 //  B. Per-episode Change in the side panel.
-//  C. One title card only → "One long episode?" → Yes, One Episode.
+//  C. One title card only → "One long episode?" → One Episode (and Two Episodes).
 // Run with: xvfb-run -a node tests/resolve.smoke.js
 const fs = require('fs');
 const os = require('os');
@@ -47,8 +47,8 @@ function fake(file, vf, af) {
   await win.click('text=Choose Folder…');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await pick('SpongeBob.S01E05.mp4'); await sleep(200);
-  await win.click('#readCards');
-  for (let i = 0; i < 900; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent('#scanStatus'))) break; }
+  await win.click('#autoMode');
+  for (let i = 0; i < 900; i++) { await sleep(200); if (await win.evaluate(() => window.Shelf.items().filter((x) => x.kind === 'episode' && x.fullPath).every((x) => x.cards) && document.getElementById('activity').hidden)) break; }
   await sleep(500);
 
   // ---- A ----
@@ -57,20 +57,16 @@ function fake(file, vf, af) {
   assert.match(await win.textContent('#issueTitle'), /holds 2 separate episodes/);
   for (let i = 0; i < 50; i++) { await sleep(100); if (await win.$$eval('#inspEpList .ep-thumb img', (x) => x.length) === 2) break; }
   assert.strictEqual(await win.$$eval('#inspEpList .ep-thumb img', (x) => x.filter((i) => i.naturalWidth > 0).length), 2, 'title-card frames in the side panel');
-  await win.click('#issueActions button:has-text("Resolve")');
-  await win.waitForSelector('#resolveSheet[open]');
-  for (let i = 0; i < 50; i++) { await sleep(100); if (await win.$$eval('#rsParts .rs-frame img', (x) => x.length) === 2) break; }
-  assert.strictEqual(await win.$$eval('#rsParts .rs-part', (x) => x.length), 2);
-  assert.match(await win.textContent('#rsVerdict'), /S01E10 - Pizza Delivery.*S01E13 - Pickles/);
-  assert.match(await win.textContent('#rsMain'), /Split into 2 Files/);
-  // Change part 2 to the episode right after part 1 → now one file can hold both.
-  await win.click('#rsParts .rs-part:nth-child(2) .pill');
-  await win.fill('#ebSearch', 'S01E11'); await win.keyboard.press('Enter'); await sleep(200);
-  assert.match(await win.textContent('#rsMain'), /Keep One File/, 'episodes in a row can stay one file');
-  await win.click('#rsParts .rs-part:nth-child(2) .pill');
-  await win.fill('#ebSearch', 'pickles'); await win.keyboard.press('Enter'); await sleep(200);
-  await win.click('#rsMain');
-  for (let i = 0; i < 150; i++) { await sleep(200); if (!(await win.isVisible('#resolveSheet'))) break; }
+  // Changing part 2 to the episode right after part 1: now one file can hold both (no problem left).
+  await win.click('#inspEpList .ep-card-row:nth-child(2) .ep-change');
+  await win.fill('#ebSearch', 'S01E11'); await win.keyboard.press('Enter'); await sleep(700);
+  assert.ok(!(await win.isVisible('#inspIssue')), 'episodes in a row can stay one file');
+  assert.deepStrictEqual((await item('SpongeBob.S01E05.mp4')).ep.slice(0, 2), [10, 11]);
+  await win.click('#inspEpList .ep-card-row:nth-child(2) .ep-change');
+  await win.fill('#ebSearch', 'pickles'); await win.keyboard.press('Enter'); await sleep(700);
+  assert.match(await win.textContent('#issueActions'), /Split into 2 Files/);
+  await win.click('#issueActions button:has-text("Split into 2 Files")');
+  for (let i = 0; i < 150; i++) { await sleep(200); if (await win.evaluate(() => window.Shelf.items().some((v) => v.split))) break; }
   await sleep(500);
   let s = await item('SpongeBob.S01E05.mp4');
   console.log('A:', JSON.stringify(s));
@@ -82,7 +78,11 @@ function fake(file, vf, af) {
   await pick('SpongeBob.S01E01.mp4'); await sleep(300);
   console.log('C card:', await win.textContent('#issueTitle'), '|', await win.textContent('#issueText'));
   assert.match(await win.textContent('#issueTitle'), /One long episode/);
-  await win.click('#issueActions button:has-text("Yes, One Episode")'); await sleep(500);
+  assert.match(await win.textContent('#issueActions'), /One Episode.*Two Episodes/);
+  await win.click('#issueActions button:has-text("Two Episodes")'); await sleep(700);
+  s = await item('SpongeBob.S01E01.mp4');
+  assert.deepStrictEqual(s.ep, [1, 2, 'manual'], 'Two Episodes adds the next one');
+  await win.click('#epCount button[data-count=one]'); await sleep(700);
   s = await item('SpongeBob.S01E01.mp4');
   console.log('C:', JSON.stringify(s));
   assert.deepStrictEqual(s.ep, [1, null, 'manual']);

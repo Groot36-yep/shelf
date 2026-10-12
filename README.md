@@ -16,8 +16,8 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 > cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts or tracking, and it
 
 
-**Two looks.** *Studio* is clean and quiet. *Living Room* is a 1970s den: walnut paneling, a
-rainbow arch mural, and a TV you drop your files onto. Pick one in Settings → Look; both follow
+**Two looks.** *Studio* is clean and quiet. *Living Room* is warm walnut with 1970s type and one
+calm palette to match the wood. Pick one in Settings → Look; both follow
 Windows light or dark mode. The Living Room's fonts (Fraunces, Nunito, Courier Prime) are under the
 SIL Open Font License (see `app/assets/fonts/OFL.txt`) and are built in, so nothing is downloaded.
 
@@ -67,14 +67,12 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 
 ## Looking inside videos (only when you ask)
 
-Shelf never reads a video's contents on its own. For shows split into short cartoons, two buttons
-appear on a file that needs a look, and each one shows a Windows prompt naming the files first:
+Shelf never reads a video's contents on its own. Two buttons are always there for TV videos, and
+each one shows a prompt naming the files first:
 
-- **Check Lengths** reads only the small part of each file that says how long it is (MP4, MKV, AVI).
-  About 11 minutes means one cartoon, about 22 means a half-hour.
-- **Read Title Cards** (turn on in Settings → Advanced) finds the moments where the picture holds
+- **Auto Mode** (top toolbar) reads the title cards of every TV video in the list. It finds the moments where the picture holds
   still and reads the text there with an OCR engine built into Shelf, then compares it with the
-  show's real episode titles. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan** finds
+  show's real episode titles, and notes how long each video is. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan**, in the side panel, finds
   more of the hard ones, and for any it can't read you can **mark the title card yourself**);
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
@@ -84,9 +82,11 @@ appear on a file that needs a look, and each one shows a Windows prompt naming t
 
 Every TV file shows which episodes Shelf thinks it holds, with the frame of each title card it read
 and *how* it knows (title cards, the title in the file name, or just the number). Each episode has
-its own **Change** (season tabs, search by title or `S01E08`). If something needs a decision, a
-problem card says so in plain words: **Resolve…** shows the title cards side by side and settles it
-in one click (split the file at the gap, keep one file, or confirm one long episode).
+its own **Change** (season tabs, search by title or `S01E08`), and the switch **One Episode / Two or
+More** is always there, so you can say how many episodes a file holds yourself. If something needs a
+decision, a card says so in plain words and answers it in one click (for example **One Episode** or
+**Two Episodes**, or **Split into 2 Files** at the gap). Whenever Shelf is busy, it says what it's doing
+under the title, so it never just looks frozen.
 
 **Check Episodes…** opens the video, after a prompt, in a window built for checking:
 
@@ -113,7 +113,6 @@ kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's n
 - **Episode order**: The Movie Database (Plex's default), TheTVDB (Aired) or TheTVDB (DVD). Pick the
   one your Plex uses (in Plex: open the show → Edit → Advanced → Episode ordering).
 - **Add show ID to folder names** (on by default): `SpongeBob SquarePants {tmdb-387}`, so Plex picks the right show.
-- **Read title cards** (Advanced, off by default): see above.
 - **Add quality to file names**: `Charade (1963) - 1080p BluRay.mkv`, and `[1080p BluRay]` for episodes.
 - **Move, Copy or Hard Link**: hard links use no extra disk space, which is handy for files you keep seeding.
 - **Show posters**: turn off to download no images at all.

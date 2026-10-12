@@ -42,7 +42,7 @@ function fakeEpisode(file, secs, cards) {
   const app = await electron.launch({ executablePath: exe, args: ['--no-sandbox', '--user-data-dir=' + profile].concat(process.env.PACKAGED ? [] : [ROOT]) });
   // The folder dialog picks our fake folder; the consent prompt answers from `answers`, and we keep what it said.
   await app.evaluate(({ dialog }, d) => {
-    global.__prompts = []; global.__answers = [1, 0, 0]; // Cancel, then OK, OK
+    global.__prompts = []; global.__answers = [1, 0]; // Cancel, then OK
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] });
     global.__shelfConsent = async (o) => { global.__prompts.push(o.title + ' | ' + o.lead + ' | ' + o.files.join(', ')); return global.__answers.shift() === 0; };
   }, path.join(tmp, 'Downloads'));
@@ -62,31 +62,27 @@ function fakeEpisode(file, secs, cards) {
 
   const pick = (n) => win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, n);
   await pick('SpongeBob.S01E09.mkv'); await sleep(200);
-  assert.ok(await win.isVisible('#checkLengths'), 'Check Lengths offered');
-  assert.ok(await win.isVisible('#readCards'), 'Read Title Cards always offered (it asks first)');
+  assert.ok(await win.isVisible('#autoMode'), 'Auto Mode always offered for TV videos (it asks first)');
+  assert.ok(await win.isVisible('#deepScan'), 'Deep Scan always offered for a TV video');
+  assert.strictEqual(await win.$$eval('#checkLengths, #readCards, #nextCheck', (x) => x.length), 0, 'no duplicate buttons');
 
-  // 1. Cancel at the prompt: nothing is read.
-  await win.click('#checkLengths'); await sleep(500);
+  // 1. Cancel at the prompt: nothing is read, and nothing is left looking busy.
+  await win.click('#autoMode'); await sleep(600);
   let s = await state();
   assert.ok(s.every((x) => x.min === null), 'nothing read after Cancel');
-  assert.match(await win.textContent('#scanStatus'), /Cancelled/);
+  assert.match(await win.textContent('#toast'), /Cancelled/);
+  assert.ok(await win.isHidden('#activity'));
 
-  // 2. OK: lengths decide one cartoon vs half-hour.
-  await win.click('#checkLengths'); await sleep(800);
-  s = await state();
-  console.log('after lengths:', JSON.stringify(s));
-  const e9 = s.find((x) => x.n === 'SpongeBob.S01E09.mkv'), e14 = s.find((x) => x.n === 'SpongeBob.S01E14.mkv');
-  assert.strictEqual(e9.min, 22); assert.strictEqual(e14.min, 11);
-  assert.strictEqual(e9.ep, 'S1E18-E19 halfhour', 'by length alone: half-hour no. 9');
-  assert.strictEqual(e14.ep, 'S1E14 number', '11 minutes: one cartoon');
-
-  // 3. Turn on title cards (Advanced) and read them: the cards beat the misleading name.
-  await win.click('.side-item[data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
-  await pick('SpongeBob.S01E09.mkv'); await sleep(200);
-  assert.ok(await win.isVisible('#readCards'));
+  // 2. OK: Shelf reads the title cards (and the lengths): the cards beat the misleading name.
   const t0 = Date.now();
-  await win.click('#readCards');
-  for (let i = 0; i < 900; i++) { await sleep(200); if (/Read \d+ of/.test(await win.textContent("#scanStatus"))) break; } // up to 3 min on a busy machine
+  await win.click('#autoMode');
+  let sawBusy = false;
+  for (let i = 0; i < 900; i++) {
+    await sleep(200);
+    if (!sawBusy) sawBusy = await win.isVisible('#activity');
+    if (await win.evaluate(() => window.Shelf.items().every((x) => x.cards) && document.getElementById('activity').hidden)) break;
+  } // up to 3 min on a busy machine
+  assert.ok(sawBusy, 'Shelf showed it was working');
   const took = Date.now() - t0;
   await sleep(300);
   s = await state();
@@ -94,8 +90,8 @@ function fakeEpisode(file, secs, cards) {
   assert.strictEqual(s.find((x) => x.n === 'SpongeBob.S01E09.mkv').ep, 'S1E6-E7 card', 'title cards win');
   const prompts = await app.evaluate(() => global.__prompts);
   console.log('prompts:\n ', prompts.join('\n  '));
-  assert.strictEqual(prompts.length, 3, 'asked every time');
-  assert.ok(prompts[2].includes('SpongeBob.S01E09.mkv') && /Read the title cards/.test(prompts[2]), 'prompt names the files');
+  assert.strictEqual(prompts.length, 2, 'asked every time');
+  assert.ok(prompts[1].includes('SpongeBob.S01E09.mkv') && /Read the title cards/.test(prompts[1]), 'prompt names the files');
   // Frames are deleted afterwards.
   const left = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('shelf-scan-') && !scanDirsBefore.has(n));
   assert.deepStrictEqual(left, [], 'temp frames removed');

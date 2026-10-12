@@ -53,7 +53,7 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
   }
 
   // ---- A ----
-  await win.click('#readCards');
+  await win.click('#autoMode');
   let cw = await askWindow();
   assert.match(await cw.textContent('#cTitle'), /Read this video’s title cards\?/);
   assert.match(await cw.textContent('#cFiles'), /SpongeBob\.S01E06\.mkv/);
@@ -68,10 +68,10 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
   await cw.click('#cCancel', { noWaitAfter: true }).catch(() => {}); await sleep(600);
   assert.ok(!(await scanned()), 'Cancel: nothing read');
   assert.ok(!(await win.evaluate(() => document.body.classList.contains('is-asking'))), 'main window back');
-  await win.click('#readCards');
+  await win.click('#autoMode');
   cw = await askWindow(); await cw.keyboard.press('Escape').catch(() => {}); await sleep(600); // (it closes on key-down)
   assert.ok(!(await scanned()), 'Esc: nothing read');
-  await win.click('#readCards');
+  await win.click('#autoMode');
   cw = await askWindow(); await cw.click('#cOk', { noWaitAfter: true }).catch(() => {});
   for (let i = 0; i < 300 && !(await scanned()); i++) await sleep(200);
   assert.ok(await scanned(), 'Yes: read');

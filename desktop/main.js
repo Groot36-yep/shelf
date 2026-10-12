@@ -83,7 +83,7 @@ let barColor = null;
 function overlayNow() { return Object.assign(overlayColors(), barColor || {}); }
 function windowColor() {
   const dark = nativeTheme.shouldUseDarkColors;
-  return theme === 'seventies' ? (dark ? '#1F140E' : '#E4B65C') : (dark ? '#1E1E20' : '#FFFFFF');
+  return theme === 'seventies' ? (dark ? '#17100B' : '#E8DCC6') : (dark ? '#1E1E20' : '#FFFFFF');
 }
 
 function createWindow() {
@@ -163,7 +163,7 @@ function askConsent(req) {
     const cw = new BrowserWindow({
       parent, modal: !!parent, show: false, frame: false, resizable: false, minimizable: false, maximizable: false,
       fullscreenable: false, skipTaskbar: true, width: CONSENT_W, height: 260, title: 'Shelf',
-      backgroundColor: theme === 'seventies' ? (dark ? '#2E1E15' : '#FBF0D9') : (dark ? '#2A2A2D' : '#FFFFFF'), roundedCorners: true,
+      backgroundColor: theme === 'seventies' ? (dark ? '#261A13' : '#FBF5EA') : (dark ? '#2A2A2D' : '#FFFFFF'), roundedCorners: true,
       webPreferences: { preload: path.join(__dirname, 'consent-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false, devTools: false }
     });
     let done = false;
@@ -232,13 +232,24 @@ if (gotLock) app.whenReady().then(() => {
     };
   }
   const frameLane = lane(2), stripLane = lane(2);
-  async function frameJpeg(file, t, w) {
+  // Picture jobs still running for a video open in Check Episodes: stopped when it closes, so a
+  // closed window never leaves the computer busy.
+  const jobsFor = new Map();
+  function track(owner, c) {
+    if (!owner) return;
+    if (!jobsFor.has(owner)) jobsFor.set(owner, new Set());
+    jobsFor.get(owner).add(c);
+    c.on('close', () => { const set = jobsFor.get(owner); if (set) { set.delete(c); if (!set.size) jobsFor.delete(owner); } });
+  }
+  function stopJobs(owner) { const set = jobsFor.get(owner); if (set) set.forEach((c) => { try { c.kill(); } catch (e) {} }); jobsFor.delete(owner); }
+  async function frameJpeg(file, t, w, owner) {
     try {
       const { spawn } = require('child_process');
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
       return await new Promise((resolve, reject) => {
         const c = spawn(ff, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-ss', String(Math.max(0, t)), '-i', file, '-frames:v', '1', '-an', '-sn',
           '-vf', 'scale=' + w + ':-2', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '5', '-'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        track(owner, c);
         const chunks = []; c.stdout.on('data', (d) => chunks.push(d));
         const timer = setTimeout(() => c.kill(), 20000);
         c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
@@ -247,7 +258,7 @@ if (gotLock) app.whenReady().then(() => {
   }
   // n evenly spaced frames from `from` to `to`, tiled in one row. key=true decodes only keyframes
   // (much faster for long stretches; each tile is then the nearest keyframe before its time).
-  async function stripJpeg(file, from, to, n, w, keyOnly) {
+  async function stripJpeg(file, from, to, n, w, keyOnly, owner) {
     try {
       const { spawn } = require('child_process');
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
@@ -259,6 +270,7 @@ if (gotLock) app.whenReady().then(() => {
           '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '6', '-']);
       return await new Promise((resolve, reject) => {
         const c = spawn(ff, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        track(owner, c);
         const chunks = []; c.stdout.on('data', (d) => chunks.push(d));
         const timer = setTimeout(() => c.kill(), 90000);
         c.on('error', reject); c.on('close', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
@@ -289,20 +301,21 @@ if (gotLock) app.whenReady().then(() => {
   }
   protocol.handle('shelf-media', async (request) => {
     const u = new URL(request.url);
-    const file = mediaTokens.get(u.pathname.replace(/^\/+/, ''));
+    const tok = u.pathname.replace(/^\/+/, ''), file = mediaTokens.get(tok);
     if (!file) return new Response('Not found', { status: 404 });
+    const open = () => mediaTokens.has(tok); // still open when the job's turn comes
     if (u.host === 's') { // a film strip: n frames side by side, shelf-media://s/<token>?from=0&to=60&n=12&w=160&key=0
       const from = Math.max(0, Number(u.searchParams.get('from')) || 0), to = Math.max(from + 0.5, Number(u.searchParams.get('to')) || from + 60);
       const n = Math.min(240, Math.max(1, Math.round(Number(u.searchParams.get('n')) || 12)));
       const w = Math.min(320, Math.max(48, Math.round((Number(u.searchParams.get('w')) || 160) / 2) * 2));
       const slot = /^[a-z]{1,8}$/.test(u.searchParams.get('slot') || '') ? u.pathname + ':' + u.searchParams.get('slot') : null;
-      const jpg = await stripLane(slot, () => stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1'));
+      const jpg = await stripLane(slot, () => open() ? stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1', tok) : Promise.resolve(Buffer.alloc(0)));
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' } }) : new Response('', { status: 404 });
     }
     if (u.host === 'f') { // one still frame: shelf-media://f/<token>?t=12.5&w=320
       const t = Math.max(0, Number(u.searchParams.get('t')) || 0), w = Math.min(1280, Math.max(64, Number(u.searchParams.get('w')) || 320));
       const slot = /^[a-z]{1,8}$/.test(u.searchParams.get('slot') || '') ? u.pathname + ':' + u.searchParams.get('slot') : null;
-      const jpg = await frameLane(slot, () => frameJpeg(file, t, Math.round(w / 2) * 2));
+      const jpg = await frameLane(slot, () => open() ? frameJpeg(file, t, Math.round(w / 2) * 2, tok) : Promise.resolve(Buffer.alloc(0)));
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } }) : new Response('', { status: 404 });
     }
     if (u.host !== 'v') return new Response('Not found', { status: 404 });
@@ -455,24 +468,6 @@ if (gotLock) app.whenReady().then(() => {
   }
   const n = (files, one, many) => (files.length === 1 ? one : many.replace('#', files.length));
 
-  handle('shelf:checkLengths', async (paths) => {
-    const files = pickedVideos(paths);
-    if (!files.length) return {};
-    const yes = await askFirst(files, {
-      kind: 'length', ok: 'Check Lengths',
-      title: n(files, 'Check how long this video is?', 'Check how long these # videos are?'),
-      lead: 'Shelf reads only the small part of each file that says how long it is.',
-      points: [{ icon: 'eye', text: 'Not the picture or the sound' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
-    });
-    if (!yes) return null;
-    const out = {};
-    for (let i = 0; i < files.length; i += 8) {
-      const chunk = files.slice(i, i + 8);
-      const secs = await Promise.all(chunk.map((f) => probe.duration(f)));
-      chunk.forEach((f, k) => { out[f] = secs[k]; });
-    }
-    return out;
-  });
 
   // Videos you agreed Shelf may look inside (to read title cards), this session only. For these,
   // Shelf can also show you the frame of a title card it read, and find where to split.
@@ -590,7 +585,14 @@ if (gotLock) app.whenReady().then(() => {
     return { token, secs: await probe.duration(files[0]), fps: await frameRate(files[0]) };
   });
   // endBatch: you closed the window (not "Save & Next"), so the next video asks again.
-  handle('shelf:closeSplit', async (token, endBatch) => { mediaTokens.delete(String(token)); if (endBatch !== false) approvedMedia.clear(); return true; });
+  // A still frame of a video open in Check Episodes (fetched once, kept by that window).
+  handle('shelf:mediaFrame', async (token, t, w) => {
+    const f = mediaTokens.get(String(token));
+    if (!f) return null;
+    const jpg = await frameLane(null, () => mediaTokens.has(String(token)) ? frameJpeg(f, Math.max(0, Number(t) || 0), Math.min(640, Math.max(96, Math.round((Number(w) || 320) / 2) * 2)), String(token)) : Promise.resolve(Buffer.alloc(0)));
+    return jpg && jpg.length ? new Uint8Array(jpg) : null;
+  });
+  handle('shelf:closeSplit', async (token, endBatch) => { mediaTokens.delete(String(token)); stopJobs(String(token)); if (endBatch !== false) approvedMedia.clear(); return true; });
   // Suggested cuts. hints: [{ card: seconds } | { est: seconds }], one per cut.
   handle('shelf:splitSuggest', async (token, hints) => {
     const file = mediaTokens.get(String(token));

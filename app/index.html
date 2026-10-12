@@ -74,17 +74,16 @@
       <div class="tb-title">
         <h1>Rename</h1>
         <span id="subtitle">No items</span>
+        <!-- Whatever Shelf is busy with right now, so it never looks frozen. -->
+        <span class="activity" id="activity" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="activityText"></span></span>
       </div>
       <div class="tb-spacer"></div>
       <div class="segmented" role="group" aria-label="Show" id="filterSeg" hidden>
         <button type="button" data-filter="all" aria-pressed="true">All</button>
         <button type="button" data-filter="review" aria-pressed="false">Needs Review <span id="reviewCount">0</span></button>
       </div>
-      <button class="pill pill-cards" type="button" id="readCardsTop" title="Read the title cards inside your TV videos to find which episodes each holds (Shelf asks first)" hidden>
-        <span class="tc-ico" aria-hidden="true"></span>Read Title Cards
-      </button>
-      <button class="pill pill-check" type="button" id="nextCheck" title="Go to the next file that needs a look (N)" hidden>
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.4v.1"/></svg>Next to Check
+      <button class="pill pill-auto" type="button" id="autoMode" title="Auto Mode: Shelf looks at the title cards inside your TV videos and works out which episodes each one holds (it asks first)" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15.2l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18.5 15.5l.8 2 2 .7-2 .7-.8 2-.8-2-2-.7 2-.7z"/></svg>Auto Mode
       </button>
       <button class="pill" type="button" id="addBtn" title="Add files (Ctrl+O)" hidden>
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add
@@ -96,17 +95,6 @@
     </header>
 
     <section class="drop" id="dropZone" aria-label="Add files">
-      <!-- Living Room theme: the rainbow wall, and the TV you drop files on. -->
-      <div class="room" aria-hidden="true">
-        <div class="mural"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="tv">
-          <span class="tv-speaker"></span>
-          <div class="tv-screen"><span class="tv-glow"></span><span class="tv-msg">Let go to add them</span></div>
-          <span class="tv-speaker"></span>
-          <span class="tv-knob"></span>
-        </div>
-        <div class="credenza"><i></i><i></i><i></i></div>
-      </div>
       <div class="drop-art" aria-hidden="true">
         <span class="card c1"></span><span class="card c2"></span>
         <span class="card c3"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></span>
@@ -133,7 +121,6 @@
           <canvas id="readerA"></canvas><canvas id="readerB"></canvas>
           <div class="reader-idle"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="reader-beam"></div>
-          <span class="reader-crt"></span>
           <div class="reader-corners"><i></i><i></i><i></i><i></i></div>
           <span class="reader-time" id="readerTime"></span>
           <svg class="reader-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
@@ -145,10 +132,8 @@
           <div class="reader-found" id="readerFound"></div>
           <div class="reader-track"><i id="readerFill"></i></div>
         </div>
-        <div class="reader-dials" aria-hidden="true"><span class="reader-knob"></span><span class="reader-grille"></span></div>
         <button class="reader-stop" type="button" id="readerStop" title="Stop after this video">Stop</button>
       </div>
-      <div class="celebrate" id="celebrate" aria-hidden="true"></div>
       <footer class="statusbar">
         <span id="statusText"></span>
         <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">
@@ -182,30 +167,23 @@
     </div>
     <p class="insp-error" id="inspError" hidden></p>
     <section class="insp-card" id="inspEpWrap" hidden>
-      <div class="insp-card-head"><span class="section-label" id="inspEpLabel">In this file</span><span class="ep-badge" id="inspEpBadge"></span></div>
+      <div class="insp-card-head"><span class="section-label" id="inspEpLabel">This file holds</span><span class="ep-badge" id="inspEpBadge"></span></div>
+      <!-- Always yours to set: one episode, or more than one. -->
+      <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
+        <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
+        <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
+      </div>
       <div class="ep-card" id="inspEpList"></div>
+      <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
       <p class="ep-why" id="inspEpWhy"></p>
       <div class="insp-card-foot">
-        <button class="pill small-pill" type="button" id="checkEps" title="Open the video to see which episodes it holds, check them, or split it">Check Episodes…</button>
-        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
+        <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
+        <button class="pill small-pill" type="button" id="deepScan" title="Deep Scan: a much closer look for this video’s title cards (a few minutes, Shelf asks first)">Deep Scan</button>
         <span class="foot-flex"></span>
-        <span id="inspLookWrap" class="look-wrap" hidden>
-          <button class="link-btn" type="button" id="readCards" title="Reads the title cards inside this show’s videos, here on this computer (Shelf asks first)">Read Title Cards</button>
-          <button class="link-btn" type="button" id="deepScan" hidden title="A much closer look for the title cards this video’s quick read missed (a few minutes)">Deep Scan</button>
-          <button class="link-btn" type="button" id="checkLengths" title="Reads only how long each video is (Shelf asks first)">Check Lengths</button>
-          <button class="link-btn" type="button" id="cancelCards" hidden>Stop</button>
-        </span>
+        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
       </div>
-      <span class="row-help" id="scanStatus" role="status" aria-live="polite"></span>
     </section>
     <p class="insp-note" id="inspNote" hidden></p>
-    <div class="insp-section" id="inspSegWrap" hidden>
-      <span class="section-label">Shelf isn’t sure: each file of this show is…</span>
-      <div class="segmented small" role="group" aria-label="Each file is" id="inspSeg">
-        <button type="button" data-mode="segments" aria-pressed="false">One cartoon</button>
-        <button type="button" data-mode="halfhours" aria-pressed="false" title="A half-hour with 2 or 3 cartoons in it">A half-hour</button>
-      </div>
-    </div>
     <div class="insp-section" id="inspCandWrap" hidden>
       <span class="section-label">Is this the right one?</span>
       <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
@@ -289,9 +267,9 @@
         <span class="theme-note">Clean and quiet</span>
       </button>
       <button type="button" class="theme-tile" role="radio" data-theme-pick="seventies" aria-checked="false">
-        <span class="tp tp-70s" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><span class="tp-arch"></span><span class="tp-tv"></span></i></span>
+        <span class="tp tp-70s" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
         <span class="theme-name">Living Room</span>
-        <span class="theme-note">1970s wood, shag and a rainbow wall</span>
+        <span class="theme-note">Warm walnut and 1970s type</span>
       </button>
     </div>
     <p class="row-help flush">Both follow Windows light or dark mode.</p>
@@ -570,26 +548,6 @@
   </footer>
 </dialog>
 
-<!-- Resolve: see the title cards Shelf read, fix the names, and settle the problem in one place. -->
-<dialog class="sheet resolve-sheet" id="resolveSheet" aria-labelledby="rsTitle">
-  <div class="rs-head">
-    <span class="rs-icon" id="rsIcon" aria-hidden="true">!</span>
-    <div class="rs-titles">
-      <h2 id="rsTitle" class="sheet-title">Resolve</h2>
-      <p id="rsFile"></p>
-    </div>
-    <button class="rs-x" type="button" id="rsClose" aria-label="Close">✕</button>
-  </div>
-  <p class="rs-lead" id="rsLead"></p>
-  <div class="rs-parts" id="rsParts"></div>
-  <div class="rs-verdict" id="rsVerdict" role="status" aria-live="polite"></div>
-  <div class="rs-actions">
-    <button class="link-btn" type="button" id="rsEditor">Open in Check Episodes…</button>
-    <span class="foot-flex"></span>
-    <button class="pill" type="button" id="rsAlt" hidden></button>
-    <button class="pill pill-primary" type="button" id="rsMain"></button>
-  </div>
-</dialog>
 
 <!-- Episode browser -->
 <div class="ep-browser" id="epBrowser" hidden role="dialog" aria-labelledby="ebTitle">
