@@ -37,7 +37,10 @@ removes the original.
 the window), only for files you picked, and only after a system prompt that lists the files. The
 bundled ffmpeg and OCR engine run offline; frames are handled in memory.
 
-**No surprises.** No telemetry, auto-update calls, crash reports or spell-check downloads.
+**No surprises.** No telemetry, automatic update calls, crash reports or spell-check downloads. Updates are
+checked only when you click **Updates**; a downloaded installer must match the SHA-256 fingerprint GitHub
+publishes for it, or it is deleted and never run. Permission prompts are a separate window run by the app;
+its answer is only accepted from that window, so the main window can never approve itself.
 
 ## Tests
 

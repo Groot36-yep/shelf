@@ -29,6 +29,17 @@ function peekImage(im) {
 contextBridge.exposeInMainWorld('shelfNative', {
   platform: process.platform,
   version: () => ipcRenderer.invoke('shelf:version'),
+  // Updates: only when you click (see desktop/updates.js).
+  checkUpdate: () => ipcRenderer.invoke('shelf:checkUpdate'),
+  installUpdate: () => ipcRenderer.invoke('shelf:installUpdate'),
+  cancelUpdate: () => ipcRenderer.invoke('shelf:cancelUpdate'),
+  onUpdateProgress: (fn) => {
+    const listener = (e, p) => fn({ got: Number(p.got) || 0, total: Number(p.total) || 0 });
+    ipcRenderer.on('shelf:updateProgress', listener);
+    return () => ipcRenderer.removeListener('shelf:updateProgress', listener);
+  },
+  // Shelf's permission window is open (the main window dims behind it).
+  onModal: (fn) => { ipcRenderer.on('shelf:modal', (e, open) => fn(open === true)); },
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),
   pickFolder: () => ipcRenderer.invoke('shelf:pickFolder'),
   // Dropped files: their locations are read here, where the real File objects are (a File handed

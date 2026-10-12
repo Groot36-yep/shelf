@@ -31,6 +31,11 @@ something. Shelf sends no cookies and no "referrer".
   them inside the library folder you chose.
 - Your TMDB and TheTVDB keys are encrypted with your Windows account (DPAPI) before they are saved.
 - No telemetry, no automatic update checks, no crash reports, and no spell-check downloads.
+- **Updates** only when you click it: Shelf asks GitHub for its latest release page. If you choose to
+  install, it downloads the file from Shelf's own GitHub releases and checks it against the SHA-256
+  fingerprint GitHub publishes before running it. Nothing about you or your files is sent.
+- Before Shelf looks inside a video (title cards, Check Episodes, lengths) it asks in its own
+  permission window. Only a click in that window says yes: the main window can't answer it.
 - The app asks for no permissions (camera, microphone, location, notifications) and can't open
   other websites inside its window. Links open in your normal browser.
 - Settings and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase All Shelf Data**

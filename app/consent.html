@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Shelf's permission window. It is run by the app itself (not the main window), so nothing in the
+     main window can answer it for you: only your click does. It loads nothing from anywhere else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Shelf</title>
+<link rel="stylesheet" href="css/consent.css">
+</head>
+<body>
+<main class="c" id="c" role="alertdialog" aria-modal="true" aria-labelledby="cTitle" aria-describedby="cLead">
+  <header class="c-head">
+    <div class="c-icon" id="cIcon" aria-hidden="true"></div>
+    <div class="c-heading">
+      <h1 id="cTitle"></h1>
+      <p id="cLead"></p>
+    </div>
+  </header>
+  <ul class="c-points" id="cPoints"></ul>
+  <section class="c-files" id="cFilesBox" aria-label="Videos">
+    <div class="c-files-k"><span id="cFilesLabel">Videos</span><span id="cFilesCount"></span></div>
+    <ul id="cFiles"></ul>
+  </section>
+  <footer class="c-foot">
+    <span class="c-private"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Private by design</span>
+    <div class="c-actions">
+      <button type="button" class="c-btn" id="cCancel">Cancel</button>
+      <button type="button" class="c-btn primary" id="cOk"></button>
+    </div>
+  </footer>
+</main>
+<script src="js/consent.js"></script>
+</body>
+</html>

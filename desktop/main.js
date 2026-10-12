@@ -1,6 +1,7 @@
 /*
  * Shelf desktop — main process.
- * Privacy & security: no telemetry, no auto-update calls, no spellcheck downloads,
+ * Privacy & security: no telemetry, no automatic update checks (only when you click Check for Updates),
+ * no spellcheck downloads,
  * no permissions (camera, mic, location, notifications...), no navigation away from the app,
  * and the window can only ask for the few file actions defined below.
  */
@@ -17,7 +18,7 @@ const P = require('../app/js/parser.js');
 
 const APP_ROOT = path.join(__dirname, '..', 'app');
 const ORIGIN = 'app://shelf';
-const SERVED = new Set(['index.html', 'css', 'js', 'assets']); // the only things the window can load
+const SERVED = new Set(['index.html', 'consent.html', 'css', 'js', 'assets']); // the only things Shelf's windows can load
 
 // A tiny local log of startup steps and errors (never file names or keys), so a launch that
 // fails can be diagnosed: %APPDATA%\Shelf\startup.log. It is overwritten on every launch.
@@ -130,8 +131,58 @@ function fromApp(event) {
 
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
-    if (!fromApp(event)) throw new Error('Not allowed');
+    // Only the main window may ask (not the permission window, not anything else).
+    if (!fromApp(event) || !win || win.isDestroyed() || event.sender !== win.webContents) throw new Error('Not allowed');
     return fn(...args);
+  });
+}
+
+// ---- Asking you first: Shelf's own permission window ----
+// It's a separate small window run by the app, not part of the main window: its answer is only
+// accepted from it, so nothing in the main window can say yes for you. Tests can stand in for
+// your click with global.__shelfConsent (only reachable from inside the app process).
+const CONSENT_W = 460;
+function askConsent(req) {
+  if (typeof global.__shelfConsent === 'function') return Promise.resolve(global.__shelfConsent(req)).then((r) => r === true);
+  return new Promise((resolve) => {
+    const parent = win && !win.isDestroyed() ? win : null;
+    const dark = nativeTheme.shouldUseDarkColors;
+    const cw = new BrowserWindow({
+      parent, modal: !!parent, show: false, frame: false, resizable: false, minimizable: false, maximizable: false,
+      fullscreenable: false, skipTaskbar: true, width: CONSENT_W, height: 260, title: 'Shelf',
+      backgroundColor: dark ? '#2A2A2D' : '#FFFFFF', roundedCorners: true,
+      webPreferences: { preload: path.join(__dirname, 'consent-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false, devTools: false }
+    });
+    let done = false;
+    const mine = (e) => !cw.isDestroyed() && e.sender === cw.webContents;
+    const onSize = (e, h) => {
+      if (!mine(e)) return;
+      h = Math.max(150, Math.min(680, Math.round(Number(h) || 0)));
+      cw.setContentSize(CONSENT_W, h);
+      if (!cw.isVisible()) {
+        if (parent) {
+          const b = parent.getBounds();
+          cw.setPosition(Math.round(b.x + (b.width - CONSENT_W) / 2), Math.round(b.y + Math.max(56, (b.height - h) / 2.6)));
+        } else cw.center();
+        cw.show(); cw.focus();
+      }
+    };
+    const finish = (yes) => {
+      if (done) return; done = true;
+      ipcMain.removeListener('consent:answer', onAnswer); ipcMain.removeListener('consent:size', onSize);
+      if (!cw.isDestroyed()) cw.destroy();
+      if (parent && !parent.isDestroyed()) { parent.webContents.send('shelf:modal', false); parent.focus(); }
+      resolve(yes);
+    };
+    const onAnswer = (e, yes) => { if (mine(e)) finish(yes === true); };
+    ipcMain.on('consent:answer', onAnswer); ipcMain.on('consent:size', onSize);
+    cw.on('closed', () => finish(false));
+    cw.webContents.on('will-navigate', (e) => e.preventDefault());
+    cw.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    cw.webContents.once('did-finish-load', () => cw.webContents.send('consent:show', req));
+    cw.webContents.on('did-fail-load', () => finish(false));
+    if (parent) parent.webContents.send('shelf:modal', true);
+    cw.loadURL(ORIGIN + '/consent.html').catch(() => finish(false));
   });
 }
 
@@ -279,6 +330,41 @@ if (gotLock) app.whenReady().then(() => {
   });
 
   handle('shelf:version', async () => app.getVersion());
+
+  // ---- Updates: only when you click Check for Updates ----
+  // The release file to install is remembered here; the window can't hand Shelf a link to download.
+  // Tests stand in for GitHub and for starting the installer with global.__shelfUpdateTest.
+  const updates = require('./updates');
+  let offered = null, updateAbort = null;
+  const T = () => global.__shelfUpdateTest || null;
+  handle('shelf:checkUpdate', async () => {
+    const kind = (T() && T().kind) || updates.installKind(process.platform, process.env);
+    const r = await updates.check((T() && T().fetch) || net.fetch, app.getVersion(), kind);
+    offered = r.newer ? r : null;
+    return { current: r.current, version: r.version, newer: r.newer, date: r.date, notes: r.notes, kind: r.kind,
+      size: r.asset ? r.asset.size : 0, canInstall: !!(r.newer && r.asset && r.kind !== 'page') };
+  });
+  handle('shelf:installUpdate', async () => {
+    const r = offered;
+    if (!r) throw new Error('Check for updates first');
+    if (r.kind === 'page' || !r.asset) { shell.openExternal(updates.PAGE); return { opened: 'page' }; }
+    // Installer: a private temporary folder. Portable: next to the copy of Shelf you're running.
+    const dir = r.kind === 'portable'
+      ? (process.env.PORTABLE_EXECUTABLE_DIR || app.getPath('downloads'))
+      : fs.mkdtempSync(path.join(app.getPath('temp'), 'shelf-update-'));
+    updateAbort = new AbortController();
+    const send = (got, total) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:updateProgress', { got, total }); };
+    let file;
+    try {
+      file = await updates.download((T() && T().fetch) || net.fetch, r.asset, (T() && T().dir) || dir, send, updateAbort.signal, !!T());
+    } finally { updateAbort = null; }
+    log('Update ' + r.version + ' downloaded and checked');
+    const start = (T() && T().launch) || ((f) => { require('child_process').spawn(f, [], { detached: true, stdio: 'ignore' }).unref(); });
+    await start(file, r.kind);
+    if (!T()) setTimeout(() => app.quit(), 600); // the installer takes it from here
+    return { started: true, kind: r.kind, file: path.basename(file) };
+  });
+  handle('shelf:cancelUpdate', async () => { if (updateAbort) updateAbort.abort(); return true; });
   handle('shelf:getLibrary', async () => readPrefs().library || '');
   handle('shelf:pickLibrary', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose your Plex library folder', properties: ['openDirectory', 'createDirectory'] });
@@ -333,20 +419,21 @@ if (gotLock) app.whenReady().then(() => {
       .filter((p) => p && allowedSources.has(p) && P.VIDEO_EXT.includes(path.extname(p).slice(1).toLowerCase()) && !seen.has(p) && seen.add(p))
       .slice(0, 2000);
   }
-  async function askFirst(files, title, detail, okLabel) {
-    const names = files.slice(0, 12).map((f) => '•  ' + path.basename(f)).join('\n') + (files.length > 12 ? '\n…and ' + (files.length - 12) + ' more' : '');
-    const r = await dialog.showMessageBox(win, {
-      type: 'question', buttons: [okLabel, 'Cancel'], defaultId: 1, cancelId: 1, noLink: true,
-      title: 'Shelf', message: title, detail: detail + '\n\n' + names
-    });
-    return r.response === 0;
+  // req: { kind, title, lead, points: [{ icon, text }], ok }. The videos' names are shown too.
+  function askFirst(files, req) {
+    return askConsent(Object.assign({}, req, { files: files.map((f) => path.basename(f)) }));
   }
+  const n = (files, one, many) => (files.length === 1 ? one : many.replace('#', files.length));
 
   handle('shelf:checkLengths', async (paths) => {
     const files = pickedVideos(paths);
     if (!files.length) return {};
-    const yes = await askFirst(files, 'Check how long ' + (files.length === 1 ? 'this video is' : 'these ' + files.length + ' videos are') + '?',
-      'Shelf reads only the small part of each file that says how long it is, not the picture or sound. Nothing leaves this computer.', 'Check Lengths');
+    const yes = await askFirst(files, {
+      kind: 'length', ok: 'Check Lengths',
+      title: n(files, 'Check how long this video is?', 'Check how long these # videos are?'),
+      lead: 'Shelf reads only the small part of each file that says how long it is.',
+      points: [{ icon: 'eye', text: 'Not the picture or the sound' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
+    });
     if (!yes) return null;
     const out = {};
     for (let i = 0; i < files.length; i += 8) {
@@ -373,7 +460,11 @@ if (gotLock) app.whenReady().then(() => {
     if (!files.length || !Array.isArray(hints)) throw new Error('Not a video you picked');
     const f = files[0];
     if (!lookApproved.has(f) && !approvedMedia.has(f)) {
-      const yes = await askFirst([f], 'Find where to split this video?', 'Shelf looks for the black, silent moment between the episodes, here on this computer. Nothing is changed until you click Rename Now, and your original file is always kept.', 'Find Split');
+      const yes = await askFirst([f], {
+        kind: 'split', ok: 'Find Split', title: 'Find where to split this video?',
+        lead: 'Shelf looks for the black, silent moment between the episodes.',
+        points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your original file is always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
+      });
       if (!yes) return null;
       lookApproved.add(f);
     }
@@ -397,10 +488,16 @@ if (gotLock) app.whenReady().then(() => {
     const files = pickedVideos([...titlesFor.keys()]);
     if (!files.length) return {};
     const yes = deep
-      ? await askFirst(files, 'Deep scan ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + ' for title cards?',
-        'Shelf takes a much closer look at the still frames where a title card could be, reading each one many ways, here on this computer. Nothing is uploaded, and the frames are deleted straight away. It can take a few minutes per video.', 'Deep Scan')
-      : await askFirst(files, 'Read the title cards of ' + (files.length === 1 ? 'this video' : 'these ' + files.length + ' videos') + '?',
-        'Shelf looks at a few still frames from each video and reads the words on them, here on this computer, to find out which episodes it holds. Nothing is uploaded, and the frames are deleted straight away. It takes roughly 5–30 seconds per video.', 'Read Title Cards');
+      ? await askFirst(files, {
+        kind: 'deep', ok: 'Deep Scan', title: n(files, 'Deep scan this video?', 'Deep scan these # videos?'),
+        lead: 'Shelf takes a much closer look at every spot a title card could be, reading each one many ways.',
+        points: [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }, { icon: 'clock', text: 'Takes a few minutes per video' }]
+      })
+      : await askFirst(files, {
+        kind: 'cards', ok: 'Read Title Cards', title: n(files, 'Read this video’s title cards?', 'Read the title cards of # videos?'),
+        lead: 'Shelf looks at a few still frames and reads the words on them, to find out which episodes ' + n(files, 'it holds.', 'they hold.'),
+        points: [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }, { icon: 'clock', text: 'About 5–30 seconds per video' }]
+      });
     if (!yes) return null;
     files.forEach((f) => lookApproved.add(f)); // you said yes to Shelf looking inside these
     const scan = require('./scan'); // loaded only when you use it
@@ -451,8 +548,11 @@ if (gotLock) app.whenReady().then(() => {
       return { token: token0, secs: await probe.duration(files[0]), fps: await frameRate(files[0]) };
     }
     const batch = pickedVideos([p].concat(Array.isArray(also) ? also.slice(0, 500) : []));
-    const yes = await askFirst(batch, batch.length > 1 ? 'Open these ' + batch.length + ' videos to check their episodes?' : 'Open this video to check its episodes?',
-      'Shelf plays the video in its own window so you can see which episodes it holds, check where each one starts, and split it if you want. Nothing is changed until you click Rename Now, your original file is always kept, and nothing leaves this computer.', 'Open Video');
+    const yes = await askFirst(batch, {
+      kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Check Episodes?', 'Open these # videos in Check Episodes?'),
+      lead: 'Shelf plays the video in its own window, so you can see which episodes it holds, where each one starts, and split it if you want.',
+      points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your original file is always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
+    });
     if (!yes) return null;
     batch.forEach((f) => approvedMedia.add(f)); // "Save & Next" won't ask again for these
     const token = crypto.randomBytes(16).toString('hex');

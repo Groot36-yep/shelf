@@ -57,7 +57,7 @@ function fakeSingle(file) {
   await app.evaluate(({ dialog }, dirs) => {
     const q = [...dirs]; global.__prompts = [];
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [q.shift()] });
-    dialog.showMessageBox = async (w, o) => { global.__prompts.push(o.message); return { response: 0 }; };
+    global.__shelfConsent = async (o) => { global.__prompts.push(o.title); return true; };
   }, [path.join(tmp, 'Downloads'), lib]);
   const win = await app.firstWindow();
   await win.setViewportSize({ width: 1400, height: 960 }).catch(() => {});

@@ -38,6 +38,7 @@ jobs:
           node tests/scan.test.js
           node tests/subs.test.js
           node tests/cards-real.test.js
+          node tests/updates.test.js
 
       - name: Build installer
         run: npx electron-builder --win --publish never
@@ -99,6 +100,22 @@ jobs:
           name: Shelf-Windows
           path: dist/*.exe
 
+      - name: Release notes (the newest "Done" section of ROADMAP.md becomes "What's new")
+        shell: pwsh
+        run: |
+          $lines = Get-Content ROADMAP.md -Encoding utf8
+          $start = ($lines | Select-String -Pattern '^## Done' | Select-Object -First 1).LineNumber
+          $news = @()
+          if ($start) {
+            for ($i = $start; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^## ') { break }; $news += $lines[$i] }
+          }
+          $body = @("## What's new") + $news + @('', '## Shelf for Windows', '',
+            "**Download ``Shelf-Setup-....exe``** (installer), or the Portable version if you'd rather not install anything. Already have Shelf? Click **Updates** in its sidebar.",
+            '', "Windows will warn that the app is from an unknown publisher, because it isn't code-signed yet: click **More info → Run anyway**.",
+            '', 'Private by design: your videos never leave your computer, only titles are looked up on TMDB and TVmaze, and your TMDB key is stored encrypted with your Windows account.')
+          $body -join "`n" | Set-Content release-notes.md -Encoding utf8
+          Get-Content release-notes.md | Write-Host
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -107,11 +124,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: dist/*.exe
-          body: |
-            ## Shelf for Windows
-
-            **Download `Shelf-Setup-....exe`** (installer), or the Portable version if you'd rather not install anything.
-
-            Windows will warn that the app is from an unknown publisher, because it isn't code-signed yet: click **More info → Run anyway**.
-
-            Private by design: your videos never leave your computer, only titles are looked up on TMDB and TVmaze, and your TMDB key is stored encrypted with your Windows account.
+          body_path: release-notes.md

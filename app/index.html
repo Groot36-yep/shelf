@@ -40,6 +40,11 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>
         About
       </button>
+      <button class="side-item" type="button" id="updatesNav" title="Check for a newer version of Shelf (only when you click)">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v8M8.5 12.5L12 16l3.5-3.5"/></svg>
+        Updates
+        <span class="update-dot" id="updateDot" hidden></span>
+      </button>
     </div>
 
     <div class="side-group">
@@ -358,12 +363,42 @@
     <div class="group">
       <div class="fact"><span>Accounts, cookies, tracking or analytics</span><span>None</span></div>
       <div class="fact"><span>Code or fonts from other websites</span><span>None, blocked by the page</span></div>
+      <div class="fact"><span>Update checks</span><span>Only when you click Updates</span></div>
     </div>
     <div class="sheet-actions">
       <button class="pill danger-pill" type="button" id="eraseAll">Erase All Shelf Data</button>
       <button class="pill pill-primary" type="submit">Done</button>
     </div>
   </form>
+</dialog>
+
+<!-- Updates sheet: only when you ask. Checks Shelf's GitHub releases, downloads, verifies, installs. -->
+<dialog class="sheet update-sheet" id="updateSheet" aria-labelledby="upTitle">
+  <div class="up" id="upBox" data-state="checking">
+    <div class="up-hero">
+      <div class="up-art"><img src="assets/icon.svg" alt="" width="64" height="64"><span class="up-badge" id="upBadge" aria-hidden="true"><svg class="b-ok" viewBox="0 0 20 20"><path d="M5.5 10.5l3 3 6-6.5"/></svg><svg class="b-new" viewBox="0 0 20 20"><path d="M10 5v9M6.5 10.5L10 14l3.5-3.5"/></svg><svg class="b-warn" viewBox="0 0 20 20"><path d="M10 5.5v5.5M10 14.2v.1"/></svg></span></div>
+      <div class="up-head">
+        <h2 id="upTitle">Checking for updates…</h2>
+        <p id="upSub" class="muted"></p>
+      </div>
+    </div>
+    <div class="up-notes" id="upNotesBox" hidden>
+      <span class="up-k">What’s new</span>
+      <div class="up-notes-text" id="upNotes"></div>
+    </div>
+    <div class="up-progress" id="upProgressBox" hidden>
+      <div class="up-bar"><span id="upBar"></span></div>
+      <div class="up-progress-row"><span id="upProgressText">Starting…</span><span id="upProgressPct"></span></div>
+    </div>
+    <p class="up-trust" id="upTrust" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span id="upTrustText">Downloaded from Shelf’s GitHub page and checked against its fingerprint before it runs.</span>
+    </p>
+    <div class="sheet-actions">
+      <button class="pill" type="button" id="upSecondary">Close</button>
+      <button class="pill pill-primary" type="button" id="upPrimary" hidden></button>
+    </div>
+  </div>
 </dialog>
 
 <!-- About sheet -->

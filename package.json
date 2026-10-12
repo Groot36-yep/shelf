@@ -1,7 +1,7 @@
 {
   "name": "shelf",
   "productName": "Shelf",
-  "version": "1.7.4",
+  "version": "1.8.0",
   "description": "Rename your movie and TV files so Plex recognizes them. Private by design.",
   "author": "Groot36-yep",
   "license": "MIT",
@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/parser.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js",
+    "test": "node tests/parser.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js && node tests/updates.test.js",
     "dist:win": "electron-builder --win --publish never"
   },
   "build": {

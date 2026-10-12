@@ -13,8 +13,8 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 ```
 
 > **Private by design.** Your videos, folders and file list never leave your computer. Only a
-> cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts, tracking or update
-> checks. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
+> cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts or tracking, and it
+> only checks for updates when you click **Updates**. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
 ## Get Shelf for Windows
 

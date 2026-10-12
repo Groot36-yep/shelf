@@ -2,6 +2,15 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.8.0)
+- **Updates button** in the sidebar: checks for a new version only when you click it, shows what's new,
+  and installs it for you. The download comes from Shelf's own GitHub releases and must match its
+  published SHA-256 fingerprint, or it's deleted and never run. Your settings and keys are kept.
+- **Shelf's own permission window** for reading title cards, opening Check Episodes and the other
+  "look inside a video" steps, instead of the plain Windows message box. It says what will happen,
+  lists the videos, and only a click in that window counts as a yes.
+- Long episode names no longer break mid-word in the side panel.
+
 ## Done (1.7.3–1.7.4) — housekeeping
 - **Up-to-date engine**: Shelf now runs on Electron 44 (was 33), which fixes a dozen known security
   problems in the old version. It also opens faster (about half a second).

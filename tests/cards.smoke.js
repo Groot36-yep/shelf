@@ -44,7 +44,7 @@ function fakeEpisode(file, secs, cards) {
   await app.evaluate(({ dialog }, d) => {
     global.__prompts = []; global.__answers = [1, 0, 0]; // Cancel, then OK, OK
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] });
-    dialog.showMessageBox = async (w, o) => { global.__prompts.push(o.message + ' | ' + o.detail); return { response: global.__answers.shift() }; };
+    global.__shelfConsent = async (o) => { global.__prompts.push(o.title + ' | ' + o.lead + ' | ' + o.files.join(', ')); return global.__answers.shift() === 0; };
   }, path.join(tmp, 'Downloads'));
   if (process.env.DEBUG) { app.process().stderr.on('data', (d) => process.stdout.write('[main] ' + d)); app.process().stdout.on('data', (d) => process.stdout.write('[main] ' + d)); }
   const win = await app.firstWindow();

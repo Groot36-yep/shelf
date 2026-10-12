@@ -28,7 +28,7 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
   const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') : path.join(ROOT, 'node_modules/electron/dist/electron');
   const app = await electron.launch({ executablePath: exe, args: ['--no-sandbox', '--user-data-dir=' + profile].concat(process.env.PACKAGED ? [] : [ROOT]) });
-  await app.evaluate(({ dialog }, d) => { global.__prompts = []; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] }); dialog.showMessageBox = async (w, o) => { global.__prompts.push(o.message); return { response: 0 }; }; }, path.join(tmp, 'Downloads'));
+  await app.evaluate(({ dialog }, d) => { global.__prompts = []; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] }); global.__shelfConsent = async (o) => { global.__prompts.push(o.title); return true; }; }, path.join(tmp, 'Downloads'));
   const win = await app.firstWindow();
   await win.setViewportSize({ width: 1400, height: 900 }).catch(() => {});
   const errors = []; win.on('pageerror', (e) => errors.push(String(e)));

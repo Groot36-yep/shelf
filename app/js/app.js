@@ -1270,10 +1270,99 @@
   native.getKey('tvdb').then(function (k) { settings.tvdbKey = k || ''; render(); });
   native.getKey('tvdbPin').then(function (k) { settings.tvdbPin = k || ''; });
   native.version().then(function (v) { $('appVersion').textContent = 'Version ' + v; });
-  on('checkUpdates', 'click', function () {
-    // Opens the downloads page in your browser. Shelf itself never checks in anywhere.
-    window.open('https://github.com/Groot36-yep/shelf/releases/latest', '_blank');
+  // ---------- Updates (only when you click; see desktop/updates.js) ----------
+  var up = { state: 'idle', info: null };
+  function fmtMB(b) { return b >= 1e6 ? Math.round(b / 1048576) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+  function fmtDate(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }); }
+  // Release notes as tidy lines: "- x" become bullets, "## x" small headings. Plain text only.
+  function notesInto(box, text) {
+    box.textContent = '';
+    var list = null;
+    (text || '').split('\n').forEach(function (line) {
+      var b = line.match(/^\s*[-•*]\s+(.*)$/), h = line.match(/^#+\s*(.*)$/);
+      if (b) { if (!list) { list = el('ul'); box.appendChild(list); } list.appendChild(el('li', { text: b[1] })); return; }
+      if (/^\s+\S/.test(line) && list && list.lastChild) { list.lastChild.textContent += ' ' + line.trim(); return; }
+      list = null;
+      if (h) box.appendChild(el('h4', { text: h[1] }));
+      else if (line.trim()) box.appendChild(el('p', { text: line.trim() }));
+    });
+    if (!box.childNodes.length) box.appendChild(el('p', { class: 'muted', text: 'Fixes and improvements.' }));
+  }
+  function upShow(state, o) {
+    o = o || {};
+    up.state = state;
+    var box = $('upBox'); box.dataset.state = state;
+    $('upTitle').textContent = o.title || '';
+    $('upSub').textContent = o.sub || '';
+    $('upBadge').className = 'up-badge ' + (o.badge || '');
+    $('upNotesBox').hidden = !o.notes;
+    if (o.notes) notesInto($('upNotes'), o.notes);
+    $('upProgressBox').hidden = state !== 'downloading' && state !== 'starting';
+    $('upTrust').hidden = !o.trust;
+    var p = $('upPrimary'), s2 = $('upSecondary');
+    p.hidden = !o.primary; p.textContent = o.primary || ''; p.disabled = false;
+    s2.textContent = o.secondary || 'Close'; s2.hidden = o.secondary === false;
+  }
+  function upProgress(got, total) {
+    var f = total ? Math.min(1, got / total) : 0;
+    $('upBar').style.width = (f * 100).toFixed(1) + '%';
+    $('upProgressText').textContent = total ? 'Downloading ' + fmtMB(got) + ' of ' + fmtMB(total) : 'Downloading ' + fmtMB(got);
+    $('upProgressPct').textContent = total ? Math.round(f * 100) + '%' : '';
+  }
+  native.onUpdateProgress(function (p) { if (up.state === 'downloading') upProgress(p.got, p.total); });
+  function checkForUpdates() {
+    var d = $('updateSheet');
+    if (!d.open) d.showModal();
+    if (up.state === 'downloading' || up.state === 'starting') return;
+    upShow('checking', { title: 'Checking for updates…', sub: 'Asking Shelf’s GitHub page for the newest version.', badge: 'spin', secondary: 'Cancel' });
+    native.checkUpdate().then(function (r) {
+      if (up.state !== 'checking') return;
+      up.info = r;
+      $('updateDot').hidden = !r.newer;
+      if (!r.newer) {
+        upShow('current', { title: 'Shelf is up to date', sub: 'Version ' + r.current + ' is the newest version.', badge: 'ok', secondary: 'Done' });
+        return;
+      }
+      var how = r.kind === 'portable' ? 'Download & Open' : r.kind === 'setup' ? 'Download & Install' : 'Open Download Page';
+      upShow('available', {
+        title: 'Shelf ' + r.version + ' is available',
+        sub: 'You have ' + r.current + (r.date ? ' · Released ' + fmtDate(r.date) : '') + (r.size ? ' · ' + fmtMB(r.size) : ''),
+        badge: 'new', notes: r.notes || ' ', trust: r.canInstall, primary: how, secondary: 'Later'
+      });
+      $('upTrustText').textContent = r.kind === 'portable'
+        ? 'Saved next to this copy of Shelf, from Shelf’s GitHub page, and checked against its fingerprint before it opens.'
+        : 'Downloaded from Shelf’s GitHub page and checked against its fingerprint before it runs. Your settings and keys are kept.';
+    }).catch(function (e) {
+      if (up.state !== 'checking') return;
+      upShow('error', { title: 'Couldn’t check for updates', sub: (e && e.message ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : 'Check your internet connection and try again.'), badge: 'warn', primary: 'Try Again', secondary: 'Close' });
+    });
+  }
+  on('updatesNav', 'click', checkForUpdates);
+  on('checkUpdates', 'click', function () { $('aboutSheet').close(); checkForUpdates(); });
+  on('upPrimary', 'click', function () {
+    if (up.state === 'error') { checkForUpdates(); return; }
+    if (up.state !== 'available' || !up.info) return;
+    if (!up.info.canInstall) { native.installUpdate(); $('updateSheet').close(); up.state = 'idle'; return; }
+    var portable = up.info.kind === 'portable';
+    upShow('downloading', { title: 'Downloading Shelf ' + up.info.version + '…', sub: portable ? 'The new copy will open when it’s ready.' : 'The installer will start when it’s ready. Shelf will close so it can update.', badge: 'spin', trust: true, secondary: 'Cancel' });
+    upProgress(0, up.info.size);
+    native.installUpdate().then(function (r) {
+      upShow('starting', { title: portable ? 'Opening Shelf ' + up.info.version + '…' : 'Starting the installer…', sub: portable ? 'Saved as ' + r.file + ' next to this copy. This window will close.' : 'Follow the installer’s steps. Shelf will close now.', badge: 'ok', trust: true, secondary: false });
+      $('upBar').style.width = '100%'; $('upProgressText').textContent = 'Downloaded and checked'; $('upProgressPct').textContent = '✓';
+    }).catch(function (e) {
+      var msg = e && e.message ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : '';
+      if (/Cancelled/.test(msg)) { upShow('available', { title: 'Shelf ' + up.info.version + ' is available', sub: 'Download cancelled. Nothing was changed.', badge: 'new', notes: up.info.notes || ' ', trust: true, primary: portable ? 'Download & Open' : 'Download & Install', secondary: 'Later' }); return; }
+      upShow('error', { title: 'The update didn’t finish', sub: msg || 'Something went wrong. Nothing was changed.', badge: 'warn', primary: 'Try Again', secondary: 'Close' });
+    });
   });
+  on('upSecondary', 'click', function () {
+    if (up.state === 'downloading') { native.cancelUpdate(); return; }
+    if (up.state === 'checking') up.state = 'idle';
+    $('updateSheet').close();
+  });
+  $('updateSheet').addEventListener('cancel', function (e) { if (up.state === 'downloading' || up.state === 'starting') e.preventDefault(); else if (up.state === 'checking') up.state = 'idle'; });
+  // While Shelf's permission window is open, this window steps back.
+  native.onModal(function (open) { document.body.classList.toggle('is-asking', open); });
 
   // ---------- Check Episodes window ----------
   // Title cards Shelf read in this video, for the window to show (and jump to).
