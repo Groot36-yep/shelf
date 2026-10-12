@@ -2,6 +2,15 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.7.3) — housekeeping
+- **Up-to-date engine**: Shelf now runs on Electron 44 (was 33), which fixes a dozen known security
+  problems in the old version. It also opens faster (about half a second).
+- **Smaller download**: the text reader's spare engine copies and browser-only files are left out
+  (about 35 MB less unpacked).
+- **Pictures from your videos are let go** as soon as the video leaves the list (and on Erase Everything).
+- Tidier code: unused styles removed, `npm test` runs every quick test, and the Windows build now checks
+  that the *installed* app can read a title card.
+
 ## Done (1.7.2)
 - **Mark a title card yourself**: when Shelf can't read one (curved letters, a card that's only on
   screen for a moment), go to it in Check Episodes and click **Mark Title Card Here** (or press M),

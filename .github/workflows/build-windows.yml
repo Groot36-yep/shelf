@@ -44,6 +44,14 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Check the built app can read title cards
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $p = Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\packaged-scan.test.js' -Wait -PassThru -NoNewWindow -RedirectStandardOutput scan-out.txt -RedirectStandardError scan-err.txt
+          Get-Content scan-out.txt, scan-err.txt | Write-Host
+          if ($p.ExitCode -ne 0) { Write-Host "::error::The built app couldn't read a title card"; exit 1 }
+
       - name: Check that Shelf really opens (installed and portable)
         shell: pwsh
         run: |

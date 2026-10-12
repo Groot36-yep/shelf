@@ -275,7 +275,6 @@ button.side-source:hover { background: var(--fill); }
 #inspSegWrap .section-label { display: block; margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 12px; }
 #inspSeg button { flex: 1; }
 #inspSegWrap .row-help { display: block; margin: 8px 0 6px; }
-.scan-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .insp-error { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--orange-bg); color: var(--orange-text); font-size: 12px; }
 .insp-section { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-3); }
@@ -342,8 +341,6 @@ label.row { cursor: default; }
 select.text { font-family: inherit; font-size: 13px; }
 .key-row { display: flex; gap: 8px; }
 .key-row .text { flex: 1; width: auto; }
-.callout { padding: 12px 14px; border-radius: 10px; background: var(--select-soft); font-size: 12px; line-height: 1.5; }
-.callout code { font-family: var(--mono); background: var(--fill); padding: 1px 4px; border-radius: 4px; }
 .sheet-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
 
 .switch {
@@ -547,8 +544,6 @@ button.side-foot svg { width: 15px; height: 15px; flex: none; color: var(--green
 .sheet .section-label { margin-bottom: -6px; padding-left: 4px; }
 @media (max-width: 760px) { button.side-foot { display: none; } }
 
-/* desktop app vs website */
-html:not(.native) .app-only, html.native .web-only { display: none !important; }
 .mono-small { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
 
 /* ---------- Desktop window ---------- */
@@ -652,7 +647,6 @@ html.os-win32 .inspector { padding-top: 22px; }
 .ed-time b { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
 .ed-time span { font-size: 12px; color: var(--text-3); }
 .ed-controls { display: flex; align-items: center; gap: 10px; }
-.ed-group { display: flex; padding: 2px; gap: 2px; border-radius: 10px; background: rgba(118, 118, 128, 0.16); }
 .ed-speed { justify-self: end; }
 .ed-speed button { min-width: 36px; font-variant-numeric: tabular-nums; color: var(--text-2); }
 .ed-speed button[aria-pressed="true"] { background: #636366; color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }

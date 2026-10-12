@@ -926,12 +926,19 @@
   });
   on('addBtn', 'click', pickFiles);
   on('retryBtn', 'click', retryFailed);
-  on('clearBtn', 'click', function () { items = []; showChoices = {}; selectedId = null; filter = 'all'; render(); });
+  // Title-card pictures from your videos are kept only while the video is in the list.
+  function dropFrames(list) {
+    list.forEach(function (v) {
+      Object.keys(v._frames || {}).forEach(function (k) { v._frames[k].then(function (url) { if (url) URL.revokeObjectURL(url); }); });
+      v._frames = null;
+    });
+  }
+  on('clearBtn', 'click', function () { dropFrames(items); items = []; showChoices = {}; selectedId = null; filter = 'all'; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
   on('removeBtn', 'click', function () {
     var idx = items.findIndex(function (i) { return i.id === selectedId; });
     if (idx < 0) return;
-    items.splice(idx, 1);
+    dropFrames(items.splice(idx, 1));
     selectedId = items.length ? items[Math.min(idx, items.length - 1)].id : null;
     render();
   });
@@ -975,7 +982,7 @@
   });
   on('eraseAll', 'click', function () {
     native.eraseAll();
-    items = []; selectedId = null; filter = 'all';
+    dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
     settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; settings.cardScan = false; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();

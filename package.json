@@ -1,7 +1,7 @@
 {
   "name": "shelf",
   "productName": "Shelf",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Rename your movie and TV files so Plex recognizes them. Private by design.",
   "author": "Groot36-yep",
   "license": "MIT",
@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/parser.test.js && node tests/fileops.test.js",
+    "test": "node tests/parser.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js",
     "dist:win": "electron-builder --win --publish never"
   },
   "build": {
@@ -24,7 +24,11 @@
       "!**/*.map",
       "!node_modules/@tesseract.js-data/eng/4.0.0_best_int/**",
       "!node_modules/ffmpeg-static/*.md",
-      "!node_modules/ffmpeg-static/example.js"
+      "!node_modules/ffmpeg-static/example.js",
+      "!**/tesseract.js-core/*.wasm.js",
+      "!**/tesseract.js-core/*-lstm.{js,wasm}",
+      "!**/tesseract.js/{dist,docs,examples,scripts}/**",
+      "!**/node_modules/**/{README,CHANGELOG,HISTORY}*.md"
     ],
     "directories": {
       "output": "dist",
@@ -79,8 +83,8 @@
     ]
   },
   "devDependencies": {
-    "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
