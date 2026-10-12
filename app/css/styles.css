@@ -1012,3 +1012,46 @@ svg.solid { fill: currentColor; stroke: none; }
 /* While Shelf's permission window is open, the main window steps back. */
 body::after { content: ""; position: fixed; inset: 0; background: rgba(15, 15, 22, 0.32); opacity: 0; pointer-events: none; transition: opacity 160ms ease-out; z-index: 2147483000; }
 body.is-asking::after { opacity: 1; pointer-events: auto; }
+
+/* ---------- Looks (themes): what both share ---------- */
+/* The Living Room's scene, dials and confetti only exist in that look. */
+.room, .reader-dials, .reader-crt, .celebrate { display: none; }
+.themes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.theme-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 8px 10px; border: 0; border-radius: 14px; text-align: left;
+  background: var(--group); box-shadow: 0 0 0 0.5px var(--hairline); cursor: pointer; transition: box-shadow 0.15s, transform 0.12s;
+}
+.theme-tile:hover { box-shadow: 0 0 0 1.5px var(--fill-strong); }
+.theme-tile:active { transform: scale(0.98); }
+.theme-tile[aria-checked="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.theme-tile:focus-visible { outline: 3px solid var(--select-soft); outline-offset: 2px; }
+.theme-name { font-weight: 700; font-size: 13px; padding: 6px 4px 0; }
+.theme-note { font-size: 11px; color: var(--text-2); padding: 0 4px; }
+/* Little previews of each look, drawn with CSS. */
+.tp { position: relative; display: flex; gap: 4px; width: 100%; height: 86px; padding: 5px; border-radius: 9px; overflow: hidden; }
+.tp i { display: block; border-radius: 5px; font-style: normal; }
+.tp-side { width: 26%; }
+.tp-main { flex: 1; position: relative; display: flex; flex-direction: column; gap: 5px; padding: 8px 7px; }
+.tp-studio { background: #F2F2F5; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08); }
+.tp-studio .tp-side { background: #E4E4EA; }
+.tp-studio .tp-main { background: #fff; }
+.tp-studio b { display: block; height: 9px; border-radius: 3px; background: #E9E9EE; }
+.tp-studio b:first-child { background: #0A6CF0; }
+.tp-70s { background: #E4B65C; }
+.tp-70s .tp-side { background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 11px), linear-gradient(#7A4A28, #5A341D); }
+.tp-70s .tp-main { background: #FBF0D9; overflow: hidden; justify-content: flex-end; align-items: center; }
+.tp-arch { position: absolute; left: 50%; bottom: 14px; width: 92px; height: 46px; transform: translateX(-50%); border-radius: 46px 46px 0 0;
+  background: radial-gradient(circle at 50% 100%, #E9B44C 0 16%, #B8432B 16% 26%, #D9772E 26% 36%, #E9B44C 36% 46%, #3F6E6A 46% 56%, #4C8C8E 56% 66%, #E9B44C 66% 76%, #B8432B 76% 86%, #D9622B 86% 96%, #6B3A1E 96%); }
+.tp-tv { position: absolute; left: 50%; bottom: 14px; width: 30px; height: 21px; transform: translateX(-50%); border-radius: 5px; background: #2A1D16; box-shadow: inset 0 0 0 3px #2A1D16, inset 0 0 0 9px #6F7A60; }
+.tp-tv::after { content: ''; position: absolute; left: -26px; right: -26px; bottom: -8px; height: 8px; border-radius: 2px; background: #8A5530; }
+@media (prefers-color-scheme: dark) {
+  .tp-studio { background: #2A2A2D; } .tp-studio .tp-side { background: #333337; } .tp-studio .tp-main { background: #1E1E20; } .tp-studio b { background: #333337; }
+  .tp-70s { background: #1F140E; } .tp-70s .tp-main { background: #2E1E15; }
+}
+/* Changing the look: the new one sweeps in as a circle from where you clicked. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+html.theme-moving::view-transition-new(root) { animation: theme-reveal 700ms cubic-bezier(0.7, 0, 0.25, 1) both; }
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
+  to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%)); }
+}

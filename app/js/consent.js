@@ -27,6 +27,7 @@
   function sendSize() { bridge.size(Math.ceil($('c').getBoundingClientRect().height)); }
 
   bridge.onShow(function (d) {
+    document.documentElement.dataset.theme = d.theme || 'studio';
     document.body.dataset.kind = d.kind || 'cards';
     $('cIcon').replaceChildren(icon(BIG[d.kind] || BIG.cards));
     $('cTitle').textContent = d.title || '';

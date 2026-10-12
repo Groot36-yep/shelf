@@ -14,7 +14,12 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 
 > **Private by design.** Your videos, folders and file list never leave your computer. Only a
 > cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts or tracking, and it
-> only checks for updates when you click **Updates**. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
+
+
+**Two looks.** *Studio* is clean and quiet. *Living Room* is a 1970s den: walnut paneling, a
+rainbow arch mural, and a TV you drop your files onto. Pick one in Settings → Look; both follow
+Windows light or dark mode. The Living Room's fonts (Fraunces, Nunito, Courier Prime) are under the
+SIL Open Font License (see `app/assets/fonts/OFL.txt`) and are built in, so nothing is downloaded.
 
 ## Get Shelf for Windows
 

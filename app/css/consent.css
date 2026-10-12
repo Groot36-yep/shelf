@@ -69,3 +69,37 @@ h1 { margin: 0 0 3px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em
 .c-btn.primary:active { background: var(--accent-press); }
 .c-btn:focus-visible { box-shadow: 0 0 0 3px var(--tint), 0 0 0 1px var(--accent); }
 @media (prefers-reduced-motion: reduce) { .c, .c-btn { transition: none; } }
+
+/* ---------- Living Room look (1970s) ---------- */
+@font-face { font-family: "Fraunces"; src: url("../assets/fonts/fraunces.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito.woff2") format("woff2"); font-weight: 200 1000; }
+@font-face { font-family: "Courier Prime"; src: url("../assets/fonts/courier-prime.woff2") format("woff2"); font-weight: 400; }
+[data-theme="seventies"] {
+  --bg: #FBF0D9; --inset: #F4E2BD; --sep: rgba(59, 36, 22, 0.14); --edge: rgba(59, 36, 22, 0.3);
+  --text: #3B2416; --text-2: #7A5638; --text-3: #9E7B5B;
+  --accent: #D9622B; --accent-press: #A8461B; --tint: rgba(233, 180, 76, 0.32);
+  --btn: #FFF8E9; --btn-hover: #FFF2D6; --green: #4F5B1D;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="seventies"] {
+    --bg: #2E1E15; --inset: #3A271C; --sep: rgba(243, 226, 190, 0.12); --edge: rgba(243, 226, 190, 0.18);
+    --text: #F3E2BE; --text-2: #CDAE89; --text-3: #9C7D60;
+    --accent: #E6773A; --accent-press: #B5501F; --tint: rgba(233, 180, 76, 0.18);
+    --btn: #45301F; --btn-hover: #523A27; --green: #C3D277;
+  }
+}
+[data-theme="seventies"] body[data-kind="deep"] { --accent: #3F8586; --accent-press: #2F6A6B; --tint: rgba(63, 133, 134, 0.22); }
+[data-theme="seventies"] body {
+  font-family: "Nunito", "Segoe UI", sans-serif; font-weight: 500;
+  background: linear-gradient(180deg, #6B3A1E 0 3px, #B8432B 3px 6px, #D9622B 6px 9px, #E9B44C 9px 12px) top / 100% 12px no-repeat, url("../assets/grain-soft.png"), var(--bg);
+}
+[data-theme="seventies"] .c { padding-top: 30px; }
+[data-theme="seventies"] h1 { font-family: "Fraunces", Georgia, serif; font-variation-settings: "SOFT" 100, "WONK" 1; font-size: 19px; font-weight: 800; }
+[data-theme="seventies"] .c-icon { border-radius: 50% 50% 12px 12px; color: var(--accent); }
+[data-theme="seventies"] .c-files li span { font-family: "Courier Prime", monospace; font-size: 13px; }
+[data-theme="seventies"] .c-files-k { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 800; }
+[data-theme="seventies"] .c-btn { font-weight: 800; border-radius: 999px; height: 34px; box-shadow: 0 0 0 1.5px var(--sep), 0 2px 0 var(--sep); }
+[data-theme="seventies"] .c-btn:active { transform: translateY(2px); box-shadow: 0 0 0 1.5px var(--sep); }
+[data-theme="seventies"] .c-btn.primary { color: #FFF4DE; box-shadow: 0 0 0 1.5px var(--accent-press), 0 3px 0 var(--accent-press); }
+[data-theme="seventies"] .c-btn.primary:active { transform: translateY(3px); box-shadow: 0 0 0 1.5px var(--accent-press); background: var(--accent); }
+[data-theme="seventies"] .c-private { font-weight: 750; }

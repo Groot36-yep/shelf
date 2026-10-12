@@ -5,19 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Privacy & security: the page may only talk to TMDB, TheTVDB and TVmaze, load nothing from anywhere else,
      run no inline or third-party code, and never tell other sites where you came from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
 <meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/theme-70s.css">
+<script src="js/theme-boot.js"></script>
 </head>
 <body>
 <div class="app" id="app">
 
   <nav class="sidebar" aria-label="Sidebar">
     <div class="brand">
-      <img src="assets/icon.svg" alt="" width="30" height="30">
+      <img class="app-icon" src="assets/icon.svg" alt="" width="30" height="30">
       <span>Shelf</span>
     </div>
 
@@ -87,6 +89,17 @@
     </header>
 
     <section class="drop" id="dropZone" aria-label="Add files">
+      <!-- Living Room theme: the rainbow wall, and the TV you drop files on. -->
+      <div class="room" aria-hidden="true">
+        <div class="mural"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="tv">
+          <span class="tv-speaker"></span>
+          <div class="tv-screen"><span class="tv-glow"></span><span class="tv-msg">Let go to add them</span></div>
+          <span class="tv-speaker"></span>
+          <span class="tv-knob"></span>
+        </div>
+        <div class="credenza"><i></i><i></i><i></i></div>
+      </div>
       <div class="drop-art" aria-hidden="true">
         <span class="card c1"></span><span class="card c2"></span>
         <span class="card c3"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></span>
@@ -113,6 +126,7 @@
           <canvas id="readerA"></canvas><canvas id="readerB"></canvas>
           <div class="reader-idle"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="reader-beam"></div>
+          <span class="reader-crt"></span>
           <div class="reader-corners"><i></i><i></i><i></i><i></i></div>
           <span class="reader-time" id="readerTime"></span>
           <svg class="reader-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
@@ -124,8 +138,10 @@
           <div class="reader-found" id="readerFound"></div>
           <div class="reader-track"><i id="readerFill"></i></div>
         </div>
+        <div class="reader-dials" aria-hidden="true"><span class="reader-knob"></span><span class="reader-grille"></span></div>
         <button class="reader-stop" type="button" id="readerStop" title="Stop after this video">Stop</button>
       </div>
+      <div class="celebrate" id="celebrate" aria-hidden="true"></div>
       <footer class="statusbar">
         <span id="statusText"></span>
         <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">
@@ -258,6 +274,20 @@
 <dialog class="sheet" id="settingsSheet" aria-labelledby="settingsTitle">
   <form method="dialog">
     <h2 id="settingsTitle" class="sheet-title">Settings</h2>
+    <span class="section-label">Look</span>
+    <div class="themes" role="radiogroup" aria-label="Look" id="themePicker">
+      <button type="button" class="theme-tile" role="radio" data-theme-pick="studio" aria-checked="true">
+        <span class="tp tp-studio" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
+        <span class="theme-name">Studio</span>
+        <span class="theme-note">Clean and quiet</span>
+      </button>
+      <button type="button" class="theme-tile" role="radio" data-theme-pick="seventies" aria-checked="false">
+        <span class="tp tp-70s" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><span class="tp-arch"></span><span class="tp-tv"></span></i></span>
+        <span class="theme-name">Living Room</span>
+        <span class="theme-note">1970s wood, shag and a rainbow wall</span>
+      </button>
+    </div>
+    <p class="row-help flush">Both follow Windows light or dark mode.</p>
     <span class="section-label">TMDB key (for movies)</span>
     <div class="group">
       <div class="row stack">
@@ -376,7 +406,7 @@
 <dialog class="sheet update-sheet" id="updateSheet" aria-labelledby="upTitle">
   <div class="up" id="upBox" data-state="checking">
     <div class="up-hero">
-      <div class="up-art"><img src="assets/icon.svg" alt="" width="64" height="64"><span class="up-badge" id="upBadge" aria-hidden="true"><svg class="b-ok" viewBox="0 0 20 20"><path d="M5.5 10.5l3 3 6-6.5"/></svg><svg class="b-new" viewBox="0 0 20 20"><path d="M10 5v9M6.5 10.5L10 14l3.5-3.5"/></svg><svg class="b-warn" viewBox="0 0 20 20"><path d="M10 5.5v5.5M10 14.2v.1"/></svg></span></div>
+      <div class="up-art"><img class="app-icon" src="assets/icon.svg" alt="" width="64" height="64"><span class="up-badge" id="upBadge" aria-hidden="true"><svg class="b-ok" viewBox="0 0 20 20"><path d="M5.5 10.5l3 3 6-6.5"/></svg><svg class="b-new" viewBox="0 0 20 20"><path d="M10 5v9M6.5 10.5L10 14l3.5-3.5"/></svg><svg class="b-warn" viewBox="0 0 20 20"><path d="M10 5.5v5.5M10 14.2v.1"/></svg></span></div>
       <div class="up-head">
         <h2 id="upTitle">Checking for updates…</h2>
         <p id="upSub" class="muted"></p>
@@ -405,7 +435,7 @@
 <dialog class="sheet" id="aboutSheet" aria-labelledby="aboutTitle">
   <form method="dialog">
     <div class="about">
-      <img src="assets/icon.svg" alt="" width="72" height="72">
+      <img class="app-icon" src="assets/icon.svg" alt="" width="72" height="72">
       <h2 id="aboutTitle">Shelf</h2>
       <p class="muted">Renames your videos for Plex</p>
       <p class="muted small"><span id="appVersion">Version</span> · <button type="button" class="link-btn" id="checkUpdates">Check for Updates</button></p>

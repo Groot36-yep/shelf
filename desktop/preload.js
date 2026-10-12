@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
     ipcRenderer.on('shelf:updateProgress', listener);
     return () => ipcRenderer.removeListener('shelf:updateProgress', listener);
   },
+  // The look you chose (so the window frame and permission window match).
+  setTheme: (name) => ipcRenderer.invoke('shelf:setTheme', String(name || 'studio')),
   // Shelf's permission window is open (the main window dims behind it).
   onModal: (fn) => { ipcRenderer.on('shelf:modal', (e, open) => fn(open === true)); },
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),

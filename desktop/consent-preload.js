@@ -8,7 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('shelfConsent', {
   onShow: (fn) => ipcRenderer.once('consent:show', (e, d) => fn({
-    kind: String(d.kind || ''), title: String(d.title || ''), lead: String(d.lead || ''), ok: String(d.ok || ''),
+    kind: String(d.kind || ''), theme: d.theme === 'seventies' ? 'seventies' : 'studio', title: String(d.title || ''), lead: String(d.lead || ''), ok: String(d.ok || ''),
     points: Array.isArray(d.points) ? d.points.slice(0, 5).map((p) => ({ icon: String(p.icon || ''), text: String(p.text || '') })) : [],
     files: Array.isArray(d.files) ? d.files.slice(0, 2000).map(String) : []
   })),

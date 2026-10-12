@@ -67,11 +67,18 @@ const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] ||
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
 function writePrefs(p) { fs.mkdirSync(path.dirname(prefsPath()), { recursive: true }); fs.writeFileSync(prefsPath(), JSON.stringify(p)); }
 
+// The look you chose (Studio or Living Room), remembered so the window opens in it.
+let theme = 'studio';
+try { theme = readPrefs().theme === 'seventies' ? 'seventies' : 'studio'; } catch (e) { /* default */ }
 // On Windows the minimise / maximise / close buttons sit inside Shelf's own toolbar.
 function overlayColors() {
-  return nativeTheme.shouldUseDarkColors
-    ? { color: '#232326', symbolColor: '#F2F2F7', height: 52 }
-    : { color: '#FBFBFD', symbolColor: '#1D1D1F', height: 52 };
+  const dark = nativeTheme.shouldUseDarkColors;
+  if (theme === 'seventies') return dark ? { color: '#2B1B12', symbolColor: '#F3E2BE', height: 52 } : { color: '#F6E7C6', symbolColor: '#3B2416', height: 52 };
+  return dark ? { color: '#232326', symbolColor: '#F2F2F7', height: 52 } : { color: '#FBFBFD', symbolColor: '#1D1D1F', height: 52 };
+}
+function windowColor() {
+  const dark = nativeTheme.shouldUseDarkColors;
+  return theme === 'seventies' ? (dark ? '#1F140E' : '#E4B65C') : (dark ? '#1E1E20' : '#FFFFFF');
 }
 
 function createWindow() {
@@ -83,7 +90,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 560,
     title: 'Shelf',
-    backgroundColor: '#1E1E20',
+    backgroundColor: windowColor(),
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -143,6 +150,7 @@ function handle(channel, fn) {
 // your click with global.__shelfConsent (only reachable from inside the app process).
 const CONSENT_W = 460;
 function askConsent(req) {
+  req = Object.assign({}, req, { theme });
   if (typeof global.__shelfConsent === 'function') return Promise.resolve(global.__shelfConsent(req)).then((r) => r === true);
   return new Promise((resolve) => {
     const parent = win && !win.isDestroyed() ? win : null;
@@ -150,7 +158,7 @@ function askConsent(req) {
     const cw = new BrowserWindow({
       parent, modal: !!parent, show: false, frame: false, resizable: false, minimizable: false, maximizable: false,
       fullscreenable: false, skipTaskbar: true, width: CONSENT_W, height: 260, title: 'Shelf',
-      backgroundColor: dark ? '#2A2A2D' : '#FFFFFF', roundedCorners: true,
+      backgroundColor: theme === 'seventies' ? (dark ? '#2E1E15' : '#FBF0D9') : (dark ? '#2A2A2D' : '#FFFFFF'), roundedCorners: true,
       webPreferences: { preload: path.join(__dirname, 'consent-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false, devTools: false }
     });
     let done = false;
@@ -330,6 +338,15 @@ if (gotLock) app.whenReady().then(() => {
   });
 
   handle('shelf:version', async () => app.getVersion());
+  handle('shelf:setTheme', async (name) => {
+    theme = name === 'seventies' ? 'seventies' : 'studio';
+    try { const p = readPrefs(); if (p.theme !== theme) { p.theme = theme; writePrefs(p); } } catch (e) { /* not essential */ }
+    if (win && !win.isDestroyed()) {
+      win.setBackgroundColor(windowColor());
+      if (process.platform === 'win32') win.setTitleBarOverlay(overlayColors());
+    }
+    return theme;
+  });
 
   // ---- Updates: only when you click Check for Updates ----
   // The release file to install is remembered here; the window can't hand Shelf a link to download.

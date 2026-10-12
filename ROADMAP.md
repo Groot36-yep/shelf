@@ -2,6 +2,18 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.9.0)
+- **Looks**: choose how Shelf looks in Settings. **Studio** is the clean look you know. **Living Room** is new:
+  a 1970s den with walnut paneling, harvest-gold walls, a rainbow arch mural with a TV you drop files
+  onto, cream paper windows with poster stripes, and buttons that press in like hi-fi knobs.
+  Daytime follows Windows light mode, evening (lamps on) follows dark mode.
+- **Life in the room**: the mural rises when the room appears and ripples when you drag files over,
+  and the TV switches on to say "Let go to add them". Reading title cards happens on a wood-cabinet
+  TV with a channel knob that clicks round. A finished rename sends up a little sunburst. Changing
+  the look sweeps the new room in from where you clicked. All of it stays still if Windows is set
+  to show fewer animations.
+- Fonts (Fraunces, Nunito, Courier Prime) are built into Shelf, so nothing is downloaded.
+
 ## Done (1.8.0)
 - **Updates button** in the sidebar: checks for a new version only when you click it, shows what's new,
   and installs it for you. The download comes from Shelf's own GitHub releases and must match its

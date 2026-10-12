@@ -36,6 +36,7 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
     return route.continue();
   });
   await win.waitForLoadState();
+  if (process.env.THEME) await win.evaluate((t) => window.Shelf.setTheme(t, true), process.env.THEME);
   await win.click('.side-item[data-open=settings]'); await win.check('#optCardScan'); await win.keyboard.press('Escape'); await sleep(200);
   await win.click('text=Choose Folder…');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 1 && !['pending', 'matching'].includes(window.Shelf.items()[0].status))) break; }

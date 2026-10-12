@@ -24,6 +24,7 @@
     order: load('order', 'tmdb'),      // which episode order Plex uses: tmdb | tvdb | tvdbdvd
     showIds: load('showIds', true),    // {tmdb-387} in show folders
     cardScan: load('cardScan', false), // Advanced: offer "Read Title Cards" (always asks first)
+    theme: load('theme', 'studio'),    // the look: studio | seventies (set before drawing by theme-boot.js)
     tvdbKey: '', tvdbPin: '',
     posters: load('posters', true),
     mode: load('mode', 'move'),
@@ -898,6 +899,7 @@
         $('undoBar').hidden = !ok;
         render();
         toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.');
+        if (ok && !failed) celebrate();
       }).catch(function (err) {
         toast(err.message || 'Renaming failed.');
       }).then(function () { stop(); btn.disabled = false; prepareRename(); });
@@ -1630,5 +1632,51 @@
   on('checkEps', 'click', function () { var item = itemById(selectedId); if (item) openEditor(item); });
   on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { v.split = null; render(); } });
   render();
-  window.Shelf = { addFiles: addFiles, items: function () { return items; } }; // handy for testing
+  // ---------- Looks (themes) ----------
+  var THEMES = ['studio', 'seventies'];
+  function syncThemePicker() {
+    document.querySelectorAll('[data-theme-pick]').forEach(function (b) { b.setAttribute('aria-checked', b.dataset.themePick === settings.theme ? 'true' : 'false'); });
+  }
+  // Switch the look. From a click, the new room sweeps in as a circle from where you clicked.
+  function setTheme(name, instant, from) {
+    if (THEMES.indexOf(name) < 0) name = 'studio';
+    var changed = document.documentElement.dataset.theme !== name;
+    settings.theme = name; save('theme', name); syncThemePicker();
+    if (native.setTheme) native.setTheme(name);
+    if (!changed) return;
+    var apply = function () { document.documentElement.dataset.theme = name; };
+    var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (instant || calm || !document.startViewTransition) { apply(); return; }
+    var x = from ? from.x : innerWidth / 2, y = from ? from.y : innerHeight / 2;
+    var r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    var root = document.documentElement;
+    root.style.setProperty('--vt-x', x + 'px'); root.style.setProperty('--vt-y', y + 'px'); root.style.setProperty('--vt-r', Math.ceil(r) + 'px');
+    root.classList.add('theme-moving');
+    var vt = document.startViewTransition(apply);
+    vt.finished.then(function () { root.classList.remove('theme-moving'); }, function () { root.classList.remove('theme-moving'); });
+  }
+  document.querySelectorAll('[data-theme-pick]').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      var r = b.getBoundingClientRect();
+      setTheme(b.dataset.themePick, false, { x: e.clientX || r.left + r.width / 2, y: e.clientY || r.top + r.height / 2 });
+    });
+  });
+  $('themePicker').addEventListener('keydown', function (e) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.key) < 0) return;
+    e.preventDefault();
+    var i = THEMES.indexOf(settings.theme) + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1);
+    var name = THEMES[(i + THEMES.length) % THEMES.length];
+    setTheme(name); var b = document.querySelector('[data-theme-pick="' + name + '"]'); if (b) b.focus();
+  });
+  setTheme(settings.theme, true);
+  // Renamed: a moment of joy (the Living Room theme throws a little sunburst).
+  function celebrate() {
+    var c = $('celebrate');
+    if (!c || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    c.replaceChildren.apply(c, [0, 1, 2, 3, 4, 5].map(function () { return el('i'); }));
+    c.classList.remove('go'); void c.offsetWidth; c.classList.add('go');
+    clearTimeout(celebrate.t); celebrate.t = setTimeout(function () { c.classList.remove('go'); c.textContent = ''; }, 1800);
+  }
+
+  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, celebrate: celebrate }; // handy for testing
 })();
