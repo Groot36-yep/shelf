@@ -577,7 +577,7 @@
     if (ready) chips.push(el('span', { class: 'shelf-chip ok', text: ready + ' ready' }));
     if (check) chips.push(el('span', { class: 'shelf-chip warn', text: check + ' to check' }));
     var act = null;
-    var vids = tv && c && v.segmented ? showFiles(v) : [];
+    var vids = tv && c ? showFiles(v) : [];
     if (vids.length) {
       var reading = scanning && vids.some(function (i) { return i.scan === 'reading' || i.scan === 'queued'; });
       var unread = vids.some(function (i) { return !i.cards; });
@@ -707,7 +707,7 @@
     var segWrap = $('inspSegWrap');
     var showId0 = current(linkedVideo(item) || item) ? showIdKey(current(linkedVideo(item) || item)) : '';
     segWrap.hidden = !(item.kind === 'episode' && item.segmented && !item.split && (!item.numberSure || numbering[showId0]));
-    $('inspLookWrap').hidden = !(item.kind === 'episode' && item.segmented && (linkedVideo(item) || item).fullPath);
+    $('inspLookWrap').hidden = !(item.kind === 'episode' && (linkedVideo(item) || item).fullPath);
     $('checkLengths').disabled = $('readCards').disabled = scanning || !item.fullPath;
     document.querySelectorAll('#inspSeg button').forEach(function (b) {
       b.setAttribute('aria-pressed', item.numberSure && b.dataset.mode === item.numberMode ? 'true' : 'false');
@@ -852,6 +852,10 @@
     $('renameBtn').disabled = ready === 0;
     $('renameBtn').textContent = ready ? 'Rename ' + ready + (ready === 1 ? ' File…' : ' Files…') : 'Rename…';
     $('nextCheck').hidden = !review;
+    // Read Title Cards, always in the toolbar when there are TV videos to read.
+    var tvVids = items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; });
+    $('readCardsTop').hidden = !tvVids.length;
+    $('readCardsTop').disabled = scanning;
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('reviewCount').textContent = review;
     $('navCount').hidden = !has;
@@ -1370,6 +1374,13 @@
     select(nx.id);
   }
   on('nextCheck', 'click', nextToCheck);
+  // Toolbar: read the title cards of the selected file's show (or the first show in the list).
+  on('readCardsTop', 'click', function () {
+    if (scanning) return;
+    var sel = itemById(selectedId), v = sel && videoOf(sel);
+    if (!v || v.kind !== 'episode' || !current(v)) v = items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && current(i); })[0];
+    if (v) readCardsOf(v, showFiles(v), false);
+  });
   // Arrow keys move through the list
   document.addEventListener('keydown', function (e) {
     if (!items.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;

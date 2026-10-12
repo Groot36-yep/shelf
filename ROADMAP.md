@@ -2,6 +2,10 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Done (1.10.1)
+- **Read Title Cards** is now a button in the top toolbar whenever there are TV videos, and on every
+  show's shelf (not only shows Shelf thinks are split into cartoons).
+
 ## Done (1.10.0)
 - **Shelves**: the list is grouped by show (and one shelf for movies), episodes in order, each show on
   its own shelf with its poster and how many files are ready or need a look.
