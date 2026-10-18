@@ -17,6 +17,7 @@ const os = require('os');
 const fs = require('fs');
 const fsp = fs.promises;
 const { spawn } = require('child_process');
+const hwaccel = require('./hwaccel');
 
 // Inside the packaged app these live in app.asar.unpacked (real files the OS can run).
 const unpacked = (p) => p.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
@@ -48,11 +49,24 @@ function runCapture(cmd, args, timeoutMs, maxBytes) {
 
 // ---- 1. Find still moments: title cards hold still for a few seconds ----
 const TW = 96, TH = 72, RATE = 2; // tiny grey thumbnails, 2 per second
+// The thumbnails, on the graphics card when that's faster for this video (see hwaccel.js), else
+// (or if the card fails) on the processor.
+async function thumbnails(file, from, len) {
+  const seek = ['-ss', String(Math.max(0, from)), '-t', String(len)];
+  const run = (input, vf) => runCapture(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-nostdin'].concat(input, seek, ['-i', file,
+    '-an', '-sn', '-dn', '-vf', vf, '-f', 'rawvideo', '-']), 240000, TW * TH * RATE * 700);
+  const plan = await hwaccel.thumbPlan(file, RATE, TW, TH).catch(() => null);
+  if (plan) {
+    try {
+      const buf = await run(plan.input, plan.vf);
+      if (buf.length >= TW * TH) { hwaccel.worked(plan.method); return buf; }
+    } catch (e) { /* the processor takes over */ }
+    hwaccel.failed(plan.method);
+  }
+  return run([], `fps=${RATE},scale=${TW}:${TH},format=gray`);
+}
 async function stills(file, from, len) {
-  const buf = await runCapture(ffmpegPath(), [
-    '-hide_banner', '-loglevel', 'error', '-nostdin', '-ss', String(Math.max(0, from)), '-t', String(len), '-i', file,
-    '-an', '-sn', '-dn', '-vf', `fps=${RATE},scale=${TW}:${TH},format=gray`, '-f', 'rawvideo', '-'
-  ], 240000, TW * TH * RATE * 700);
+  const buf = await thumbnails(file, from, len);
   const n = Math.floor(buf.length / (TW * TH));
   const frames = []; for (let i = 0; i < n; i++) frames.push(buf.subarray(i * TW * TH, (i + 1) * TW * TH));
   const diff = (a, b) => { let d = 0; for (let k = 0; k < a.length; k += 2) d += Math.abs(a[k] - b[k]); return d / (a.length / 2); };
@@ -220,52 +234,74 @@ function preview(W, h, r, g, b) {
   return { w: pw, h: ph, data };
 }
 
-let workerPromise = null;
-function ocrWorker() {
-  if (!workerPromise) {
-    const { createWorker } = require('tesseract.js');
-    const eng = require('@tesseract.js-data/eng');
-    const tessDir = path.dirname(require.resolve('tesseract.js/package.json'));
-    workerPromise = createWorker('eng', 1, {
-      langPath: unpacked(eng.langPath),          // bundled data: never fetched from the internet
-      gzip: true,
-      cacheMethod: 'none',                       // don't write a copy anywhere
-      workerPath: unpacked(path.join(tessDir, 'src', 'worker-script', 'node', 'index.js')),
-      logger: () => {}
-    }).then(async (w) => {
-      await w.setParameters({ tessedit_pageseg_mode: '11' }); // sparse text: big words anywhere on screen
-      currentPsm = '11';
-      return w;
-    });
-    workerPromise.catch(() => { workerPromise = null; });
-  }
-  return workerPromise;
+// Reading text is most of a scan's time, and one reader uses one processor core. Several readers
+// work side by side (one per spare core, at most 6), each on its own picture.
+const OCR_READERS = Number(process.env.SHELF_OCR_READERS) || Math.max(1, Math.min(6, (os.cpus() || []).length - 2 || 1));
+let readers = [];      // [{ worker: Promise, psm, busy }]
+const waiting = [];    // callers waiting for a free reader
+function newReader() {
+  const { createWorker } = require('tesseract.js');
+  const eng = require('@tesseract.js-data/eng');
+  const tessDir = path.dirname(require.resolve('tesseract.js/package.json'));
+  const r = { psm: '11', busy: false };
+  r.worker = createWorker('eng', 1, {
+    langPath: unpacked(eng.langPath),          // bundled data: never fetched from the internet
+    gzip: true,
+    cacheMethod: 'none',                       // don't write a copy anywhere
+    workerPath: unpacked(path.join(tessDir, 'src', 'worker-script', 'node', 'index.js')),
+    logger: () => {}
+  }).then(async (w) => {
+    await w.setParameters({ tessedit_pageseg_mode: '11' }); // sparse text: big words anywhere on screen
+    return w;
+  });
+  r.worker.catch(() => { readers = readers.filter((x) => x !== r); });
+  return r;
+}
+// A free reader (a new one while there's a spare core), or wait for one to finish.
+function takeReader() {
+  const free = readers.find((r) => !r.busy);
+  if (free) { free.busy = true; return Promise.resolve(free); }
+  if (readers.length < OCR_READERS) { const r = newReader(); r.busy = true; readers.push(r); return Promise.resolve(r); }
+  return new Promise((resolve) => waiting.push(resolve));
+}
+function giveBack(r) {
+  if (!readers.includes(r)) return; // stopped meanwhile
+  const next = waiting.shift();
+  if (next) next(r); else r.busy = false;
 }
 async function stopOcr() {
-  if (!workerPromise) return;
-  const p = workerPromise; workerPromise = null;
-  try { (await p).terminate(); } catch (e) { /* ignore */ }
+  const old = readers; readers = [];
+  for (const r of old) { try { (await r.worker).terminate(); } catch (e) { /* ignore */ } }
+}
+async function stopReader(r) {
+  readers = readers.filter((x) => x !== r);
+  try { (await r.worker).terminate(); } catch (e) { /* ignore */ }
+  const next = waiting.shift();
+  if (next) takeReader().then(next);
 }
 
-let currentPsm = '11';
 // psm '11' looks for words anywhere (most title cards); '6' reads the picture as one block of text,
 // which suits big lettering that fills the screen.
 async function readText(png, psm) {
-  const w = await ocrWorker();
   psm = psm || '11';
-  if (psm !== currentPsm) { await w.setParameters({ tessedit_pageseg_mode: psm }); currentPsm = psm; }
+  const r = await takeReader();
   let timer;
-  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The text reader stopped responding')), 20000); });
   try {
+    const w = await r.worker;
+    if (psm !== r.psm) { await w.setParameters({ tessedit_pageseg_mode: psm }); r.psm = psm; }
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The text reader stopped responding')), 20000); });
     const { data } = await Promise.race([w.recognize(png), timeout]);
+    clearTimeout(timer);
+    giveBack(r);
     return String(data.text || '').replace(/\s+/g, ' ').trim();
   } catch (e) {
-    await stopOcr(); // start a fresh one next time
-    throw e;
-  } finally {
     clearTimeout(timer);
+    await stopReader(r); // a fresh one next time
+    throw e;
   }
 }
+// Several pictures read side by side; the texts come back in the same order.
+function readMany(pngs, psm) { return Promise.all(pngs.map((img) => readText(img, psm))); }
 
 // Leftovers from a scan that was interrupted (e.g. the computer shut down): remove them.
 async function cleanStale() {
@@ -308,6 +344,14 @@ function fadeOrder(blacks, likely) {
 // Words from a cartoon's opening credits.
 const CREDITS = /story ?board|written|directors?\b|director|animation|supervising|producer|creative/i;
 
+// Every part's thumbnails are made at once (each on its own core), so the later parts are
+// usually ready by the time the first part's cards have been read.
+function prepareStills(file, secs) {
+  const all = windowsFor(secs).map((w) => stills(file, w.from, w.len));
+  all.forEach((pr) => pr.catch(() => {})); // a part never reached (stopped) mustn't complain
+  return all;
+}
+
 /**
  * Read the title cards of one video.
  * opts.isMatch(texts) → true once the readings match a known title (Shelf then stops for that part).
@@ -321,10 +365,11 @@ async function scanFile(file, secs, opts) {
   const wins = windowsFor(secs);
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
+  const allStills = prepareStills(file, secs);
   for (let i = 0; i < wins.length; i++) {
     if (opts.cancelled && opts.cancelled()) break;
     report(i, 0.02);
-    const runs = await stills(file, wins[i].from, wins[i].len);
+    const runs = await allStills[i];
     report(i, 0.2);
     // Most likely spots first; at most 30 still moments per cartoon.
     const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
@@ -344,9 +389,10 @@ async function scanFile(file, secs, opts) {
       const imgs = await frameVariants(file, run.t, k <= 4 || run.rightAfterBlack);
       if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
       let hit = null;
+      // All versions are read side by side, then judged in order, so the answer is the same as
+      // reading them one at a time (a few extra readings at most).
       const tryImgs = async (list, psm) => {
-        for (const img of list) {
-          const text = await readText(img, psm);
+        for (const text of await readMany(list, psm)) {
           if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
           if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) return;
         }
@@ -385,9 +431,8 @@ async function scanFile(file, secs, opts) {
             if (opts.onPeek && imgs.preview && width === 480) opts.onPeek({ part: i, t: tt, image: imgs.preview, deep: true });
             for (const psm of ['11', '6']) {
               const before = read.length;
-              for (const img of imgs) {
-                if (opts.cancelled && opts.cancelled()) break deep;
-                const text = await readText(img, psm);
+              if (opts.cancelled && opts.cancelled()) break deep;
+              for (const text of await readMany(imgs, psm)) {
                 if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
                 // Each size and way of reading is judged on its own readings (pooling everything a
                 // deep scan reads would make chance matches likely).
@@ -436,4 +481,4 @@ async function scanFile(file, secs, opts) {
   return { texts, frames };
 }
 
-module.exports = { scanFile, stopOcr, windowsFor, readText, ffmpegPath, stills, frameVariants };
+module.exports = { scanFile, stopOcr, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, OCR_READERS };

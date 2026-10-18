@@ -356,6 +356,13 @@ if (gotLock) app.whenReady().then(() => {
   });
 
   handle('shelf:version', async () => app.getVersion());
+  // Decoding on the graphics card for title-card reading (see hwaccel.js).
+  const hwaccel = require('./hwaccel');
+  hwaccel.setMode(readPrefs().gpuDecode);
+  handle('shelf:gpuDecode', async (m) => {
+    if (typeof m === 'string' && hwaccel.MODES.includes(m)) { hwaccel.setMode(m); const p = readPrefs(); p.gpuDecode = m; writePrefs(p); }
+    return hwaccel.status();
+  });
   handle('shelf:setTheme', async (name) => {
     theme = name === 'seventies' ? 'seventies' : 'studio';
     try { const p = readPrefs(); if (p.theme !== theme) { p.theme = theme; writePrefs(p); } } catch (e) { /* not essential */ }
@@ -640,9 +647,12 @@ if (gotLock) app.whenReady().then(() => {
     tidyDirs: async (d) => { const lib = readPrefs().library; if (lib) await fileops.removeEmptyDirs(d, await fs.promises.realpath(lib)); }
   });
   app.on('before-quit', () => plexSend.close());
+  // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
+  const plexFix = require('./plexfix').setup({ app, log }, plexSend);
 
   handle('shelf:eraseAll', async () => {
     plexSend.forgetAll();
+    plexFix.forget();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), journalPath()])) fs.rmSync(p, { force: true });
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();

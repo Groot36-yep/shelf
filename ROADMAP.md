@@ -2,6 +2,29 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Fix My Plex Library**: tidy the files already on your Plex server, from this PC, with nothing
+  installed on the server. Shelf lists your Plex libraries' folders over SSH, asks Plex (through the
+  same SSH connection) which files it couldn't match or never added, and puts those, plus any not
+  named the Plex way, in the list. Rename fixes them *on the server* (an instant rename, nothing is
+  copied), removes folders left empty, and asks Plex to rescan. Undo puts everything back. In the
+  sidebar under Plex Server, and in the server window.
+- **Server folders**: drives linked into /mnt or /media show up (linked folders were hidden); type a
+  path or jump to /, /mnt, /media, Home or a Plex folder; a folder Shelf can't open or save in says
+  why, with the command that fixes it on the server.
+- **Fixed: talking to Plex over SSH never worked** (Connect Plex, finding your Plex folders, "Tell
+  Plex about new files"): the request went to this PC's own port 32400 instead of through the tunnel.
+- **Title cards read about 40% faster** (8 SpongeBob half-hours: 66 s → 39 s, same 16 of 16 cards):
+  several text readers work side by side (one per spare processor core, up to 6), and every part of a
+  video gets its thumbnails made at once. Deep Scan, which reads far more pictures, gains the most:
+  each moment it checks (41 pictures, two ways) is read 3.6× faster (17.1 s → 4.8 s), same text.
+- **Graphics card (Settings → Reading title cards)**: Auto uses it only for heavy video (HEVC/x265,
+  AV1, 4K), where it measured 1.5–2× faster; ordinary H.264 TV rips are faster on the processor
+  (measured on an RTX 3070 + Ryzen 5 3600). NVIDIA (CUDA) first, then any card (Direct3D 11); if the
+  card fails, the processor takes over.
+- Tests: `tests/plexfix.test.js`, `tests/hwaccel.test.js`, and `tests/plexfix.smoke.js` (the whole
+  Fix My Plex Library flow in the real window, against a pretend server; runs on Windows).
+
 ## Done (2.0.0)
 - **Send to Plex**: Shelf copies renamed files to your Plex server over SSH, like FileZilla, but
   built in. Set up from FileZilla's saved servers in one click; the server's fingerprint is checked

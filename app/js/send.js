@@ -90,6 +90,7 @@
     }
     var row = $('renameSendRow');
     if (row && st) row.hidden = !st.set;
+    if ($('fixLibBtn') && st) $('fixLibBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
   }
 
   // ---------- Setting up your server ----------
@@ -292,16 +293,34 @@
     native.serverList(where != null ? where : (st[sv.browseKind] || '')).then(function (r) {
       busy(false);
       sv.browsePath = r.path;
-      $('brPath').textContent = r.path;
+      $('brPath').value = r.path;
       $('brUp').disabled = !r.parent;
       $('brUp').onclick = function () { browse(null, r.parent); };
-      $('brWritable').textContent = r.writable ? '✓ You can save files here' : 'Your account can’t save files here';
+      $('brWritable').textContent = r.problem ? '' : r.writable ? '✓ You can save files here' : 'Your account can’t save files here';
       $('brWritable').className = r.writable ? 'ok-text' : 'warn-text';
       $('svNext').disabled = !r.writable;
       var libs = (st.plex.libraries || []).filter(function (l) { return l.kind === sv.browseKind; });
       var plexDirs = {};
       libs.forEach(function (l) { l.folders.forEach(function (f) { plexDirs[f] = l.title; }); });
-      if (!r.dirs.length) $('brList').appendChild(el('div', { class: 'br-empty muted', text: 'No folders in here' }));
+      // Quick ways to the usual places (drives are usually under /mnt or /media).
+      $('brPlaces').textContent = '';
+      ['/'].concat(r.places || [], [r.home], Object.keys(plexDirs)).filter(function (d, k, a) { return d && a.indexOf(d) === k && d !== r.path; }).slice(0, 8).forEach(function (d) {
+        $('brPlaces').appendChild(el('button', { type: 'button', class: 'pill small-pill', title: plexDirs[d] ? 'Your Plex “' + plexDirs[d] + '” folder' : d, onclick: function () { browse(null, d); },
+          text: d === r.home ? '~ Home' : plexDirs[d] ? 'Plex: ' + plexDirs[d] : d }));
+      });
+      // Why a folder can't be opened or used, and how to fix it on the server.
+      var user = r.user || st.user, help = '';
+      if (r.problem === 'denied') help = 'Your account (' + user + ') isn’t allowed to open this folder. To let it, run this on the server:\n';
+      else if (r.problem === 'missing') help = 'There’s no folder called ' + r.path + ' on the server.';
+      else if (r.problem === 'file') help = r.path + ' is a file, not a folder.';
+      else if (!r.writable) help = 'Your account (' + user + ') can open this folder but can’t save or rename files in it (Plex’s folders often belong to the “plex” account). To let it, run this on the server:\n';
+      $('brHelp').textContent = help;
+      if (r.problem === 'denied' || (!r.problem && !r.writable)) {
+        $('brHelp').appendChild(el('code', { text: 'sudo setfacl -R -m u:' + user + ':rwX -m d:u:' + user + ':rwX ' + "'" + r.path.replace(/'/g, "'\\''") + "'" }));
+        $('brHelp').appendChild(document.createTextNode('\n(Needs the “acl” package: sudo apt install acl. Plex keeps its own access. For a Windows-formatted drive (NTFS/exFAT), add uid=' + user + ' to its line in /etc/fstab instead.)'));
+      }
+      $('brHelp').hidden = !help;
+      if (!r.dirs.length && !r.problem) $('brList').appendChild(el('div', { class: 'br-empty muted', text: 'No folders in here' }));
       r.dirs.forEach(function (d) {
         var full = (r.path === '/' ? '' : r.path) + '/' + d;
         $('brList').appendChild(el('button', { type: 'button', class: 'br-item', role: 'option', ondblclick: function () { browse(null, full); }, onclick: function () { browse(null, full); } }, [
@@ -452,6 +471,9 @@
   on('fpCopy', 'click', function () { try { navigator.clipboard.writeText($('fpCmd').textContent); toast('Copied.'); } catch (e) { /* no clipboard */ } });
   on('svFpShow', 'click', function () { $('svNote').textContent = (st.keyType || 'Server') + ' fingerprint: ' + st.fingerprint; $('svNote').hidden = false; });
   document.querySelectorAll('[data-pick]').forEach(function (b) { b.addEventListener('click', function () { browse(b.dataset.pick, null); }); });
+  function goTyped() { var v = $('brPath').value.trim(); if (v) browse(null, v.charAt(0) === '/' ? v : (sv.browsePath.replace(/\/$/, '') + '/' + v)); }
+  on('brGo', 'click', goTyped);
+  on('brPath', 'keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); goTyped(); } });
   on('brNew', 'click', function () { $('brNewRow').hidden = !$('brNewRow').hidden; if (!$('brNewRow').hidden) $('brNewName').focus(); });
   function makeFolder() {
     var name = $('brNewName').value.trim();
@@ -498,6 +520,36 @@
     $('sendTray').hidden = true;
     if (last && last.message) openServer();
   });
+
+  // ---------- Fix My Plex Library: files already on your server ----------
+  var fixing = false;
+  function checkLibrary() {
+    if (fixing || !shelf()) return;
+    if (!st || !st.set || !st.hasLogin) { openServer(); return; }
+    fixing = true;
+    var all = $('svFixAll') && $('svFixAll').checked;
+    if ($('serverSheet').open) $('serverSheet').close();
+    toast('Looking through your Plex library on ' + st.host + '…');
+    $('fixLibBtn').disabled = true;
+    native.plexLibraryScan(all ? 'all' : 'problems').then(function (r) {
+      var s = r.stats, bits = [];
+      if (s.plex) {
+        if (s.unmatched) bits.push(s.unmatched + ' Plex couldn’t match');
+        if (s.missing) bits.push(s.missing + ' Plex hasn’t added');
+      }
+      var oddly = r.files.filter(function (f) { return !f.named; }).length;
+      if (oddly) bits.push(oddly + ' not named the Plex way');
+      if (!r.files.length) { toast('Checked ' + r.total + ' files on your server. Everything looks right' + (s.plex ? '' : ' (connect Plex to also see what it couldn’t match)') + '.'); return; }
+      shelf().addFiles(r.files.map(function (f) { return { name: f.name, relPath: f.relPath, size: f.size, remote: f.remote, plex: f.plex }; }));
+      toast('Checked ' + r.total + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '. Check the list, then Rename fixes them on the server.');
+    }, function (e) {
+      var w = why(e);
+      toast(w.text || 'Couldn’t look through your Plex library.');
+      if (/^(NO_LOGIN|NO_SERVER|HOST_|AUTH)/.test(w.code)) openServer();
+    }).then(function () { fixing = false; $('fixLibBtn').disabled = false; });
+  }
+  on('svFixLib', 'click', checkLibrary);
+  on('fixLibBtn', 'click', checkLibrary);
 
   // ---------- For the rest of Shelf ----------
   window.ShelfSend = {

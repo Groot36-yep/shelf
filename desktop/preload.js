@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('shelfNative', {
   titleBar: (color, symbol) => ipcRenderer.invoke('shelf:titleBar', String(color), String(symbol)),
   // Shelf's permission window is open (the main window dims behind it).
   onModal: (fn) => { ipcRenderer.on('shelf:modal', (e, open) => fn(open === true)); },
+  // Graphics card for reading title cards: 'auto' | 'on' | 'off' (nothing passed: just ask).
+  gpuDecode: (m) => ipcRenderer.invoke('shelf:gpuDecode', ['auto', 'on', 'off'].includes(m) ? m : null)
+    .then((s) => ({ mode: String(s.mode), available: (s.available || []).map(String), broken: (s.broken || []).map(String), used: String(s.used || '') })),
   pickFiles: () => ipcRenderer.invoke('shelf:pickFiles'),
   pickFolder: () => ipcRenderer.invoke('shelf:pickFolder'),
   // Dropped files: their locations are read here, where the real File objects are (a File handed
@@ -99,6 +102,13 @@ contextBridge.exposeInMainWorld('shelfNative', {
   sendPlan: (paths) => ipcRenderer.invoke('shelf:sendPlan', Array.isArray(paths) ? paths.map(String) : null),
   send: (paths, how) => ipcRenderer.invoke('shelf:send', Array.isArray(paths) ? paths.map(String) : null, { replace: !!(how && how.replace) }),
   sendStop: () => ipcRenderer.invoke('shelf:sendStop'),
+  // Fix My Plex Library: the files already on your server (renamed there, nothing is copied).
+  plexLibraryScan: (only) => ipcRenderer.invoke('shelf:plexLibraryScan', only === 'all' ? 'all' : 'problems'),
+  plexLibraryFix: (ops) => ipcRenderer.invoke('shelf:plexLibraryFix', Array.isArray(ops) ? ops.map((o) => ({
+    remote: String((o && o.remote) || ''), folder: Array.isArray(o && o.folder) ? o.folder.map(String) : [], file: String((o && o.file) || '')
+  })) : []),
+  plexLibraryCanUndo: () => ipcRenderer.invoke('shelf:plexLibraryCanUndo'),
+  plexLibraryUndo: () => ipcRenderer.invoke('shelf:plexLibraryUndo'),
   onSend: (fn) => {
     const listener = (e, m) => fn(m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : {});
     ipcRenderer.on('shelf:sendProgress', listener);

@@ -65,15 +65,18 @@ function setup(ctx) {
   }
 
   // ---- Connecting ----
-  let session = null, idle = null;
+  let session = null, idle = null, opening = null;
   async function open() {
     clearTimeout(idle);
     if (session && !session.closed) return session;
+    // Two jobs asking at once (sending while the library is checked) share one connection.
+    if (opening) return opening;
     const c = cfg();
     if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
     const key = c.auth === 'key' ? getSecret('key') : '', password = c.auth === 'key' ? '' : getSecret('password');
     if (!key && !password) throw S.problem('NO_LOGIN', 'Shelf needs your server password again.');
-    session = await S.connect({ host: c.host, port: c.port, username: c.user, privateKey: key || undefined, password: password || undefined, pinned: c.fingerprint });
+    opening = S.connect({ host: c.host, port: c.port, username: c.user, privateKey: key || undefined, password: password || undefined, pinned: c.fingerprint });
+    try { session = await opening; } finally { opening = null; }
     return session;
   }
   function later() {
@@ -184,13 +187,25 @@ function setup(ctx) {
     return Object.assign(status(), { note });
   });
 
+  // A folder you asked for that can't be opened says why, instead of quietly going home.
   handle('shelf:serverList', async (where) => withSession(async (s) => {
     const c = cfg();
-    let at = S.cleanRoot(where) || c.home || await s.home();
-    const st = await s.stat(at).catch(() => null);
-    if (!st || !st.isDirectory()) at = await s.home();
-    const dirs = await s.list(at).catch(() => []);
-    return { path: at, parent: at === '/' ? '' : path.posix.dirname(at), dirs: dirs.slice(0, 500), writable: await s.writable(at), home: c.home || '' };
+    const asked = S.cleanRoot(where);
+    let at = asked || c.home || await s.home();
+    let problem = '';
+    const st = await s.stat(at).catch((e) => { if (S.friendly(e, '').code === 'FOLDER') problem = 'denied'; return null; });
+    if (!st) problem = problem || 'missing';
+    else if (!st.isDirectory()) problem = 'file';
+    let dirs = [];
+    if (!problem) dirs = await s.list(at).catch(() => { problem = 'denied'; return []; });
+    if (problem && !asked) { at = await s.home(); problem = ''; dirs = await s.list(at).catch(() => []); }
+    const home = c.home || await s.home();
+    return {
+      path: at, parent: at === '/' ? '' : path.posix.dirname(at), dirs: dirs.slice(0, 1000), problem,
+      writable: !problem && await s.writable(at), home, user: c.user,
+      // Where drives and media usually live on Linux, when they're there.
+      places: (await Promise.all(['/mnt', '/media', '/srv', '/data'].map(async (d) => ((await s.stat(d).catch(() => null)) ? d : null)))).filter(Boolean)
+    };
   }));
   handle('shelf:serverMkdir', async (where, name) => withSession(async (s) => {
     const at = S.cleanRoot(where); name = String(name || '').trim();
@@ -455,7 +470,7 @@ function setup(ctx) {
   });
   handle('shelf:sendStop', async () => { queue.stop(); return true; });
 
-  return { forgetAll, close: () => { queue.stop(); if (session) session.close(); } };
+  return { forgetAll, close: () => { queue.stop(); if (session) session.close(); }, withSession, cfg, getSecret, handle };
 }
 
 module.exports = { setup, SECRET_FILES };

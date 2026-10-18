@@ -129,10 +129,29 @@ class Session {
   stat(f) { return p((cb) => this.sftp.stat(f, cb)).catch((e) => { if (e.code === 2) return null; throw e; }); }
   realpath(f) { return p((cb) => this.sftp.realpath(f, cb)); }
   home() { return this.realpath('.'); }
+  /**
+   * What's in a folder: [{ name, dir, file, size, link }]. Shortcuts (symlinks) are followed, so a
+   * drive linked into /mnt or /media shows up as the folder it points to.
+   */
+  async entries(dir) {
+    const list = await p((cb) => this.sftp.readdir(dir, cb));
+    const out = [];
+    let links = 0;
+    for (const e of list) {
+      let a = e.attrs, link = false;
+      if (a.isSymbolicLink()) {
+        if (++links > 2000) continue;
+        link = true;
+        a = await this.stat(posix.join(dir, e.filename)).catch(() => null); // where it points
+        if (!a) continue; // broken shortcut
+      }
+      out.push({ name: e.filename, dir: a.isDirectory(), file: a.isFile(), size: Number(a.size) || 0, link });
+    }
+    return out;
+  }
   async list(dir) {
-    const entries = await p((cb) => this.sftp.readdir(dir, cb));
-    return entries.filter((e) => e.attrs.isDirectory() && !e.filename.startsWith('.'))
-      .map((e) => e.filename).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    return (await this.entries(dir)).filter((e) => e.dir && !e.name.startsWith('.'))
+      .map((e) => e.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
   }
   async mkdirp(dir) {
     // Folders this connection already saw are known; otherwise one look usually settles it.
@@ -306,7 +325,8 @@ class Session {
         if (err) return reject(problem('NO_PLEX', 'Couldn’t reach Plex on the server.'));
         ['setTimeout', 'setNoDelay', 'setKeepAlive', 'ref', 'unref'].forEach((f) => { if (typeof stream[f] !== 'function') stream[f] = () => stream; });
         const req = http.request({
-          host: '127.0.0.1', port: 32400, path: pathAndQuery, method: 'GET', agent: false, createConnection: () => stream,
+          // No agent: with one (even agent: false), Node ignores createConnection and dials this PC's own port 32400.
+          host: '127.0.0.1', port: 32400, path: pathAndQuery, method: 'GET', createConnection: () => stream,
           headers: { 'X-Plex-Token': token, Accept: 'application/json', 'X-Plex-Product': 'Shelf', 'X-Plex-Client-Identifier': 'shelf-desktop', Connection: 'close' }
         }, (res) => {
           let body = '';

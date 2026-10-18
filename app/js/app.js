@@ -147,6 +147,7 @@
   }
 
   // ---------- Items ----------
+  var PLEX_STATE = { matched: 'On server · Plex matched it', unmatched: 'On server · Plex couldn’t match it', missing: 'On server · Plex hasn’t added it' };
   function makeItem(name, relPath, size, fullPath, parents) {
     var folders = Array.isArray(parents) ? parents.map(String) : String(relPath || '').split('/').slice(0, -1);
     var parsed = P.parsePath(name, folders);
@@ -227,9 +228,11 @@
     var added = 0;
     list.forEach(function (f) {
       if (/^\./.test(f.name) || /^(thumbs\.db|desktop\.ini)$/i.test(f.name)) return; // hidden/system files
-      var keyOf = f.fullPath || f.relPath;
-      if (items.some(function (i) { return (i.fullPath || i.relPath) === keyOf; })) return;
+      var keyOf = f.fullPath || f.remote || f.relPath;
+      if (items.some(function (i) { return (i.fullPath || i.remote || i.relPath) === keyOf; })) return;
       var it = makeItem(f.name, f.relPath, f.size, f.fullPath, f.parents);
+      // A file already on your Plex server (Fix My Plex Library): renamed there, never copied here.
+      if (f.remote) { it.remote = f.remote; it.plexState = f.plex || ''; }
       if (it.status === 'skipped' && !/\.(nfo|txt|jpg|jpeg|png|url)$/i.test(f.name)) { items.push(it); added++; return; }
       if (it.status === 'skipped') return; // quietly ignore artwork / nfo files
       items.push(it); added++;
@@ -676,7 +679,7 @@
       badge,
       el('div', { class: 'cell orig-cell' }, [
         el('span', { class: 'orig', text: item.name, title: item.relPath }),
-        el('span', { class: 'sub', text: [fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
+        el('span', { class: 'sub', text: [item.remote ? PLEX_STATE[item.plexState] || 'On server' : '', fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
       ]),
       svgArrow(),
       el('div', { class: 'cell new-cell' }, [
@@ -946,6 +949,7 @@
       $('tvdbPinInput').value = settings.tvdbPin;
       syncOrderHelp();
       $('optPosters').checked = settings.posters;
+      syncGpu();
       $('keyStatus').textContent = 'Stored encrypted with your computer account. Only ever sent to TMDB.';
     }
     if (d.showModal) d.showModal(); else d.setAttribute('open', '');
@@ -958,6 +962,11 @@
   };
 
   function readyItems() { return items.filter(isReady); }
+
+  // Undo covers the last rename here or on your Plex server.
+  function canUndoAny() {
+    return Promise.all([native.canUndo(), native.plexLibraryCanUndo ? native.plexLibraryCanUndo() : false]).then(function (a) { return a[0] || a[1]; });
+  }
 
   function prepareRename() {
     var r = readyItems();
@@ -979,8 +988,10 @@
           (left ? ' ' + left + ' picture subtitle' + (left === 1 ? '' : 's') + ' (IDX/SUB) can’t be split and will be left alone.' : '');
       })();
     syncMode();
-    native.getLibrary().then(function (lib) { $('libPath').textContent = lib || 'Not chosen yet'; $('renameNow').disabled = !lib || !r.length; });
-    native.canUndo().then(function (yes) { $('undoNow').hidden = !yes; });
+    var onServer = r.filter(function (i) { return i.remote; }).length, local = r.length - onServer;
+    if (onServer) $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there (nothing is copied), then Plex rescans.';
+    native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('renameNow').disabled = !r.length || (!lib && local > 0); });
+    canUndoAny().then(function (yes) { $('undoNow').hidden = !yes; });
     $('renameNow').textContent = 'Rename ' + r.length + ' Now';
     if (window.ShelfSend) {
       $('renameSend').checked = window.ShelfSend.autoSend();
@@ -1008,8 +1019,18 @@
     });
     on('renameNow', 'click', function () {
       var ready = readyItems();
-      var real = ready.filter(function (i) { return i.fullPath; });
-      if (!real.length) { toast('Sample files are just examples. Choose your own files to rename them.'); return; }
+      var real = ready.filter(function (i) { return i.fullPath && !i.remote; });
+      var onServer = ready.filter(function (i) { return i.remote; });
+      if (!real.length && !onServer.length) { toast('Sample files are just examples. Choose your own files to rename them.'); return; }
+      if (onServer.length) {
+        var sbtn = $('renameNow');
+        sbtn.disabled = true; sbtn.textContent = 'Renaming on your server…';
+        renameOnServer(onServer).then(function () {
+          if (real.length) return;
+          $('renameSheet').close(); sbtn.disabled = false; prepareRename();
+        });
+        if (!real.length) return;
+      }
       var byPath = {};
       var ops = real.map(function (i) {
         byPath[i.fullPath] = i;
@@ -1035,6 +1056,7 @@
         });
         $('renameSheet').close();
         $('undoBar').hidden = !ok;
+        if (ok) lastOnServer = false;
         render();
         toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (sendAfter && newPaths.length ? ' Sending to Plex…' : ''));
         if (sendAfter && newPaths.length) window.ShelfSend.afterRename(newPaths);
@@ -1042,12 +1064,46 @@
         toast(err.message || 'Renaming failed.');
       }).then(function () { stop(); btn.disabled = false; prepareRename(); });
     });
+    // Files on your Plex server: renamed there in one go, then Plex rescans.
+    function renameOnServer(list) {
+      var byRemote = {};
+      var ops = list.map(function (i) { byRemote[i.remote] = i; var p = plexFor(i); return { remote: i.remote, folder: p.folder, file: p.file }; });
+      return native.plexLibraryFix(ops).then(function (res) {
+        var ok = 0, skipped = 0, failed = 0;
+        res.results.forEach(function (r) {
+          var item = byRemote[r.remote];
+          if (!item) return;
+          if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origRemote = item.remote; item.remote = r.to; item.newPath = r.to; }
+          else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
+          else { failed++; item.error = 'Couldn’t rename on the server: ' + r.error; }
+        });
+        lastOnServer = ok > 0;
+        $('undoBar').hidden = !ok;
+        render();
+        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + ' on your Plex server' + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (res.rescanned ? ' Plex is rescanning.' : ''));
+      }, function (err) { toast(String(err.message || 'Renaming on the server failed.').replace(/^Error invoking remote method '[^']*':\s*(\w*Error:\s*)?(\[[A-Z_]+\]\s*)?/, '')); });
+    }
+    var lastOnServer = false;
     function undoLast() {
+      if (lastOnServer || !native.canUndo) return undoServer();
+      native.canUndo().then(function (yes) { if (yes) undoLocal(); else undoServer(); });
+    }
+    function undoServer() {
+      native.plexLibraryUndo().then(function (r) {
+        $('undoBar').hidden = true; lastOnServer = false;
+        if (r.nothing) { toast('Nothing to undo.'); return; }
+        items.forEach(function (i) { if (i.status === 'done' && i.origRemote) { i.status = 'matched'; i.remote = i.origRemote; i.origRemote = null; i.newPath = null; } });
+        $('renameSheet').close();
+        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + ' on your server' + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
+        render();
+      }, function (err) { toast(err.message || 'Undo failed.'); });
+    }
+    function undoLocal() {
       native.undo().then(function (r) {
         $('undoBar').hidden = true;
         if (r.nothing) { toast('Nothing to undo.'); return; }
         items.forEach(function (i) {
-          if (i.status === 'done') { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
+          if (i.status === 'done' && !i.origRemote) { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
         });
         $('renameSheet').close();
         toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
@@ -1056,7 +1112,7 @@
     }
     on('undoNow', 'click', undoLast);
     on('undoBar', 'click', undoLast);
-    native.canUndo().then(function (yes) { $('undoBar').hidden = !yes; });
+    canUndoAny().then(function (yes) { $('undoBar').hidden = !yes; });
     on('openLib', 'click', function () { native.showLibrary(); });
   }
 
@@ -1117,6 +1173,19 @@
     }).catch(function () { status.textContent = 'TMDB didn\'t accept that key. Copy it again from themoviedb.org → Settings → API.'; });
   });
   on('optPosters', 'change', function (e) { settings.posters = e.target.checked; save('posters', settings.posters); render(); });
+  // Graphics card for reading title cards (kept by the app itself, not in this window).
+  var GPU_NAME = { cuda: 'NVIDIA (CUDA)', d3d11va: 'your graphics card (Direct3D 11)' };
+  function syncGpu(m) {
+    if (!native || !native.gpuDecode) { $('optGpu').closest('.group').hidden = true; return; }
+    native.gpuDecode(m).then(function (s) {
+      $('optGpu').value = s.mode;
+      var help = 'Most TV files (H.264, up to 1080p) read faster on the processor. HEVC and 4K read up to twice as fast on the graphics card.';
+      if (!s.available.length) help = s.broken.length ? 'Your graphics card didn’t work for this, so the processor does it all.' : 'No graphics card Shelf can use was found, so the processor does it all.';
+      else if (s.mode !== 'off') help += ' Using ' + (GPU_NAME[s.used || s.available[0]] || s.available[0]) + '.';
+      $('gpuHelp').textContent = help;
+    }).catch(function () {});
+  }
+  on('optGpu', 'change', function (e) { syncGpu(e.target.value); });
   on('forgetKey', 'click', function () {
     saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this computer.'; render();
   });

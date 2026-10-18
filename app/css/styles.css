@@ -1178,6 +1178,11 @@ body.is-busy .toolbar::after { opacity: 1; animation: work-line 1.2s ease-in-out
 /* Folders on the server */
 .br-path { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .br-path code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.br-path .br-input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+.br-places { display: flex; flex-wrap: wrap; gap: 6px; }
+.br-places .pill { font-family: var(--mono); font-size: 11.5px; }
+.br-help { white-space: pre-line; overflow-wrap: anywhere; }
+.br-help code { font-family: var(--mono); font-size: 11.5px; user-select: all; }
 .br-list { max-height: 280px; overflow: auto; }
 .br-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 6px 12px; border: 0; background: transparent; text-align: left; font-size: 13px; cursor: default; }
 .br-item + .br-item { border-top: 0.5px solid var(--sep); }

@@ -55,6 +55,9 @@
       <button class="side-source server-src" type="button" id="serverStatus" title="Your Plex server: where Send to Plex puts your files">
         <span class="dot dot-off"></span><span class="src-name" id="serverName">Not set up</span><span class="src-note" id="serverNote">Set Up</span>
       </button>
+      <button class="side-source" type="button" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there">
+        <span class="src-name">Fix My Plex Library</span>
+      </button>
     </div>
 
     <div class="side-group">
@@ -362,6 +365,18 @@
         <input type="checkbox" class="switch" id="optShowYear">
       </label>
     </div>
+    <span class="section-label">Reading title cards</span>
+    <div class="group">
+      <div class="row stack">
+        <label for="optGpu">Use the graphics card</label>
+        <select id="optGpu" class="text">
+          <option value="auto">Auto: only for heavy video (HEVC, AV1, 4K)</option>
+          <option value="on">Always, when it can</option>
+          <option value="off">Never: the processor does it all</option>
+        </select>
+        <span class="row-help" id="gpuHelp">Most TV files (H.264, up to 1080p) read faster on the processor. HEVC and 4K read up to twice as fast on the graphics card.</span>
+      </div>
+    </div>
     <div class="sheet-actions">
       <button class="pill pill-primary" type="submit" value="done">Done</button>
     </div>
@@ -545,6 +560,11 @@
           <span class="row-help">Shelf couldn’t read it from the server by itself. <a href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/" target="_blank" rel="noopener noreferrer">How to find your token</a>. It’s stored encrypted and only ever sent to your own Plex, inside the SSH connection.</span>
         </div>
       </div>
+      <span class="section-label">Fix My Plex Library</span>
+      <div class="group">
+        <div class="row"><span>Tidy the files already on your server<br><small class="muted" id="svFixHelp">Finds files Plex couldn’t match, never added, or that aren’t named the Plex way, and lists them here to rename. They’re renamed on the server; nothing is copied or installed.</small></span><button class="pill small-pill" type="button" id="svFixLib">Check Library</button></div>
+        <label class="row"><span>Include files that already look right<br><small class="muted">Slower: every file in your libraries is looked up</small></span><input type="checkbox" class="switch" id="svFixAll"></label>
+      </div>
       <span class="section-label">Automatic</span>
       <div class="group">
         <label class="row"><span>Send after renaming<br><small class="muted">Rename Now also sends the files to Plex</small></span><input type="checkbox" class="switch" id="optAutoSend"></label>
@@ -561,8 +581,10 @@
 
     <!-- Choosing a folder on the server -->
     <div class="sv-step" data-show="browse">
-      <div class="br-path"><button type="button" class="pill small-pill" id="brUp" title="Up one folder">‹ Up</button><code id="brPath"></code></div>
+      <div class="br-path"><button type="button" class="pill small-pill" id="brUp" title="Up one folder">‹ Up</button><input id="brPath" class="text br-input" type="text" spellcheck="false" autocomplete="off" aria-label="Folder on the server (type a path and press Enter)"><button type="button" class="pill small-pill" id="brGo">Go</button></div>
+      <div class="br-places" id="brPlaces" aria-label="Go to"></div>
       <div class="group br-list" id="brList" role="listbox" aria-label="Folders on the server"></div>
+      <p class="sv-error br-help" id="brHelp" role="status" hidden></p>
       <div class="br-foot"><span id="brWritable" class="muted"></span><span class="foot-flex"></span><button type="button" class="link-btn" id="brNew">New Folder…</button></div>
       <div class="key-row" id="brNewRow" hidden><input id="brNewName" class="text" type="text" spellcheck="false" autocomplete="off" placeholder="Folder name"><button class="pill" type="button" id="brNewMake">Make</button></div>
     </div>
