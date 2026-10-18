@@ -2,7 +2,16 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.1.0)
+- **Read title cards in videos on your Plex server**: after Check Library, Read Title Cards, Auto
+  Mode and Deep Scan work on files on the server too. Only the minutes Shelf needs are read, over
+  your SSH connection, straight into memory: nothing is downloaded to disk or installed on the
+  server. (A SpongeBob half-hour: both cards read in under 10 s, about half the file read.)
+- **Lookups are remembered on this PC**: checking the same shows again is near-instant (2,000 files:
+  55 s → 2.2 s the second time, no requests). Shows and movies with {tmdb-…} or {tvdb-…} in their
+  folder name are looked up directly. Privacy → Forget Remembered Lookups clears them.
+- **Adding folders is faster** (2,090 files: 560 ms → 145 ms), and the text readers stay ready for a
+  minute after reading title cards, so the next batch starts sooner.
 - **Fix My Plex Library**: tidy the files already on your Plex server, from this PC, with nothing
   installed on the server. Shelf lists your Plex libraries' folders over SSH, asks Plex (through the
   same SSH connection) which files it couldn't match or never added, and puts those, plus any not
