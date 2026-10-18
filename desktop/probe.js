@@ -94,11 +94,11 @@ async function aviDuration(fh) {
   return usPerFrame && frames ? usPerFrame * frames / 1e6 : null;
 }
 
-/** Running time in seconds, or null. */
-async function duration(file) {
+/** Running time in seconds, or null. fh: an open file handle to read instead (a video on your server). */
+async function duration(file, fh0) {
   let fh;
   try {
-    fh = await fsp.open(file, 'r');
+    fh = fh0 || await fsp.open(file, 'r');
     const st = await fh.stat();
     const head = await readAt(fh, 0, 12);
     let secs = null;
@@ -109,7 +109,7 @@ async function duration(file) {
   } catch (e) {
     return null;
   } finally {
-    if (fh) await fh.close().catch(() => {});
+    if (fh && !fh0) await fh.close().catch(() => {});
   }
 }
 

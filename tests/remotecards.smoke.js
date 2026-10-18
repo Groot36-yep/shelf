@@ -1,0 +1,136 @@
+// End-to-end in the real window: reading the title cards of a video on the Plex server. The pretend
+// server (tests/fakeplex.js) serves a real SpongeBob half-hour's bytes; Fix My Plex Library lists it,
+// Auto Mode asks first (saying it reads from the server), and both cartoons' title cards are read
+// through Shelf's 127.0.0.1 reader without the file being downloaded. Timed against reading the
+// same file on this PC.
+// Run with: node tests/remotecards.smoke.js   (needs "playwright"; SB_FILE=a SpongeBob S05E03 .mkv,
+// NET="940 0.3" to make the pretend server as fast and as far away as a network: Mbit/s, ms)
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+const { _electron: electron } = require(process.env.PLAYWRIGHT || 'playwright');
+const fake = require('./fakeplex');
+
+const ROOT = path.join(__dirname, '..');
+const H = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const LOCAL = process.env.SB_FILE || 'D:/TV Shows/SpongeBob SquarePants v2/Season 5/SpongeBob.SquarePants.S05E03.720p.mkv';
+const REMOTE = '/srv/disk1/TV/Spongebob/Season 5/SpongeBob.SquarePants.S05E03.720p.mkv';
+const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
+
+(async () => {
+  if (!fs.existsSync(LOCAL)) { console.log('skipped: no SpongeBob S05E03 at ' + LOCAL + ' (set SB_FILE)'); process.exit(0); }
+  const net = process.env.NET ? { mbps: +process.env.NET.split(' ')[0], ms: +(process.env.NET.split(' ')[1] || 0) } : null;
+  const srv = await fake.start({ real: { [REMOTE]: LOCAL }, net });
+  const tmpBefore = new Set(fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('shelf-scan-')));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
+  const errors = [];
+  const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', '--user-data-dir=' + profile, ROOT] });
+  await app.evaluate(({ app: a, safeStorage }, s) => {
+    const fsm = process.mainModule.require('fs'), pm = process.mainModule.require('path');
+    const dir = a.getPath('userData');
+    const prefs = pm.join(dir, 'shelf-prefs.json');
+    let p = {}; try { p = JSON.parse(fsm.readFileSync(prefs, 'utf8')); } catch (e) { /* new */ }
+    p.server = { host: '127.0.0.1', port: s.port, user: 'me', fingerprint: s.fp, keyType: 'ED25519', auth: 'password', home: '/home/me',
+      movies: '/mnt/media/Movies', tv: '/mnt/media/TV', libraries: [
+        { key: '1', kind: 'movies', title: 'Movies', folders: ['/mnt/media/Movies'] },
+        { key: '2', kind: 'tv', title: 'TV Shows', folders: ['/mnt/media/TV'] }] };
+    fsm.writeFileSync(prefs, JSON.stringify(p));
+    fsm.writeFileSync(pm.join(dir, 'server-pass.bin'), safeStorage.encryptString(s.pass));
+    fsm.writeFileSync(pm.join(dir, 'plex-token.bin'), safeStorage.encryptString('tok12345'));
+    // Your click in Shelf's permission window (kept so the test can check what it said).
+    global.__prompts = [];
+    global.__shelfConsent = async (o) => { global.__prompts.push(o); return true; };
+  }, { port: srv.port, fp: srv.fp, pass: srv.pass });
+  if (process.env.DEBUG) app.process().stderr.on('data', (d) => process.stdout.write('[main] ' + d));
+  const win = await app.firstWindow();
+  win.on('pageerror', (e) => errors.push(String(e)));
+  win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await win.route('**/*', (route) => {
+    const u = route.request().url();
+    if (u.includes('api.tvmaze.com/search')) return route.fulfill({ status: 200, headers: H, body: JSON.stringify([{ score: 1, show: { id: 713, name: 'SpongeBob SquarePants', premiered: '1999-05-01', weight: 99 } }]) });
+    if (u.includes('api.tvmaze.com/shows/713/episodes')) return route.fulfill({ status: 200, headers: H, body: JSON.stringify(S5.map(([season, number, name]) => ({ season, number, name, airdate: '2007-01-01', runtime: 11 }))) });
+    if (u.includes('api.tvmaze.com') || u.includes('api.themoviedb.org')) return route.fulfill({ status: 200, headers: H, body: '[]' });
+    return route.continue();
+  });
+  await win.waitForLoadState();
+
+  // Fix My Plex Library lists the server's files (the SpongeBob half-hour among them).
+  await win.evaluate(() => window.ShelfSend.refresh());
+  await win.waitForSelector('#fixLibBtn:not([hidden])', { timeout: 5000 });
+  await win.click('#fixLibBtn');
+  const sb = () => win.evaluate(() => window.Shelf.items().find((i) => /S05E03.*\.mkv$/.test(i.name)) || null);
+  for (let i = 0; i < 80; i++) { const it = await sb(); if (it && !['pending', 'matching'].includes(it.status)) break; await sleep(250); }
+  const listed = await sb();
+  assert.ok(listed && listed.remote === '/mnt/media/TV/Spongebob/Season 5/SpongeBob.SquarePants.S05E03.720p.mkv' && !listed.fullPath, JSON.stringify(listed && { remote: listed.remote, status: listed.status }));
+  console.log('  ✓ Check Library lists the SpongeBob half-hour on the server (' + listed.status + ')');
+
+  // Auto Mode is offered for it, asks first (saying the video is on the server), and reads both cards.
+  await win.waitForSelector('#autoMode:not([hidden])', { timeout: 5000 });
+  const t0 = Date.now();
+  await win.click('#autoMode');
+  for (let i = 0; i < 900; i++) {
+    await sleep(200);
+    if (await win.evaluate(() => { const it = window.Shelf.items().find((x) => /S05E03.*\.mkv$/.test(x.name)); return !!(it && it.cards) && document.getElementById('activity').hidden; })) break;
+  }
+  const took = Date.now() - t0;
+  const prompts = await app.evaluate(() => global.__prompts.map((p) => ({ title: p.title, files: p.files, points: p.points.map((x) => x.text) })));
+  assert.strictEqual(prompts.length, 1, JSON.stringify(prompts));
+  assert.deepStrictEqual(prompts[0].files, ['SpongeBob.SquarePants.S05E03.720p.mkv']);
+  assert.ok(prompts[0].points.some((t) => /Plex server/.test(t)) && prompts[0].points.some((t) => /nothing is installed/i.test(t)), JSON.stringify(prompts[0]));
+  console.log('  ✓ Shelf asked first: “' + prompts[0].title + '” — ' + prompts[0].points.join(' · '));
+  const it = await sb();
+  const names = ((it.episode && it.episode.entries) || []).map((e) => e.name);
+  assert.ok(it.cards && it.cards.length, 'title cards were read');
+  assert.deepStrictEqual(names.slice().sort(), ['Fungus Among Us', 'Rise and Shine'], JSON.stringify({ episode: it.episode, cards: it.cards }));
+  assert.strictEqual(it.episode.how, 'card');
+  assert.ok(it.minutes > 20, 'its length came from the header on the server: ' + it.minutes);
+  console.log('  ✓ Both title cards read from the server in ' + (took / 1000).toFixed(1) + ' s: ' + names.join(' + ') + ' (' + Math.round(it.minutes) + ' min)');
+
+  // Only part of the file crossed over, everything on the server was closed, nothing was saved.
+  const size = fs.statSync(LOCAL).size;
+  assert.ok(srv.reads.bytes < size * 0.7, 'read ' + srv.reads.bytes + ' of ' + size + ' bytes');
+  assert.strictEqual(srv.reads.opens, srv.reads.closes, 'every file opened on the server was closed');
+  const left = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('shelf-scan-') && !tmpBefore.has(n));
+  assert.deepStrictEqual(left, [], 'no frames left behind');
+  console.log('  ✓ ' + (srv.reads.bytes / 1e6).toFixed(0) + ' of ' + (size / 1e6).toFixed(0) + ' MB read, every server file closed, no frames left');
+
+  // The reader was shut when the scan ended: nothing on this PC answers for it any more.
+  const listening = await app.evaluate(() => process._getActiveHandles().filter((h) => h && h.constructor && h.constructor.name === 'Server' && h.address && h.address() && h.address().address === '127.0.0.1').map((h) => h.address().port));
+  assert.deepStrictEqual(listening, [], 'no 127.0.0.1 server left open: ' + listening.join(','));
+  console.log('  ✓ The 127.0.0.1 reader was closed after the scan');
+
+  // The same file read on this PC, for comparison.
+  const local = await app.evaluate(async (x, a) => {
+    const req = process.mainModule.require, pm = req('path');
+    const scan = req(pm.join(a.root, 'desktop/scan')), probe = req(pm.join(a.root, 'desktop/probe')), P = req(pm.join(a.root, 'app/js/parser.js'));
+    const entries = a.names.map((name, n) => ({ name, number: n + 1, season: 1 }));
+    const t = Date.now();
+    await scan.scanFile(a.file, await probe.duration(a.file), { isMatch: (texts) => P.matchCardText(texts, entries, []) });
+    await scan.stopOcr();
+    return Date.now() - t;
+  }, { file: LOCAL, root: ROOT, names: S5.map((e) => e[2]) }).catch((e) => { console.log('  (local timing failed: ' + e.message + ')'); return null; });
+  if (local) console.log('  · the same file read on this PC: ' + (local / 1000).toFixed(1) + ' s (from the server: ' + (took / 1000).toFixed(1) + ' s, including the prompt and working out the episodes)');
+
+  assert.deepStrictEqual(errors.filter((e) => !/favicon|net::ERR/.test(e)), []);
+  await app.close();
+  // Pieces of the video from around both title cards (the parts that were read) appear in no file Shelf could have written.
+  const fd = fs.openSync(LOCAL, 'r');
+  const pieces = [0.02, 0.04, 0.48, 0.52].map((at) => { const b = Buffer.alloc(64); fs.readSync(fd, b, 0, 64, Math.floor(size * at)); return b; });
+  fs.closeSync(fd);
+  const holders = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else if (e.isFile()) { const b = fs.readFileSync(p); if (pieces.some((x) => b.indexOf(x) >= 0)) holders.push(p); }
+    }
+  })(profile);
+  assert.deepStrictEqual(holders, [], 'no piece of the video saved');
+  console.log('  ✓ No piece of the video was saved in Shelf’s profile');
+  srv.close();
+  fs.rmSync(profile, { recursive: true, force: true });
+  console.log('Remote title cards smoke test passed');
+  process.exit(0);
+})().catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });

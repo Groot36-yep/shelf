@@ -1205,6 +1205,8 @@
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
   var scanning = false;
+  // Title cards can be read in videos on this PC, and in ones on your Plex server (Fix My Plex Library).
+  function canLook(i) { return !!(i.fullPath || i.remote); }
   function showFiles(item) {
     var v = linkedVideo(item) || item;
     var c = current(v);
@@ -1212,11 +1214,11 @@
     var id = showIdKey(c);
     return items.filter(function (i) {
       var cc = current(i);
-      return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && cc && showIdKey(cc) === id && ['done', 'skipped'].indexOf(i.status) < 0;
+      return i.kind === 'episode' && !i.linkTo && canLook(i) && i.parsed.isVideo && cc && showIdKey(cc) === id && ['done', 'skipped'].indexOf(i.status) < 0;
     });
   }
   // Every TV video in the list that can still be renamed (what Auto Mode reads).
-  function tvVideos() { return items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; }); }
+  function tvVideos() { return items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && canLook(i) && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; }); }
   var scanJob = null;
   function setScanStatus(text) { if (scanJob) scanJob.set(text); }
   // The bar at the bottom while Shelf reads videos.
@@ -1228,7 +1230,7 @@
     $('scanBarText').textContent = text;
     $('scanBarFill').style.width = Math.round(Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
   }
-  function itemByPath(p) { return items.filter(function (i) { return i.fullPath === p; })[0] || null; }
+  function itemByPath(p) { return items.filter(function (i) { return i.fullPath ? i.fullPath === p : i.remote === p; })[0] || null; }
 
   // The live reader: a small card that shows the frame Shelf is reading and the titles it finds.
   var reader = (function () {
@@ -1307,7 +1309,7 @@
   // Deep Scan: one video, much more thorough (for title cards the quick read missed).
   function deepScan(item) {
     var v = linkedVideo(item) || item;
-    if (scanning || !v.fullPath) return;
+    if (scanning || !canLook(v)) return;
     readCardsOf([v], true);
   }
   // Auto Mode: every TV video not read yet (or all of them again, if they all have been).
@@ -1369,7 +1371,9 @@
       };
       return native.readCards(files.map(function (i) {
         var list = listOf(i);
-        return { path: i.fullPath, titles: list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; }), near: nearFor(i, list) };
+        var job = { titles: list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; }), near: nearFor(i, list) };
+        if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
+        return job;
       }), { deep: !!deepNext });
     }).then(function (res) {
       if (!res) return res;
@@ -1674,8 +1678,8 @@
     }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
   }
-  // Deep Scan works on any TV video you've added from your computer.
-  function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && v.fullPath && v.parsed.isVideo && !v.split); }
+  // Deep Scan works on any TV video you've added from your computer or listed from your Plex server.
+  function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && canLook(v) && v.parsed.isVideo && !v.split); }
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
     var clean = es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; });

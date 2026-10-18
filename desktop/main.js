@@ -511,42 +511,66 @@ if (gotLock) app.whenReady().then(() => {
   });
   let cardCancel = false;
   handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
-  // jobs: [{ path, titles: [episode titles of that show] }]
+  // jobs: [{ path, titles: [episode titles of that show] }]. A video on your Plex server (listed by Fix My
+  // Plex Library) comes as { remote: its path there, titles } and is read over the SSH connection (remoteread.js).
   handle('shelf:readCards', async (jobs, how) => {
     if (!Array.isArray(jobs)) return {};
     const deep = !!(how && how.deep);
-    const titlesFor = new Map(jobs.filter((j) => j && typeof j.path === 'string').map((j) => [path.resolve(j.path), Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
-    const nearFor = new Map(jobs.filter((j) => j && typeof j.path === 'string').map((j) => [path.resolve(j.path), new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
-    const files = pickedVideos([...titlesFor.keys()]);
+    const onServer = new Set(); // keys of videos on the server (their path there, never resolved on this PC)
+    const keyOf = (j) => {
+      if (typeof j.path === 'string') return path.resolve(j.path);
+      const r = String(j.remote);
+      if (plexFix.isListed(r) && P.VIDEO_EXT.includes(path.posix.extname(r).slice(1).toLowerCase())) { onServer.add(r); return r; }
+      return null;
+    };
+    jobs = jobs.filter((j) => j && (typeof j.path === 'string' || typeof j.remote === 'string')).map((j) => Object.assign({}, j, { key: keyOf(j) })).filter((j) => j.key);
+    const titlesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
+    const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
+    const files = pickedVideos([...titlesFor.keys()].filter((k) => !onServer.has(k))).concat([...onServer]).slice(0, 2000);
     if (!files.length) return {};
+    const someOnServer = files.some((f) => onServer.has(f));
+    const where = someOnServer
+      ? [{ icon: 'lock', text: 'Videos on your Plex server: only the minutes Shelf needs are read, over your SSH connection' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }]
+      : [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }];
     const yes = deep
       ? await askFirst(files, {
         kind: 'deep', ok: 'Deep Scan', title: n(files, 'Deep scan this video?', 'Deep scan these # videos?'),
         lead: 'Shelf takes a much closer look at every spot a title card could be, reading each one many ways.',
-        points: [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }, { icon: 'clock', text: 'Takes a few minutes per video' }]
+        points: where.concat([{ icon: 'clock', text: 'Takes a few minutes per video' }])
       })
       : await askFirst(files, {
         kind: 'cards', ok: 'Read Title Cards', title: n(files, 'Read this video’s title cards?', 'Read the title cards of # videos?'),
         lead: 'Shelf looks at a few still frames and reads the words on them, to find out which episodes ' + n(files, 'it holds.', 'they hold.'),
-        points: [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }, { icon: 'clock', text: 'About 5–30 seconds per video' }]
+        points: where.concat([{ icon: 'clock', text: 'About 5–30 seconds per video' }])
       });
     if (!yes) return null;
-    files.forEach((f) => lookApproved.add(f)); // you said yes to Shelf looking inside these
+    files.forEach((f) => { if (!onServer.has(f)) lookApproved.add(f); }); // you said yes to Shelf looking inside these
     const scan = require('./scan'); // loaded only when you use it
     cardCancel = false;
     const send = (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', msg); };
     const out = {};
-    send({ kind: 'queue', paths: files, total: files.length });
-    try {
+    // proxy: the reader for videos on the server (null when there are none, or the server couldn't be reached: why).
+    async function readAll(proxy, why) {
       for (let i = 0; i < files.length && !cardCancel; i++) {
-        const f = files[i];
+        const f = files[i], remote = onServer.has(f);
         const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1 }));
         const near = entries.filter((e) => nearFor.get(f).has(e.name));
-        const secs = await probe.duration(f);
-        send({ kind: 'start', path: f, index: i, total: files.length, file: path.basename(f) });
+        let src = null, secs = null;
+        try {
+          if (remote) {
+            if (!proxy) throw new Error(why || 'Couldn’t reach your Plex server.');
+            src = await proxy.add(f).catch((e) => { throw new Error(require('./server').friendly(e, '').message); });
+          }
+          secs = src ? await probe.duration(f, src.fh) : await probe.duration(f);
+        } catch (e) {
+          out[f] = { secs, error: String(e.message || e).slice(0, 200) };
+          send({ kind: 'file', path: f, index: i, total: files.length, result: out[f], stopped: cardCancel });
+          continue;
+        }
+        send({ kind: 'start', path: f, index: i, total: files.length, file: remote ? path.posix.basename(f) : path.basename(f) });
         let last = 0;
         try {
-          const r = await scan.scanFile(f, secs, {
+          const r = await scan.scanFile(src ? src.url : f, secs, {
             deep,
             isMatch: (texts) => P.matchCardText(texts, entries, near),
             cancelled: () => cardCancel,
@@ -558,8 +582,28 @@ if (gotLock) app.whenReady().then(() => {
           out[f] = { secs, parts: scan.windowsFor(secs).length, texts: r.texts };
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
+        } finally {
+          if (src) await src.done();
         }
         send({ kind: 'file', path: f, index: i, total: files.length, result: out[f], stopped: cardCancel });
+      }
+    }
+    send({ kind: 'queue', paths: files, total: files.length });
+    try {
+      if (!someOnServer) await readAll(null);
+      else {
+        let opened = false;
+        try {
+          // The reader lives only while this scan runs, on the connection Send to Plex uses.
+          await plexSend.withSession(async (s) => {
+            opened = true;
+            const proxy = await require('./remoteread').open(s.sftp);
+            try { await readAll(proxy); } finally { await proxy.close(); }
+          });
+        } catch (e) {
+          if (opened) throw e;
+          await readAll(null, require('./server').friendly(e, (plexSend.cfg() || {}).host || '').message); // this PC's videos still get read
+        }
       }
     } finally {
       await scan.stopOcr();

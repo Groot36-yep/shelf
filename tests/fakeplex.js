@@ -1,6 +1,7 @@
 // A pretend Plex server for tests: SSH + SFTP kept in memory (a media drive on /srv/disk1 linked into
 // /mnt/media, a folder you can't open) and Plex answering through the SSH connection. Runs anywhere.
 'use strict';
+const fs = require('fs');
 const path = require('path');
 const posix = path.posix;
 const crypto = require('crypto');
@@ -9,7 +10,8 @@ const S = require('../desktop/server.js');
 const { Server, utils } = require('ssh2');
 const { OPEN_MODE, STATUS_CODE } = utils.sftp;
 
-async function start() {
+async function start(opts) {
+  opts = opts || {};
   let server;
   // ---- The server's disk: real folders on /srv/disk1, linked into /mnt/media ----
   const dirs = new Set(['/', '/home', '/home/me', '/mnt', '/srv', '/srv/disk1', '/srv/disk1/TV', '/srv/disk1/Movies', '/root',
@@ -22,6 +24,10 @@ async function start() {
     ['/srv/disk1/TV/Good Show/Season 01/Good Show - S01E01 - Pilot.mkv', 2000],
     ['/srv/disk1/Movies/new stuff/Charade.1963.1080p.BluRay.mkv', 3000]
   ]);
+  // opts.real: { 'server path': 'file on this PC' }: that file's real bytes are served (for reading title cards).
+  for (const [p, local] of Object.entries(opts.real || {})) files.set(p, fs.statSync(local).size);
+  const reads = { opens: 0, closes: 0, count: 0, bytes: 0 }, fds = {};
+  let netFree = 0;
   // Follow links in any part of a path (like the real server does).
   function real(p) {
     p = posix.normalize(p);
@@ -111,17 +117,47 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
       });
       sftp.on('OPEN', (id, p, flags) => {
         if (isDenied(p) || !dirs.has(real(posix.dirname(p)))) return sftp.status(id, STATUS_CODE.PERMISSION_DENIED);
+        // Opened for reading only: the file must be there, and nothing is changed.
+        if ((flags & OPEN_MODE.READ) && !(flags & (OPEN_MODE.WRITE | OPEN_MODE.APPEND | OPEN_MODE.CREAT | OPEN_MODE.TRUNC))) {
+          if (!files.has(real(p))) return sftp.status(id, STATUS_CODE.NO_SUCH_FILE);
+          reads.opens++;
+          return sftp.handle(id, handle({ file: real(p), read: true }));
+        }
         if ((flags & OPEN_MODE.EXCL) && files.has(real(p))) return sftp.status(id, STATUS_CODE.FAILURE);
         files.set(real(p), 0); sftp.handle(id, handle({ file: p }));
       });
-      sftp.on('CLOSE', (id, h) => { handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
+      // Reading: files given real bytes (opts.real) answer with them, others with zeros.
+      sftp.on('READ', (id, h, offset, len) => {
+        const st = handles.get(h.toString('hex'));
+        if (!st || !st.read) return sftp.status(id, STATUS_CODE.FAILURE);
+        const size = files.get(st.file) || 0;
+        if (offset >= size) return sftp.status(id, STATUS_CODE.EOF);
+        const n = Math.min(len, size - offset, 255 * 1024);
+        reads.count++; reads.bytes += n;
+        const local = (opts.real || {})[st.file];
+        // opts.net: { mbps, ms }: answers arrive as over a network that fast, that far away.
+        const later = (fn) => {
+          if (!opts.net) return fn();
+          const now = Date.now(), at = Math.max(now, netFree) + n / (opts.net.mbps * 125);
+          netFree = at; setTimeout(fn, at - now + (opts.net.ms || 0));
+        };
+        if (!local) return later(() => sftp.data(id, Buffer.alloc(n)));
+        const buf = Buffer.allocUnsafe(n);
+        fs.read(fds[st.file] || (fds[st.file] = fs.openSync(local, 'r')), buf, 0, n, offset, (err, got) => later(() => (err ? sftp.status(id, STATUS_CODE.FAILURE) : sftp.data(id, buf.subarray(0, got)))));
+      });
+      sftp.on('FSTAT', (id, h) => {
+        const st = handles.get(h.toString('hex'));
+        const a = st && st.file && attrs(st.file, true);
+        return a ? sftp.attrs(id, a) : sftp.status(id, STATUS_CODE.FAILURE);
+      });
+      sftp.on('CLOSE', (id, h) => { const st = handles.get(h.toString('hex')); if (st && st.read) reads.closes++; handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
       sftp.on('REMOVE', (id, p) => { files.delete(real(p)); sftp.status(id, STATUS_CODE.OK); });
     });
   }));
 });
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, close: () => server.close() };
+return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
 }
 
 module.exports = { start };

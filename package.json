@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/parser.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js && node tests/updates.test.js && node tests/ssh-loopback.test.js && node tests/server.test.js && node tests/plexsend.test.js && node tests/plexfix.test.js && node tests/hwaccel.test.js",
+    "test": "node tests/parser.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js && node tests/updates.test.js && node tests/ssh-loopback.test.js && node tests/server.test.js && node tests/plexsend.test.js && node tests/plexfix.test.js && node tests/hwaccel.test.js && node tests/remoteread.test.js",
     "dist:win": "electron-builder --win --publish never"
   },
   "build": {

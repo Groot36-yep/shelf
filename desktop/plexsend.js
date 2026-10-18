@@ -65,7 +65,7 @@ function setup(ctx) {
   }
 
   // ---- Connecting ----
-  let session = null, idle = null, opening = null;
+  let session = null, idle = null, opening = null, holds = 0; // holds: jobs using the connection right now
   async function open() {
     clearTimeout(idle);
     if (session && !session.closed) return session;
@@ -81,9 +81,9 @@ function setup(ctx) {
   }
   function later() {
     clearTimeout(idle);
-    idle = setTimeout(() => { if (queue.snapshot().running) return later(); if (session) session.close(); session = null; }, 45000);
+    idle = setTimeout(() => { if (queue.snapshot().running || holds) return later(); if (session) session.close(); session = null; }, 45000);
   }
-  async function withSession(fn) { const s = await open(); try { return await fn(s); } finally { later(); } }
+  async function withSession(fn) { const s = await open(); holds++; try { return await fn(s); } finally { holds--; later(); } }
 
   // The last server you looked up (first contact): you confirm its fingerprint before Shelf logs in.
   let pending = null;

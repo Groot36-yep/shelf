@@ -242,7 +242,11 @@ function setup(ctx, api) {
     return { undone, kept };
   });
 
-  return { forget: () => { listed.clear(); fs.rmSync(journalFile(), { force: true }); } };
+  return {
+    forget: () => { listed.clear(); fs.rmSync(journalFile(), { force: true }); },
+    // Only files Check Library listed may be looked inside (Read Title Cards).
+    isListed: (p) => typeof p === 'string' && listed.has(p)
+  };
 }
 
 module.exports = { setup, looksRight, targetFor, plexFiles };
