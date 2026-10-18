@@ -89,6 +89,63 @@ function ok(c, m) { if (c) pass++; else { fail++; console.log('FAIL', m); } }
     fs.rmSync(root, { recursive: true, force: true });
   }
 
+  // Looking through folders all at once gives exactly what a one-folder-at-a-time walk gives:
+  // same order (Season 2 before Season 10), same files skipped, links never followed, same limit.
+  {
+    const fsp = fs.promises;
+    const { VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
+    const isWanted = (n) => !n.startsWith('.') && VIDEO_EXT.concat(SUB_EXT).includes(path.extname(n).slice(1).toLowerCase());
+    async function oneByOne(paths, max) { // the walk expand() used before (kept here as the reference)
+      const out = [];
+      async function walk(full, base) {
+        if (out.length >= max) return;
+        let st;
+        try { st = await fsp.lstat(full); } catch (e) { return; }
+        if (st.isSymbolicLink()) return;
+        if (st.isDirectory()) {
+          let names = [];
+          try { names = await fsp.readdir(full); } catch (e) { return; }
+          names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+          for (const n of names) {
+            if (n.startsWith('.') || /^(\$RECYCLE\.BIN|System Volume Information)$/i.test(n)) continue;
+            await walk(path.join(full, n), base);
+          }
+        } else if (st.isFile() && isWanted(path.basename(full))) {
+          out.push({ name: path.basename(full), relPath: path.relative(base, full).split(path.sep).join('/'), size: st.size, fullPath: full, parents: path.dirname(full).split(/[\\/]+/).filter(Boolean).slice(-3) });
+        }
+      }
+      for (const p of paths) {
+        const full = path.resolve(p);
+        try { await fsp.lstat(full); } catch (e) { continue; }
+        await walk(full, path.dirname(full));
+      }
+      return out;
+    }
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-walk-'));
+    const tv = path.join(root, 'TV');
+    const put = (rel, body) => { const f = path.join(tv, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body || 'x'); };
+    for (const s of [1, 2, 10]) for (const e of [1, 2, 10, 11]) put('Lost/Season ' + s + '/Lost.S' + s + 'E' + e + '.mkv', 'v'.repeat(s * 100 + e));
+    put('Lost/Season 1/Lost.S1E01.en.srt'); put('Lost/Season 1/poster.jpg'); put('Lost/Season 1/.hidden.mkv');
+    put('Lost/.trash/Old.mkv'); put('$RECYCLE.BIN/Deleted.mkv'); put('System Volume Information/x.mkv');
+    put('Arcane/Arcane S01E01.MKV'); put('Arcane/notes.txt'); put('Zed/a/b/c/deep.mp4'); fs.mkdirSync(path.join(tv, 'Empty'));
+    const outside = path.join(root, 'Elsewhere'); fs.mkdirSync(outside); fs.writeFileSync(path.join(outside, 'Secret.mkv'), 's');
+    let linked = false;
+    try { fs.symlinkSync(outside, path.join(tv, 'Linked'), 'junction'); linked = true; } catch (e) { /* no links on this drive */ }
+    try { fs.symlinkSync(path.join(outside, 'Secret.mkv'), path.join(tv, 'Arcane', 'Link.mkv'), 'file'); } catch (e) { /* needs Developer Mode on Windows */ }
+    const picks = [tv, path.join(tv, 'Arcane', 'Arcane S01E01.MKV'), path.join(root, 'missing'), path.join(tv, 'Lost', 'Season 2')];
+    const want = await oneByOne(picks, 20000);
+    const got = await F.expand(picks);
+    ok(JSON.stringify(got) === JSON.stringify(want), 'walk: same list, same order as one folder at a time (' + got.length + ' vs ' + want.length + ')');
+    ok(got.findIndex((f) => /S2E1\.mkv$/.test(f.name)) < got.findIndex((f) => /S10E1\.mkv$/.test(f.name)), 'walk: Season 2 before Season 10');
+    ok(!got.some((f) => /Secret|Old|Deleted|hidden|poster|notes|x\.mkv/.test(f.name)), 'walk: skips hidden, recycle bin, other files' + (linked ? ' and never follows links' : ''));
+    ok(got.find((f) => f.name === 'Lost.S1E2.mkv').size === 102, 'walk: sizes are right');
+    for (const max of [1, 5, 13, 30]) {
+      const a = await F.expand(picks, max), b = await oneByOne(picks, max);
+      ok(a.length === Math.min(max, want.length) && JSON.stringify(a) === JSON.stringify(b), 'walk: limit of ' + max + ' keeps the same first files');
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
   console.log(`${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

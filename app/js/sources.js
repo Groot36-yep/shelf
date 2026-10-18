@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var cache = {}; // lives only in memory; gone when the tab closes
+  var cache = {}; // the services' raw answers, in memory only; gone when Shelf closes
 
   // Only ever use links and images that point where we expect.
   function safeUrl(u, allowed) {
@@ -96,6 +96,45 @@
     return p;
   }
 
+  // ---------- Remembered lookups (kept on this computer, see remember.js) ----------
+  // Searches are remembered for 30 days (a day when nothing was found), episode lists for a week
+  // (a day while the show is still airing). What's remembered is the tidy answer Shelf uses, under
+  // a name like "tvmaze:search:lost": never your keys.
+  var store = root.ShelfRemember ? root.ShelfRemember.open() : null;
+  var asked = {}; // this session: name → Promise<{ v, at }>
+  function clone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
+  function unwrap(r) {
+    var v = clone(r.v);
+    // An answer remembered from an earlier session says so (an episode list can then be checked afresh).
+    if (r.at && v && typeof v === 'object') Object.defineProperty(v, 'rememberedAt', { value: r.at });
+    return v;
+  }
+  function remembered(name, days, look, fresh) {
+    if (!fresh && asked[name]) return asked[name].then(unwrap);
+    var p = (store && !fresh ? store.get(name) : Promise.resolve(null)).then(function (hit) {
+      if (hit) return hit;
+      return look().then(function (v) {
+        if (store) store.set(name, v, days(v));
+        return { v: v, at: null };
+      });
+    });
+    asked[name] = p;
+    p.catch(function () { if (asked[name] === p) delete asked[name]; });
+    return p.then(unwrap);
+  }
+  function searchDays(list) { return list && list.length ? 30 : 1; }
+  function episodeDays(list) {
+    var recent = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+    return (list || []).some(function (e) { return e.aired && e.aired >= recent; }) ? 1 : 7;
+  }
+  /** Forget every remembered lookup (and this session's answers), so everything is asked afresh. */
+  function forgetRemembered() {
+    asked = {}; cache = {};
+    return store ? store.clear() : Promise.resolve();
+  }
+  /** For tests: use this store instead of the window's own. */
+  function rememberIn(s) { store = s; asked = {}; cache = {}; }
+
   // ---------- TMDB ----------
   var TMDB = 'https://api.themoviedb.org/3';
   var TMDB_IMG = 'https://image.tmdb.org/t/p/w342';
@@ -129,6 +168,9 @@
 
   function searchMovies(title, year, key) {
     if (!key) { var e = new Error('Add your free TMDB key in Settings to match movies.'); e.code = 'nokey'; return Promise.reject(e); }
+    return remembered('tmdb:movies:' + title + ':' + (year || ''), searchDays, function () { return lookMovies(title, year, key); });
+  }
+  function lookMovies(title, year, key) {
     // Fast path: ONE search without the year returns every version (originals and remakes),
     // and Shelf picks the year itself. Only if the year isn't among them, ask once more with it.
     return tmdbRequest('/search/movie', { query: title, include_adult: 'false' }, key)
@@ -143,6 +185,16 @@
       })
       .then(function (results) { return results.slice(0, 12).map(tmdbToCandidate); });
   }
+
+  // A movie named by its TMDB id ("The Matrix (1999) {tmdb-603}"): no search needed.
+  function movieById(id, key) {
+    id = parseInt(id, 10);
+    if (!key || !(id > 0)) return Promise.resolve([]);
+    return remembered('tmdb:movie:' + id, searchDays, function () {
+      return tmdbRequest('/movie/' + id, {}, key).then(function (j) { return j && j.id ? [tmdbToCandidate(j)] : []; });
+    }).then(byId);
+  }
+  function byId(list) { (list || []).forEach(function (c) { c.byId = true; }); return list || []; }
 
   function testTmdbKey(key) {
     return tmdbRequest('/configuration', {}, key).then(function () { return true; });
@@ -174,8 +226,10 @@
   function searchShows(title) {
     // "The Office", "the office" and "THE OFFICE" are one request, shared by every episode.
     var q = String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    return getJSON(TVMAZE + '/search/shows?q=' + encodeURIComponent(q))
-      .then(function (j) { return (j || []).slice(0, 8).map(function (r) { return showToCandidate(r.show, r.score); }); });
+    return remembered('tvmaze:search:' + q, searchDays, function () {
+      return getJSON(TVMAZE + '/search/shows?q=' + encodeURIComponent(q))
+        .then(function (j) { return (j || []).slice(0, 8).map(function (r) { return showToCandidate(r.show, r.score); }); });
+    });
   }
 
   // ---------- Episode lists (one shape for every service) ----------
@@ -203,16 +257,20 @@
   }
   function searchShowsTmdb(title, key) {
     if (!key) { var e = new Error('Add your free TMDB key in Settings, or choose TheTVDB order.'); e.code = 'nokey'; return Promise.reject(e); }
-    return tmdbRequest('/search/tv', { query: String(title).toLowerCase().trim(), include_adult: 'false' }, key)
+    var q = String(title).toLowerCase().trim();
+    return remembered('tmdb:tvsearch:' + q, searchDays, function () {
+      return tmdbRequest('/search/tv', { query: q, include_adult: 'false' }, key)
         .then(function (j) { return ((j && j.results) || []).slice(0, 10).map(tmdbShowToCandidate); });
+    });
   }
   // One request gets the show and up to 19 seasons (TMDB's append_to_response), so most shows cost 1 request.
+  function tmdbShowPage(id, from, key) {
+    var seasons = []; for (var n = from; n < from + 19; n++) seasons.push('season/' + n);
+    return tmdbRequest('/tv/' + id, { append_to_response: seasons.join(',') }, key);
+  }
   function tmdbEpisodes(showId, key) {
     var id = parseInt(showId, 10);
-    function batch(from) {
-      var seasons = []; for (var n = from; n < from + 19; n++) seasons.push('season/' + n);
-      return tmdbRequest('/tv/' + id, { append_to_response: seasons.join(',') }, key);
-    }
+    function batch(from) { return tmdbShowPage(id, from, key); }
     return batch(0).then(function (j) {
       var count = (j && j.number_of_seasons) || 0;
       var more = [];
@@ -281,8 +339,10 @@
   }
   function searchShowsTvdb(title, key, pin) {
     var q = String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    return tvdbGet('/search?type=series&limit=10&query=' + encodeURIComponent(q), key, pin)
-      .then(function (j) { return ((j && j.data) || []).slice(0, 10).map(tvdbToCandidate); });
+    return remembered('tvdb:search:' + q, searchDays, function () {
+      return tvdbGet('/search?type=series&limit=10&query=' + encodeURIComponent(q), key, pin)
+        .then(function (j) { return ((j && j.data) || []).slice(0, 10).map(tvdbToCandidate); });
+    });
   }
   // order: 'default' (aired) or 'dvd'. Pages of up to 500 episodes; English names when available.
   function tvdbEpisodes(showId, order, key, pin) {
@@ -310,17 +370,55 @@
    * The full episode list of a show, in the order Plex will use.
    * cand: a candidate from searchShows*; keys: { tmdb, tvdb, tvdbPin }; order: 'tmdb' | 'tvdb' | 'tvdbdvd'
    */
-  function getEpisodeList(cand, keys) {
-    if (cand.source === 'TMDB') return tmdbEpisodes(cand.id, keys.tmdb);
-    if (cand.source === 'TheTVDB') return tvdbEpisodes(cand.id, keys.order === 'tvdbdvd' ? 'dvd' : 'default', keys.tvdb, keys.tvdbPin);
-    return tvmazeEpisodes(cand.id);
+  function getEpisodeList(cand, keys, opts) {
+    var id = parseInt(cand.id, 10), dvd = keys.order === 'tvdbdvd' ? 'dvd' : 'default';
+    var name = cand.source === 'TMDB' ? 'tmdb:episodes:' + id : cand.source === 'TheTVDB' ? 'tvdb:episodes:' + id + ':' + dvd : 'tvmaze:episodes:' + id;
+    return remembered(name, episodeDays, function () {
+      if (cand.source === 'TMDB') return tmdbEpisodes(id, keys.tmdb);
+      if (cand.source === 'TheTVDB') return tvdbEpisodes(id, dvd, keys.tvdb, keys.tvdbPin);
+      return tvmazeEpisodes(id);
+    }, !!(opts && opts.fresh)); // fresh: not an answer remembered from an earlier session
   }
 
+  function tvServiceFor(keys) {
+    if (keys.order === 'tmdb' && keys.tmdb) return 'TMDB';
+    if ((keys.order === 'tvdb' || keys.order === 'tvdbdvd') && keys.tvdb) return 'TheTVDB';
+    return 'TVmaze';
+  }
   /** Search shows on the service that matches the chosen Plex order (TVmaze when there's no key). */
   function searchShowsFor(title, keys) {
-    if (keys.order === 'tmdb' && keys.tmdb) return searchShowsTmdb(title, keys.tmdb);
-    if ((keys.order === 'tvdb' || keys.order === 'tvdbdvd') && keys.tvdb) return searchShowsTvdb(title, keys.tvdb, keys.tvdbPin);
+    var svc = tvServiceFor(keys);
+    if (svc === 'TMDB') return searchShowsTmdb(title, keys.tmdb);
+    if (svc === 'TheTVDB') return searchShowsTvdb(title, keys.tvdb, keys.tvdbPin);
     return searchShows(title);
+  }
+
+  /**
+   * A show named by its id in its folder ("Lost {tmdb-4607}", "Lost {tvdb-73739}"), looked up on
+   * the service Plex's order uses, without a search. ids: { tmdb, tvdb }. Resolves [] when it
+   * can't be looked up that way (Shelf then searches by name as usual).
+   */
+  function showByIdFor(ids, keys) {
+    var svc = tvServiceFor(keys), tmdb = parseInt(ids && ids.tmdb, 10), tvdb = parseInt(ids && ids.tvdb, 10);
+    var name = null, look = null;
+    if (svc === 'TMDB' && tmdb > 0) {
+      // The same request as the first page of its episode list, so the two share one answer.
+      name = 'tmdb:tv:' + tmdb;
+      look = function () { return tmdbShowPage(tmdb, 0, keys.tmdb).then(function (j) { return j && j.id ? [tmdbShowToCandidate(j)] : []; }); };
+    } else if (svc === 'TMDB' && tvdb > 0) {
+      name = 'tmdb:tvdb:' + tvdb;
+      look = function () {
+        return tmdbRequest('/find/' + tvdb, { external_source: 'tvdb_id' }, keys.tmdb)
+          .then(function (j) { return ((j && j.tv_results) || []).slice(0, 1).map(tmdbShowToCandidate); });
+      };
+    } else if (svc === 'TVmaze' && tvdb > 0) {
+      name = 'tvmaze:tvdb:' + tvdb;
+      look = function () {
+        return getJSON(TVMAZE + '/lookup/shows?thetvdb=' + tvdb).then(function (show) { return show && show.id ? [showToCandidate(show, 0)] : []; });
+      };
+    }
+    if (!look) return Promise.resolve([]);
+    return remembered(name, searchDays, look).then(byId);
   }
 
   root.ShelfSources = {
@@ -328,7 +426,11 @@
     testTmdbKey: testTmdbKey,
     searchShows: searchShows,
     searchShowsFor: searchShowsFor,
+    showByIdFor: showByIdFor,
+    movieById: movieById,
     getEpisodeList: getEpisodeList,
-    testTvdbKey: testTvdbKey
+    testTvdbKey: testTvdbKey,
+    forgetRemembered: forgetRemembered,
+    rememberIn: rememberIn
   };
 })(this);

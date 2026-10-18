@@ -15,6 +15,9 @@ const crypto = require('crypto');
 const fileops = require('./fileops');
 const probe = require('./probe');
 const P = require('../app/js/parser.js');
+// Title-card reading (and its text readers) is loaded the first time you use it.
+let scanLoaded = null;
+function scanner() { return scanLoaded || (scanLoaded = require('./scan')); }
 
 const APP_ROOT = path.join(__dirname, '..', 'app');
 const ORIGIN = 'app://shelf';
@@ -545,7 +548,7 @@ if (gotLock) app.whenReady().then(() => {
       });
     if (!yes) return null;
     files.forEach((f) => { if (!onServer.has(f)) lookApproved.add(f); }); // you said yes to Shelf looking inside these
-    const scan = require('./scan'); // loaded only when you use it
+    const scan = scanner(); // loaded only when you use it
     cardCancel = false;
     const send = (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', msg); };
     const out = {};
@@ -606,7 +609,7 @@ if (gotLock) app.whenReady().then(() => {
         }
       }
     } finally {
-      await scan.stopOcr();
+      scan.stopOcrSoon(); // kept ready for a minute, in case you read more
       send({ kind: 'end', total: files.length, stopped: cardCancel });
     }
     return out;
@@ -690,11 +693,12 @@ if (gotLock) app.whenReady().then(() => {
     send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:sendProgress', msg); },
     tidyDirs: async (d) => { const lib = readPrefs().library; if (lib) await fileops.removeEmptyDirs(d, await fs.promises.realpath(lib)); }
   });
-  app.on('before-quit', () => plexSend.close());
+  app.on('before-quit', () => { plexSend.close(); if (scanLoaded) scanLoaded.stopOcr(); });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log }, plexSend);
 
   handle('shelf:eraseAll', async () => {
+    if (scanLoaded) await scanLoaded.stopOcr();
     plexSend.forgetAll();
     plexFix.forget();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), journalPath()])) fs.rmSync(p, { force: true });
