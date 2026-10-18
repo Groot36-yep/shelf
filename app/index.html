@@ -396,6 +396,7 @@
       <div class="fact"><span>Your video files</span><span>Never uploaded (only sent to your own Plex server, if you choose)</span></div>
       <div class="fact"><span>Original file names and folders</span><span>Never sent</span></div>
       <div class="fact"><span>Your file list</span><span>Gone when you close Shelf</span></div>
+      <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB or TVmaze answered, kept up to 30 days</span></div>
 <div class="fact"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
       <div class="fact"><span>Your TMDB key</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Your Plex server login</span><span>Shelf’s own key, encrypted. Your password isn’t kept</span></div>
@@ -416,6 +417,7 @@
       <div class="fact"><span>Update checks</span><span>Only when you click Updates</span></div>
     </div>
     <div class="sheet-actions">
+      <button class="pill" type="button" id="forgetLookups">Forget Remembered Lookups</button>
       <button class="pill danger-pill" type="button" id="eraseAll">Erase All Shelf Data</button>
       <button class="pill pill-primary" type="submit">Done</button>
     </div>
@@ -755,6 +757,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="js/parser.js"></script>
+<script src="js/remember.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>

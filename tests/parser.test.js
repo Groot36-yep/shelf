@@ -56,6 +56,13 @@ inFolder('S01E01.mkv', ['Ghosts (2021)'], { title: 'Ghosts', year: 2021 });
 inFolder('ep03.mkv', ['Lost', 'Specials'], { title: 'Lost', season: 0, episode: 3 });
 inFolder('The.Office.S02E01.mkv', ['The.Office.US.S02.1080p.WEB-DL'], { title: 'The Office', country: 'US' });
 inFolder('charade.1963.mkv', ['Movies'], { kind: 'movie', title: 'Charade' });
+// Ids in the name: which show or movie it is, without a search.
+inFolder('Lost - S01E02 - Pilot (2).mkv', ['TV Shows', 'Lost (2004) {tvdb-73739}', 'Season 01'], { title: 'Lost', ids: { tmdb: null, tvdb: 73739, year: 2004 } });
+inFolder('E05.mkv', ['Lost {tmdb-4607}', 'Specials'], { kind: 'episode', title: 'Lost', ids: { tmdb: 4607, tvdb: null, year: null } });
+inFolder('The Matrix (1999) {tmdb-603}.mkv', ['Movies', 'Whatever'], { kind: 'movie', title: 'The Matrix', ids: { tmdb: 603, tvdb: null, year: 1999 } });
+inFolder('The.Matrix.1999.mkv', ['The Matrix (1999) {TMDB-603}'], { ids: { tmdb: 603, tvdb: null, year: 1999 } });
+inFolder('Lost.S01E01.mkv', ['Shows {tmdb-1}', 'Lost', 'Season 1'], { ids: undefined }); // only the show's own folder counts
+inFolder('notes {tmdb-5}.txt', ['X'], { ids: undefined });
 
 // Quality / source
 parses('Web.2013.1080p.WEBRip.mkv', { title: 'Web', year: 2013, source: 'WEBRip' });

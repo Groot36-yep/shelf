@@ -176,7 +176,7 @@
       episodeEnd: ep ? ep.end : item.parsed.episodeEnd,
       episodeTitle: ep ? ep.name : item.parsed.episodeTitle,
       // Two shows share this name (The Office 2001 / 2005): put the year in the folder so Plex can tell.
-      needsYear: item.candidates.some(function (o) { return o !== c && o.id !== c.id && P.titleSimilarity(o.title, c.title) >= 0.99 && o.year !== c.year; })
+      needsYear: !!c.keepYear || item.candidates.some(function (o) { return o !== c && o.id !== c.id && P.titleSimilarity(o.title, c.title) >= 0.99 && o.year !== c.year; })
     };
   }
 
@@ -312,6 +312,23 @@
     }).catch(function () { return null; });
   }
 
+  // Looked up by the id in its name; if that can't be done (or finds nothing), searched as usual.
+  function byIdOr(direct, ids, search) {
+    return direct.then(function (list) {
+      if (!list.length) return search();
+      // The folder had the year in its name ("The Office (2005) {tmdb-2316}"): keep it there.
+      list.forEach(function (c) { if (ids.year && c.year === ids.year) c.keepYear = true; });
+      return list;
+    }, search);
+  }
+  // A search that found the show the folder names: that's the one.
+  function pinId(cands, ids) {
+    return cands.map(function (c) {
+      var same = c.source === 'TMDB' ? ids.tmdb && c.id === ids.tmdb : c.source === 'TheTVDB' ? ids.tvdb && c.id === ids.tvdb : ids.tvdb && c.tvdbId === ids.tvdb;
+      return same ? Object.assign({}, c, { byId: true }) : c;
+    });
+  }
+
   function matchItem(item, query) {
     item.status = 'matching'; item.error = ''; item.confirmed = false;
     running++; scheduleRender();
@@ -346,13 +363,18 @@
     item.sent = { to: item.kind === 'movie' ? 'TMDB' : tvService(), text: title + (item.kind === 'movie' && year ? ' · ' + year : '') };
     item.epBlock = false; item.epNote = ''; item.episode = null; item.candidates = []; item.choice = 0;
     var lookup;
+    var ids = !query && parsed.ids; // "Lost {tvdb-73739}": the folder already says which show it is
     if (item.kind === 'movie') {
-      lookup = S.searchMovies(title, year, settings.tmdbKey);
+      lookup = ids && ids.tmdb ? byIdOr(S.movieById(ids.tmdb, settings.tmdbKey), ids, function () { return S.searchMovies(title, year, settings.tmdbKey); })
+        : S.searchMovies(title, year, settings.tmdbKey);
     } else {
-      lookup = S.searchShowsFor(title, keys());
+      lookup = ids ? byIdOr(S.showByIdFor(ids, keys()), ids, function () { return S.searchShowsFor(title, keys()).then(function (c) { return pinId(c, ids); }); })
+        : S.searchShowsFor(title, keys());
     }
     return lookup.then(function (cands) {
       var ranked = P.rankCandidates(query ? { title: query, year: null } : parsed, cands);
+      var named = ranked.findIndex(function (r) { return r.byId; });
+      if (named >= 0) { ranked.unshift(ranked.splice(named, 1)[0]); ranked.ambiguous = false; }
       // Already picked this show for another episode? Use the same one.
       var known = !query && item.kind === 'episode' && showChoices[showKey(parsed)];
       if (known && known.source !== (ranked[0] && ranked[0].source)) known = null; // order changed since
@@ -371,7 +393,7 @@
         return;
       }
       var top = ranked[0];
-      var status = known ? 'review' : top.score >= 78 && !ranked.ambiguous ? 'matched' : 'review';
+      var status = known ? 'review' : (top.byId || top.score >= 78) && !ranked.ambiguous ? 'matched' : 'review';
       var error = ranked.ambiguous ? 'A few titles look alike. Pick the right one below.'
         : status === 'review' ? 'Not sure about this one. Check it below.' : '';
       if (query) { status = 'review'; error = ''; }
@@ -395,11 +417,12 @@
   // as half-hours, depending on how this show's files are numbered.
   var episodeLists = {};   // "TMDB:387:tmdb" → Promise<list>
   var numbering = {};      // "TMDB:387" → 'segments' | 'halfhours', when you've chosen
+  var refreshed = {};      // remembered episode lists asked for again this session
   function showIdKey(c) { return c.source + ':' + c.id; }
-  function listFor(c) {
+  function listFor(c, fresh) {
     var k = showIdKey(c) + ':' + settings.order;
-    if (!episodeLists[k]) {
-      episodeLists[k] = S.getEpisodeList(c, keys());
+    if (!episodeLists[k] || fresh) {
+      episodeLists[k] = S.getEpisodeList(c, keys(), { fresh: !!fresh });
       episodeLists[k].catch(function () { delete episodeLists[k]; });
     }
     return episodeLists[k];
@@ -432,42 +455,58 @@
     return { season: es[0].season, number: es[0].number, end: null, name: es[0].name, how: 'manual', sure: false, needsSplit: true, entries: es,
       note: 'You chose episodes that aren’t next to each other, so Plex needs a separate file for each.' };
   }
+  // Every file of a show is worked out together, so when many of its files ask at once (a big
+  // list), they share one pass that runs once the list is there and sees all of them.
+  var resolving = {}; // show id → the pass that hasn't started yet
   function resolveShow(c) {
     var id = showIdKey(c);
-    return listFor(c).then(function (list) {
-      var mine = items.filter(function (i) {
-        var cc = current(i);
-        return i.kind === 'episode' && !i.linkTo && cc && showIdKey(cc) === id && i.status !== 'done' && i.status !== 'skipped';
-      });
-      var bySeason = {};
-      mine.forEach(function (i) { var sn = i.parsed.season != null ? i.parsed.season : 1; (bySeason[sn] = bySeason[sn] || []).push(i); });
-      Object.keys(bySeason).forEach(function (sn) {
-        var group = bySeason[sn];
-        var det = P.detectNumbering(group.map(function (i) { return i.parsed; }), list, +sn);
-        var chosen = numbering[id];
-        var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
-        group.forEach(function (i) {
-          var allCards = (i.cards || []).concat(markCards(i));
-          var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
-          var r = i.manualEp ? manualResult(i.manualEp) : P.resolveEpisode(i.parsed, list, fileCtx);
-          var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
-          i.showKeyId = id;
-          i.segmented = !!ctx.segmented;
-          i.numberMode = i.minutes && ctx.segmented ? (i.minutes <= 15 ? 'segments' : 'halfhours') : ctx.mode;
-          i.numberSure = !!(i.minutes && ctx.segmented) || ctx.sure !== false && !!(chosen || det.sure);
-          i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how, entries: r.entries || null, needsSplit: !!r.needsSplit } : null;
-          i.epNote = r && r.sure ? r.note : '';
-          i.epBlock = !!(r && !r.sure);
-          i.epProblem = !r ? (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.'
-            : !r.sure ? r.note : '';
-          applyStatus(i);
-          followVideo(i);
-          // Get the title cards ready for Check Episodes while nothing else is going on.
-          if (i.cards && window.requestIdleCallback) requestIdleCallback(function () { cardsForCached(i, list); }, { timeout: 4000 });
-        });
-      });
-      scheduleRender();
+    if (resolving[id]) return resolving[id];
+    var pass = resolving[id] = listFor(c).then(function (list) {
+      if (resolving[id] === pass) delete resolving[id];
+      return resolveShowWith(c, id, list);
+    }, function (err) { if (resolving[id] === pass) delete resolving[id]; throw err; });
+    return pass;
+  }
+  function resolveShowWith(c, id, list) {
+    var mine = items.filter(function (i) {
+      var cc = current(i);
+      return i.kind === 'episode' && !i.linkTo && cc && showIdKey(cc) === id && i.status !== 'done' && i.status !== 'skipped';
     });
+    var bySeason = {};
+    mine.forEach(function (i) { var sn = i.parsed.season != null ? i.parsed.season : 1; (bySeason[sn] = bySeason[sn] || []).push(i); });
+    Object.keys(bySeason).forEach(function (sn) {
+      var group = bySeason[sn];
+      var det = P.detectNumbering(group.map(function (i) { return i.parsed; }), list, +sn);
+      var chosen = numbering[id];
+      var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
+      group.forEach(function (i) {
+        var allCards = (i.cards || []).concat(markCards(i));
+        var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
+        var r = i.manualEp ? manualResult(i.manualEp) : P.resolveEpisode(i.parsed, list, fileCtx);
+        var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
+        i.showKeyId = id;
+        i.segmented = !!ctx.segmented;
+        i.numberMode = i.minutes && ctx.segmented ? (i.minutes <= 15 ? 'segments' : 'halfhours') : ctx.mode;
+        i.numberSure = !!(i.minutes && ctx.segmented) || ctx.sure !== false && !!(chosen || det.sure);
+        i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how, entries: r.entries || null, needsSplit: !!r.needsSplit } : null;
+        i.epNote = r && r.sure ? r.note : '';
+        i.epBlock = !!(r && !r.sure);
+        i.epProblem = !r ? (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.'
+          : !r.sure ? r.note : '';
+        applyStatus(i);
+        followVideo(i);
+        // Get the title cards ready for Check Episodes while nothing else is going on.
+        if (i.cards && window.requestIdleCallback) requestIdleCallback(function () { cardsForCached(i, list); }, { timeout: 4000 });
+      });
+    });
+    // An episode missing from a list remembered from an earlier day may simply be newer than
+    // the list: ask the service again, once, and work the show out again with the fresh list.
+    var lk = id + ':' + settings.order;
+    if (list.rememberedAt && !refreshed[lk] && mine.some(function (i) { return !i.manualEp && !i.episode; })) {
+      refreshed[lk] = true;
+      return listFor(c, true).then(function () { return resolveShow(c); }, function () { scheduleRender(); /* keep what we have */ });
+    }
+    scheduleRender();
   }
 
   function retryFailed() {
@@ -1189,7 +1228,15 @@
   on('forgetKey', 'click', function () {
     saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this computer.'; render();
   });
+  on('forgetLookups', 'click', function () {
+    S.forgetRemembered().then(function () {
+      episodeLists = {}; refreshed = {};
+      toast('Forgot every remembered lookup. Shows and movies will be looked up afresh.');
+    });
+  });
   on('eraseAll', 'click', function () {
+    S.forgetRemembered();
+    refreshed = {};
     native.eraseAll().then(function () { if (window.ShelfSend) window.ShelfSend.refresh(); });
     dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;

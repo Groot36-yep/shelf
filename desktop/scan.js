@@ -257,8 +257,18 @@ function newReader() {
   r.worker.catch(() => { readers = readers.filter((x) => x !== r); });
   return r;
 }
+// Starting the readers takes about half a second, so after a batch they stay ready for a minute
+// in case you read more title cards; then they're stopped. (Quitting or erasing stops them at once.)
+const OCR_IDLE_MS = 60000;
+let idleTimer = null;
+function stopOcrSoon(ms) {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { idleTimer = null; stopOcr(); }, ms == null ? OCR_IDLE_MS : ms);
+  if (idleTimer.unref) idleTimer.unref(); // never what keeps the app (or a test) running
+}
 // A free reader (a new one while there's a spare core), or wait for one to finish.
 function takeReader() {
+  clearTimeout(idleTimer); idleTimer = null; // in use again: keep them
   const free = readers.find((r) => !r.busy);
   if (free) { free.busy = true; return Promise.resolve(free); }
   if (readers.length < OCR_READERS) { const r = newReader(); r.busy = true; readers.push(r); return Promise.resolve(r); }
@@ -270,6 +280,7 @@ function giveBack(r) {
   if (next) next(r); else r.busy = false;
 }
 async function stopOcr() {
+  clearTimeout(idleTimer); idleTimer = null;
   const old = readers; readers = [];
   for (const r of old) { try { (await r.worker).terminate(); } catch (e) { /* ignore */ } }
 }
@@ -481,4 +492,4 @@ async function scanFile(file, secs, opts) {
   return { texts, frames };
 }
 
-module.exports = { scanFile, stopOcr, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, OCR_READERS };
+module.exports = { scanFile, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, OCR_READERS };

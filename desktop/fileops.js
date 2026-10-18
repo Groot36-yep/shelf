@@ -24,27 +24,78 @@ function isWanted(name) {
   return WANTED.has(ext);
 }
 
+const WALK_PARALLEL = 16; // disk reads in flight at once while looking through folders
+
+function skipped(name) { return name.startsWith('.') || /^(\$RECYCLE\.BIN|System Volume Information)$/i.test(name); }
+function byName(a, b) { return a.localeCompare(b, undefined, { numeric: true }); }
+
+// What's at a path, in the few words expand() needs: a folder (with its names, sorted), a file
+// (with its size), or something to leave alone (a link, a missing path, a file we don't want).
+function kindOf(st, full) {
+  if (!st || st.isSymbolicLink()) return { kind: 'skip' }; // never follow links out of the chosen folder
+  if (st.isDirectory()) return { kind: 'dir' };
+  if (st.isFile() && isWanted(path.basename(full))) return { kind: 'file', size: st.size };
+  return { kind: 'skip' };
+}
+async function lookNow(full) {
+  const k = kindOf(await fsp.lstat(full).catch(() => null), full);
+  if (k.kind === 'dir') k.names = await listNames(full);
+  return k;
+}
+async function listNames(full, ents) {
+  try { ents = ents || await fsp.readdir(full, { withFileTypes: true }); } catch (e) { return []; }
+  return ents.map((e) => e.name).filter((n) => !skipped(n)).sort(byName);
+}
+
+function limiter(n) {
+  let active = 0;
+  const waiting = [];
+  const next = () => { active--; if (waiting.length) waiting.shift()(); };
+  return (fn) => new Promise((resolve, reject) => {
+    const go = () => { active++; fn().then(resolve, reject).finally(next); };
+    if (active < n) go(); else waiting.push(go);
+  });
+}
+
 /** Expand picked files/folders into a flat list of video + subtitle files. */
-async function expand(paths) {
+async function expand(paths, max = MAX_FILES) {
+  // 1) Look through every folder at once (a few disk reads at a time). The folder listing already
+  //    says what's a folder and what's a plain file, so only the files we want are looked at
+  //    one by one (for their size); anything unusual (links, junctions, cloud placeholders) gets
+  //    the same careful look as before.
+  const seen = new Map(); // full path → kindOf() + names
+  const disk = limiter(WALK_PARALLEL);
+  let found = 0;
+  async function look(full, type) {
+    if (found >= max) return; // enough: step 2 reads anything it still needs itself
+    if (type === 'file' && !isWanted(path.basename(full))) { seen.set(full, { kind: 'skip' }); return; }
+    let k;
+    if (type === 'dir') k = { kind: 'dir' };
+    else k = kindOf(await disk(() => fsp.lstat(full)).catch(() => null), full);
+    if (k.kind === 'file') found++;
+    if (k.kind !== 'dir') { seen.set(full, k); return; }
+    const ents = await disk(() => fsp.readdir(full, { withFileTypes: true })).catch(() => null);
+    k.names = ents ? await listNames(full, ents) : [];
+    seen.set(full, k);
+    const types = new Map((ents || []).map((e) => [e.name, e.isDirectory() ? 'dir' : e.isFile() ? 'file' : null]));
+    await Promise.all(k.names.map((n) => look(path.join(full, n), types.get(n))));
+  }
+  const roots = paths.map((p) => path.resolve(p));
+  await Promise.all(roots.map((r) => look(r)));
+
+  // 2) Put the list together in exactly the same order, with the same 20,000-file limit, as a
+  //    folder-by-folder walk would.
   const out = [];
   async function walk(full, base) {
-    if (out.length >= MAX_FILES) return;
-    let st;
-    try { st = await fsp.lstat(full); } catch (e) { return; }
-    if (st.isSymbolicLink()) return; // never follow links out of the chosen folder
-    if (st.isDirectory()) {
-      let names = [];
-      try { names = await fsp.readdir(full); } catch (e) { return; }
-      names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-      for (const n of names) {
-        if (n.startsWith('.') || /^(\$RECYCLE\.BIN|System Volume Information)$/i.test(n)) continue;
-        await walk(path.join(full, n), base);
-      }
-    } else if (st.isFile() && isWanted(path.basename(full))) {
+    if (out.length >= max) return;
+    const k = seen.get(full) || await lookNow(full);
+    if (k.kind === 'dir') {
+      for (const n of k.names) await walk(path.join(full, n), base);
+    } else if (k.kind === 'file') {
       out.push({
         name: path.basename(full),
         relPath: path.relative(base, full).split(path.sep).join('/'),
-        size: st.size,
+        size: k.size,
         fullPath: full,
         // The three folders it sits in (names only), e.g. ["TV", "Lost", "Season 1"],
         // so "Season 1/E02.mkv" can still be matched to its show.
@@ -52,12 +103,7 @@ async function expand(paths) {
       });
     }
   }
-  for (const p of paths) {
-    const full = path.resolve(p);
-    let st;
-    try { st = await fsp.lstat(full); } catch (e) { continue; }
-    await walk(full, st.isDirectory() ? path.dirname(full) : path.dirname(full));
-  }
+  for (const full of roots) await walk(full, path.dirname(full));
   return out;
 }
 

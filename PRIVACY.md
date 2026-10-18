@@ -9,6 +9,10 @@ Shelf is built to know as little about you as possible.
 - **Your original file names and folders.** Shelf works out the title on your computer. Only the
   cleaned-up title is ever looked up (see below).
 - **Your file list.** It is kept in memory only, and disappears when you close Shelf.
+- **Remembered lookups.** What TMDB, TheTVDB or TVmaze answered (search results and episode lists,
+  under names like `tvmaze:search:bonanza`, never your keys) is kept in Shelf's own storage on your
+  computer, so the same show isn't looked up again next time: searches for 30 days, episode lists
+  for a week (a day for shows still airing). **Privacy → Forget Remembered Lookups** removes them.
 - **Renaming.** Shelf does it itself, on your computer.
 
 ## The only things that leave your computer
@@ -42,8 +46,8 @@ something. Shelf sends no cookies and no "referrer".
   permission window. Only a click in that window says yes: the main window can't answer it.
 - The app asks for no permissions (camera, microphone, location, notifications) and can't open
   other websites inside its window. Links open in your normal browser.
-- Settings and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase All Shelf Data**
-  removes them.
+- Settings, remembered lookups and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase
+  All Shelf Data** removes them.
 
 ## Looking inside your videos
 

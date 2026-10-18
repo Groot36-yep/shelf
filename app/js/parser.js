@@ -278,8 +278,35 @@
    */
   var SEASON_DIR = /^(?:season|series|saison|staffel|temporada)[\s._-]*(\d{1,3})\b|^s(\d{1,2})$|^(specials?|extras)$/i;
   function parsePath(fileName, folders) {
-    var r = parseFilename(fileName);
     folders = (folders || []).filter(function (f) { return f && !/^[a-z]:$/i.test(f); });
+    var r = parseFolders(fileName, folders);
+    var ids = idsFor(fileName, folders, r);
+    if (ids) r.ids = ids;
+    return r;
+  }
+
+  // "Lost (2004) {tvdb-73739}", "The Matrix (1999) {tmdb-603}": the name already says exactly which
+  // show or movie it is (Plex's own naming, and Shelf's). Looked for in the file name, then in the
+  // show's folder (for an episode) or the folder the file sits in (for a movie).
+  function idsIn(s) {
+    var tm = /\{tmdb-(\d{1,9})\}/i.exec(s || ''), tv = /\{tvdb-(\d{1,9})\}/i.exec(s || '');
+    if (!tm && !tv) return null;
+    var y = /\((19\d{2}|20\d{2})\)/.exec(s);
+    return { tmdb: tm ? parseInt(tm[1], 10) : null, tvdb: tv ? parseInt(tv[1], 10) : null, year: y ? parseInt(y[1], 10) : null };
+  }
+  function idsFor(fileName, folders, r) {
+    if (!(r.isVideo || r.isSubtitle)) return null;
+    var own = idsIn(fileName);
+    if (own) return own;
+    var dirs = folders.slice(-3);
+    if (r.kind === 'episode') {
+      while (dirs.length && SEASON_DIR.test(dirs[dirs.length - 1].trim())) dirs.pop();
+    }
+    return dirs.length ? idsIn(dirs[dirs.length - 1]) : null;
+  }
+
+  function parseFolders(fileName, folders) {
+    var r = parseFilename(fileName);
     if (!folders.length || !(r.isVideo || r.isSubtitle)) return r;
 
     var seasonAt = -1, folderSeason = null;
