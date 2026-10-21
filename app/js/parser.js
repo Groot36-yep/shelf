@@ -218,7 +218,7 @@
       .replace(/\s+/g, ' ')
       .trim();
     // Release group at the end: "... x264-GROUP"
-    s = s.replace(/-[A-Za-z0-9]+$/, function (m) { return /\d{3,4}p/i.test(m) || /^-(dl|rip|ray|hd|e?\d{1,3})$/i.test(m) ? m : ''; });
+    s = s.replace(/-[A-Za-z0-9]+$/, function (m) { return /\d{3,4}p/i.test(m) || /^-(dl|rip|ray|hd|e?\d{1,3}|s\d{1,2}e\d{1,3}|\d{1,2}x\d{2,3})$/i.test(m) ? m : ''; });
 
     var result = {
       kind: 'unknown', title: '', year: null, season: null, episode: null, episodeEnd: null, episodeTitle: '',
@@ -244,9 +244,10 @@
 
     // --- TV patterns -------------------------------------------------------
     var tvPatterns = [
-      // S01E02, S01 E02, S01E02E03, S01E02-03, and half-hours split in a/b: S03E01a, S03E01aE01b, S03E03bE03a
-      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|E\d|$))?(?:\s?-?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|$))?|-(\d{1,3})\b)?(?:\b|(?=_))/i,
-      /\b(\d{1,2})x(\d{2,3})(?:-?(?:\d{1,2}x)?(\d{2,3}))?\b/i,                   // 1x02, 1x02-03
+      // S01E02, S01 E02, S01E02E03, S01E02-03, S01E02 & S01E03, and half-hours split in a/b: S03E01a, S03E01aE01b, S03E03bE03a
+      /\bS(\d{1,2})\s?[-.]?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|E\d|$))?(?:\s?-?\s?E(\d{1,3})(?:[ab](?=[_\s.\-]|$))?|-(\d{1,3})\b|\s?[-&+]\s?S\d{1,2}E(\d{1,3})|\s?[&+]\s?E(\d{1,3}))?(?:\b|(?=_))/i,
+      // 1x02, 1x02-03, 1x02-1x03, 1x02 & 1x03, 1x02 - 1x03
+      /\b(\d{1,2})x(\d{2,3})(?:-?(?:\d{1,2}x)?(\d{2,3})|\s?[&+]\s?(?:\d{1,2}x)?(\d{2,3})|\s-\s\d{1,2}x(\d{2,3}))?\b/i,
       /\bSeason\s?(\d{1,2})\s?[-,]?\s?Episode\s?(\d{1,3})\b/i                    // Season 1 Episode 2
     ];
     for (var t = 0; t < tvPatterns.length; t++) {
@@ -261,7 +262,7 @@
         result.kind = 'episode';
         result.season = parseInt(m[1], 10);
         result.episode = parseInt(m[2], 10);
-        var end = parseInt(m[3] || m[4], 10);
+        var end = parseInt(m[3] || m[4] || m[5] || m[6], 10);
         if (end > result.episode && end - result.episode < 10) result.episodeEnd = end;
         // "S03E01aE01b": the name itself says the file holds two cartoons.
         if (t === 0 && /E\d{1,3}[ab]\s?-?\s?E\d{1,3}[ab]/i.test(m[0])) result.halves = 2;
@@ -269,6 +270,20 @@
         result.resolution = epJ.resolution || showJ.resolution;
         return result;
       }
+    }
+
+    // A season and no episode: "Show.S07.mkv", and the copies Windows makes of one name, "Show.S07 (3).mkv".
+    // Which episode it is is left to its title cards, or to you. (That "(3)" only counts copies, so it isn't
+    // read as the episode.)
+    var so = /\bS(\d{1,2})\b(?:\s*\(\d{1,3}\))?/i.exec(s);
+    if (so && so.index > 0 && /[a-z]/i.test(s.slice(0, so.index)) && !stripJunk(cleanSpaces(s.slice(so.index + so[0].length).replace(/[()\[\]]/g, ' '))).text) {
+      var sShow = showPart(s.slice(0, so.index).replace(/[\s\-–]+$/, ''));
+      var sRest = s.slice(so.index + so[0].length);
+      setQuality(sRest);
+      result.kind = 'episode';
+      result.season = parseInt(so[1], 10);
+      result.resolution = stripJunk(cleanSpaces(sRest.replace(/[()\[\]]/g, ' '))).resolution || sShow.resolution;
+      return result;
     }
 
     // Daily shows: "The Daily Show 2024.01.15"
@@ -564,8 +579,9 @@
   // Shelf trusts episode TITLES first, and only then the numbers.
 
   function normEp(s) {
+    // (A hyphen inside a word joins it: "Pre-Hibernation" and "Prehibernation" are the same title.)
     return ' ' + String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .replace(/&/g, ' and ').replace(/'/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+      .replace(/&/g, ' and ').replace(/'/g, '').replace(/([a-z0-9])-(?=[a-z0-9])/g, '$1').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
   }
 
   function seasonEntries(list, season) {
@@ -796,13 +812,23 @@
     if (k === undefined) { k = arr.map(function (e) { return e.season + 'x' + e.number + ':' + e.name; }).join('\u0001'); listKeys.set(arr, k); }
     return k;
   }
-  function matchCardText(texts, entries, near) {
-    var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-');
+  // show: the show's own name, whose logo (at the end of the theme song) is no episode's title card.
+  function matchCardText(texts, entries, near, show) {
+    var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-') + '\u0002' + (show || '');
     if (cardMemo.has(key)) {
       var hit = cardMemo.get(key);
       return hit && { entry: entries[hit.i], score: hit.score };
     }
     var res = matchCardTextNow(texts, entries, near);
+    // "SpongeBob SquarePants" on the logo is one letter-pair away from the episode "SpongeBob SpareParts": a
+    // reading that fits the show's name at least as well as the title is the logo, not that episode's card.
+    if (res && show && titleSimilarity(res.entry.name, show) >= 0.6) {
+      var fit = function (name) {
+        var t = squash(name);
+        return Math.min.apply(null, (Array.isArray(texts) ? texts : [texts]).map(function (x) { return fuzzyFind(t, squash(x)) / t.length; }).concat([1]));
+      };
+      if (fit(show) <= fit(res.entry.name)) res = null;
+    }
     if (cardMemo.size > 5000) cardMemo.clear();
     cardMemo.set(key, res && { i: entries.indexOf(res.entry), score: res.score });
     return res;
@@ -824,27 +850,36 @@
     var scored = [];
     (entries || []).forEach(function (e) {
       if (e.number == null) return;
-      var t = squash(e.name);
-      if (t.length < 4) return;
-      // Letters in a row, spaces ignored: only trusted when it's a near-perfect fit (long garbage can
-      // otherwise look like a long title), else the word-by-word score decides.
-      var sub = 0;
-      // A one-word title only counts letter-for-letter in a short reading (the title on its own).
-      var oneWord = cardWords(e.name).filter(function (w) { return !CARD_STOP[w]; }).length === 1;
-      (oneWord ? clean.filter(function (x) { return cardWords(x).length <= 3; }).map(squash) : s).forEach(function (x) {
-        var d = fuzzyFind(t, x);
-        var sc = 1 - d / t.length;
-        if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact
-        if (sc > sub) sub = sc;
+      // "Legends of Bikini Bottom: The Main Drain": the card shows only the part after the colon, so that
+      // part counts on its own too (when it's specific enough to).
+      var names = [e.name], ci = e.name.indexOf(': ');
+      if (ci > 0 && squash(e.name.slice(ci + 2)).length >= 8) names.push(e.name.slice(ci + 2));
+      var top1 = null;
+      names.forEach(function (name) {
+        var t = squash(name);
+        if (t.length < 4) return;
+        // Letters in a row, spaces ignored: only trusted when it's a near-perfect fit (long garbage can
+        // otherwise look like a long title), else the word-by-word score decides.
+        var sub = 0;
+        // A one-word title only counts letter-for-letter in a short reading that's little more than the title
+        // ("porters, + old" holds "sold" only by running two words together).
+        var oneWord = cardWords(name).filter(function (w) { return !CARD_STOP[w]; }).length === 1;
+        (oneWord ? clean.filter(function (x) { return cardWords(x).length <= 3; }).map(squash).filter(function (x) { return x.length <= t.length + Math.max(2, Math.round(t.length * 0.3)); }) : s).forEach(function (x) {
+          var d = fuzzyFind(t, x);
+          var sc = 1 - d / t.length;
+          if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact
+          if (sc > sub) sub = sc;
+        });
+        // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
+        // score counts as before. Anywhere else the words themselves have to show up.
+        var nearOne = near && near.indexOf(e) >= 0;
+        var ws = wordScore(name, tokens, blob, perReading);
+        // Two weaker signs together: some words show up, and the whole title is close letter for
+        // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
+        var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
+        if (!top1 || best > top1.score) top1 = { entry: e, score: best, ws: ws };
       });
-      // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
-      // score counts as before. Anywhere else the words themselves have to show up.
-      var nearOne = near && near.indexOf(e) >= 0;
-      var ws = wordScore(e.name, tokens, blob, perReading);
-      // Two weaker signs together: some words show up, and the whole title is close letter for
-      // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
-      var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
-      scored.push({ entry: e, score: best, ws: ws });
+      if (top1) scored.push(top1);
     });
     scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
     var top = scored[0], next = scored[1];
@@ -864,6 +899,13 @@
     if (!top.ws && isNear) need = Math.max(need, 0.6);
     if (top.score < need) return null;
     if (rival && top.score - rival.score < margin && top.score < 0.9) return null;
+    // Another title shares most of the words ("The Battle of Bikini Bottom", "The Curse of Bikini Bottom"): the
+    // word that tells them apart has to be read cleanly, not just guessed from a near miss ("BetTo").
+    if (rival && rival.score >= 0.5) {
+      var theirs = cardWords(rival.entry.name), own = cardWords(top.entry.name).filter(function (w) { return !CARD_STOP[w] && theirs.indexOf(w) < 0; });
+      if (own.length && own.length < cardWords(top.entry.name).filter(function (w) { return !CARD_STOP[w]; }).length &&
+        !own.some(function (w) { return cleanHit(w, tokens); })) return null;
+    }
     return { entry: top.entry, score: Math.round(top.score * 100) / 100 };
   }
 
@@ -910,6 +952,25 @@
    * Returns { season, number, end, name, how: 'title'|'number'|'halfhour'|'date', sure, note } or null.
    */
   function resolveEpisode(parsed, list, ctx) {
+    return lengthDoubt(resolveFrom(parsed, list, ctx), ctx || {});
+  }
+  // A video much longer than what it was matched to, with no title card to back the match, is worth a
+  // look: a half-hour file holding "one 11-minute cartoon", or a 45-minute file holding one 22-minute
+  // episode, more likely holds another episode too, or is a different one altogether. (Only when the
+  // video's length is known, after Check Lengths or Auto Mode, and the list gives every episode's length.)
+  function lengthDoubt(r, ctx) {
+    var mins = ctx.file && ctx.file.minutes, es = r && r.entries;
+    if (!r || !r.sure || !mins || r.how === 'card' || !es || !es.length || es.some(function (e) { return !e.runtime; })) return r;
+    var listed = es.reduce(function (t, e) { return t + e.runtime; }, 0);
+    var loneCartoon = es.length === 1 && listed <= 15 && mins >= 20;
+    if (!loneCartoon && !(mins >= listed * 1.5 && mins - listed >= 10)) return r;
+    var what = 'S' + pad2(r.season) + 'E' + pad2(r.number) + (r.end ? '-E' + pad2(r.end) : '') + ' “' + r.name + '”';
+    r.sure = false;
+    r.note = 'This video is ' + Math.round(mins) + ' minutes long, but ' + what + ' ' + (es.length === 1 ? 'is' : 'are') + ' listed at ' +
+      listed + ' minutes. It may hold another episode too, or be a different one.';
+    return r;
+  }
+  function resolveFrom(parsed, list, ctx) {
     ctx = Object.assign({}, ctx || {});
     var cardAt = {}; // "1x6" → seconds into the video where that cartoon's title card shows
     var season = parsed.season != null ? parsed.season : 1;
@@ -921,7 +982,9 @@
       hour = file.minutes > 36;
       ctx.sure = true;
     }
-    var said = parsed.airdate ? parsed.airdate : 'S' + pad2(season) + 'E' + pad2(parsed.episode || 1) + (parsed.episodeEnd ? '-E' + pad2(parsed.episodeEnd) : '');
+    // "Show.S07 (3).mkv": the name gives the season and no episode.
+    var noNumber = parsed.episode == null && !parsed.airdate;
+    var said = parsed.airdate ? parsed.airdate : noNumber ? 'season ' + season : 'S' + pad2(season) + 'E' + pad2(parsed.episode || 1) + (parsed.episodeEnd ? '-E' + pad2(parsed.episodeEnd) : '');
     function out(entries, how, sure, note) {
       var first = entries[0], last = entries[entries.length - 1];
       var r = { season: first.season, number: first.number, end: last.number > first.number ? last.number : null, name: joinNames(entries), how: how, sure: sure, note: note || '',
@@ -953,6 +1016,7 @@
     var groupsAll = halfHourGroups(seasonList);
     // Where the file's number points (used to judge title cards): its cartoon or half-hour.
     function expected() {
+      if (noNumber) return [];
       var n0 = parsed.episode || 1;
       if (ctx.mode === 'halfhours') return [].concat(groupsAll[n0 - 1] || [], hour ? groupsAll[n0] || [] : []);
       return seasonList.filter(function (e) { return e.number === n0; });
@@ -970,7 +1034,7 @@
       cardsIn.forEach(function (c, ci) {
         // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
         var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
-          : matchCardText(c.texts, pool, near);
+          : matchCardText(c.texts, pool, near, ctx.show || parsed.title);
         var slot = c.mark ? 'm' + ci : c.part;
         if (mm && (!best[slot] || mm.score > best[slot].score)) best[slot] = Object.assign({ t: c.t }, mm);
       });
@@ -1000,7 +1064,7 @@
           // Only trust that guess if the file's own number points at the same half-hour.
           var agrees = exp.length && exp.every(function (e) { return g.indexOf(e) >= 0; });
           return out(g, 'card', !!agrees, 'Read ' + found.length + ' of ' + g.length + ' title cards (' + joinNames(found) + '); the rest is what aired with ' + (found.length === 1 ? 'it' : 'them') + '.' +
-            (agrees ? '' : ' The file’s number points somewhere else, so check this one.'));
+            (agrees ? '' : noNumber ? ' Check the rest.' : ' The file’s number points somewhere else, so check this one.'));
         }
         if (together) return out(found, 'card', true);
         var apart = out([found[0]], 'card', false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so split it into one file per cartoon below.');
@@ -1022,7 +1086,8 @@
       if (m && m.contiguous) return out(m.entries, 'title', true);
       if (m) return out([m.entries[0]], 'title', false, 'This file’s title matches episodes that aren’t next to each other (' + m.entries.map(function (e) { return 'E' + pad2(e.number); }).join(', ') + '). Check it.');
     }
-    // 2. Numbers, read the way this show's files are numbered.
+    // 2. Numbers, read the way this show's files are numbered. (No number, and no title card read: no guess.)
+    if (noNumber) return null;
     var entries = seasonEntries(list, season);
     var n = parsed.episode || 1, end = parsed.episodeEnd || (hour ? n + 1 : n);
     if (ctx.mode === 'halfhours') {

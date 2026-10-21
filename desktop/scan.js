@@ -157,6 +157,116 @@ function colourLayers(r, g, b, K) {
   for (const q of order) { const m = new Uint8Array(n); for (let k = 0; k < n; k++) m[k] = lab[k] === q ? 0 : 255; out.push(m); }
   return out;
 }
+// ---- The lettering on its own ----
+// A title card's lettering is a handful of big blobs of one flat colour, away from the frame's edges. The
+// background's pattern, bubbles and texture are specks, huge areas, or run off the edges. So each main colour
+// of the frame is split into blobs (touching pixels) and only the letter-sized ones are kept: the reader
+// then sees black lettering on plain white, and nothing else to trip over.
+
+// The frame's main colours (k-means, started from colours far apart, so a small one like the lettering
+// gets a colour of its own).
+function mainColours(r, g, b, K) {
+  const n = r.length, step = Math.max(1, Math.floor(n / 8000)), idx = [];
+  for (let k = 0; k < n; k += step) idx.push(k);
+  const d2 = (k, c) => (r[k] - c[0]) ** 2 + (g[k] - c[1]) ** 2 + (b[k] - c[2]) ** 2;
+  const c = [[r[idx[0]], g[idx[0]], b[idx[0]]]], near = new Float64Array(idx.length).fill(Infinity);
+  while (c.length < K) {
+    let far = 0, fd = -1;
+    for (let i = 0; i < idx.length; i++) { const d = d2(idx[i], c[c.length - 1]); if (d < near[i]) near[i] = d; if (near[i] > fd) { fd = near[i]; far = i; } }
+    c.push([r[idx[far]], g[idx[far]], b[idx[far]]]);
+  }
+  for (let it = 0; it < 6; it++) {
+    const sum = c.map(() => [0, 0, 0, 0]);
+    for (const k of idx) {
+      let bi = 0, bd = Infinity;
+      for (let q = 0; q < K; q++) { const d = d2(k, c[q]); if (d < bd) { bd = d; bi = q; } }
+      sum[bi][0] += r[k]; sum[bi][1] += g[k]; sum[bi][2] += b[k]; sum[bi][3]++;
+    }
+    sum.forEach((v, q) => { if (v[3]) c[q] = [v[0] / v[3], v[1] / v[3], v[2] / v[3]]; });
+  }
+  return c;
+}
+// Of the black pixels in `mask`, only the blobs shaped like big letters (or a joined-up word), as black on
+// white; null when there are none. Also the share of the frame they cover. Smaller blobs among the big
+// letters are kept too: lowercase letters, dots, and little words like "and" or "of".
+function letterBlobs(mask, W, h) {
+  const n = W * h, seen = new Uint8Array(n), stack = new Int32Array(n), out = new Uint8Array(n).fill(255);
+  let kept = 0, keptArea = 0, kx0 = W, kx1 = 0, ky0 = h, ky1 = 0;
+  const small = [], boxes = [];
+  for (let s = 0; s < n; s++) {
+    if (mask[s] || seen[s]) continue;
+    let top = 0, area = 0, x0 = W, x1 = 0, y0 = h, y1 = 0;
+    const px = [];
+    stack[top++] = s; seen[s] = 1;
+    while (top) {
+      const k = stack[--top], x = k % W, y = (k - x) / W;
+      area++; px.push(k);
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !mask[k - 1] && !seen[k - 1]) { seen[k - 1] = 1; stack[top++] = k - 1; }
+      if (x < W - 1 && !mask[k + 1] && !seen[k + 1]) { seen[k + 1] = 1; stack[top++] = k + 1; }
+      if (y > 0 && !mask[k - W] && !seen[k - W]) { seen[k - W] = 1; stack[top++] = k - W; }
+      if (y < h - 1 && !mask[k + W] && !seen[k + W]) { seen[k + W] = 1; stack[top++] = k + W; }
+    }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1, fill = area / (bw * bh);
+    const edge = x0 <= 1 || y0 <= 1 || x1 >= W - 2 || y1 >= h - 2;
+    if (edge || bh > h * 0.6 || bw > W * 0.9) continue;
+    // (Thin joined-up writing, "your Shoe's Untied" in rope, fills little of its box; a big letter never fills
+    // all of it, though a dot does.)
+    if (bh < h * 0.07 || area < n * 0.0015 || fill < 0.06 || fill > 0.9) {
+      if (bh >= h * 0.025 && bh < h * 0.07 && area >= n * 0.0002) small.push({ x0, x1, y0, y1, px });
+      continue;
+    }
+    kept++; keptArea += area; boxes.push({ y: (y0 + y1) / 2, h: bh });
+    if (x0 < kx0) kx0 = x0; if (x1 > kx1) kx1 = x1; if (y0 < ky0) ky0 = y0; if (y1 > ky1) ky1 = y1;
+    for (const k of px) out[k] = 0;
+  }
+  if (!kept) return null;
+  // The small ones within (or just around) the big letters' area.
+  const mx = W * 0.08, my = h * 0.08;
+  for (const c of small) {
+    if (c.x0 >= kx0 - mx && c.x1 <= kx1 + mx && c.y0 >= ky0 - my && c.y1 <= ky1 + my) for (const k of c.px) out[k] = 0;
+  }
+  // Letters sit in rows, side by side at about the same height; a background's shapes mostly don't.
+  const rowed = boxes.filter((a) => boxes.some((o) => o !== a && Math.abs(a.y - o.y) < 0.4 * Math.max(a.h, o.h) && a.h / o.h > 0.6 && a.h / o.h < 1.67)).length;
+  return { data: out, share: keptArea / n, kept, rowed };
+}
+// Lettering set at a slant ("Life of Crime"), turned level: the angle at which the letters' rows line up best.
+// null when it's level already.
+function levelled(mask, W, h) {
+  const xs = [], ys = [];
+  for (let k = 0; k < mask.length; k++) if (!mask[k]) { xs.push(k % W); ys.push((k / W) | 0); }
+  if (xs.length < 50) return null;
+  const energy = (deg) => {
+    const a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), bins = new Float64Array(h * 2);
+    for (let i = 0; i < xs.length; i++) { const y2 = Math.round(-sa * (xs[i] - W / 2) + ca * (ys[i] - h / 2) + h); if (y2 >= 0 && y2 < bins.length) bins[y2]++; }
+    let e = 0; for (const v of bins) e += v * v; return e;
+  };
+  let best = 0, bestE = energy(0);
+  for (let deg = -30; deg <= 30; deg += 2) { if (!deg) continue; const e = energy(deg); if (e > bestE) { bestE = e; best = deg; } }
+  if (Math.abs(best) < 6 || bestE < energy(0) * 1.15) return null;
+  return turned(mask, W, h, -best).data;
+}
+// The lettering, cleaned: the frame's main colours each reduced to their letter-sized blobs, the most
+// lettering-like first (at most `max`).
+function letteringLayers(r, g, b, W, h, K, max) {
+  const n = r.length, c = mainColours(r, g, b, K), lab = new Uint8Array(n), count = new Uint32Array(K);
+  for (let k = 0; k < n; k++) {
+    let bi = 0, bd = Infinity;
+    for (let q = 0; q < K; q++) { const d = (r[k] - c[q][0]) ** 2 + (g[k] - c[q][1]) ** 2 + (b[k] - c[q][2]) ** 2; if (d < bd) { bd = d; bi = q; } }
+    lab[k] = bi; count[bi]++;
+  }
+  const found = [];
+  for (let q = 0; q < K; q++) {
+    if (count[q] < n * 0.01 || count[q] > n * 0.45) continue;
+    const m = new Uint8Array(n); for (let k = 0; k < n; k++) m[k] = lab[k] === q ? 0 : 255;
+    const L = letterBlobs(m, W, h);
+    // Most of this colour is in letter-sized blobs: that's lettering, not background. The more of them sit in
+    // rows, the likelier (the share of the frame they cover only breaks ties).
+    if (L && L.share >= count[q] / n * 0.35) found.push(Object.assign(L, { score: (0.25 + L.rowed / L.kept) * Math.min(L.rowed + 1, 9) + L.share }));
+  }
+  return found.sort((x, y) => y.score - x.score).slice(0, max).map((L) => L.data);
+}
+
 // White lettering: bright, colourless pixels (painted signs, "CLUB SPONGEBOB").
 function whiteOnly(r, g, b) {
   const n = r.length, out = new Uint8Array(n);
@@ -204,9 +314,17 @@ async function frameVariants(file, t, full, width) {
   if (!h) return [];
   const g = raw.subarray(0, plane), b = raw.subarray(plane, 2 * plane), r = raw.subarray(2 * plane, 3 * plane);
   const y = new Uint8Array(plane); for (let k = 0; k < plane; k++) y[k] = (r[k] * 77 + g[k] * 150 + b[k] * 29) >> 8;
-  // Tried in this order; Shelf stops as soon as one reads as a known title.
-  const out = [pgm(W, h, y), pgm(W, h, brightOnly(g, 0.18)), pgm(W, h, darkOnly(y, 0.2))];
+  // Tried in this order; Shelf stops as soon as one reads as a known title. The cleaned lettering first.
+  const letters = letteringLayers(r, g, b, W, h, 8, 2);
+  const out = letters.slice(0, 1).map((m) => pgm(W, h, m)).concat([pgm(W, h, y)], letters.slice(1, 2).map((m) => pgm(W, h, m)), [pgm(W, h, darkOnly(y, 0.2))]);
+  out.lettering = letters.length ? out[0] : null;
   if (full) {
+    // Slanted lettering turned level.
+    const flat = letters[0] && levelled(letters[0], W, h);
+    if (flat) out.push(pgm(W, h, flat));
+    // Both lettering colours together (letters drawn in two shades, like bubbles).
+    if (letters[1]) { const both = new Uint8Array(plane); for (let k = 0; k < plane; k++) both[k] = letters[0][k] & letters[1][k]; out.push(pgm(W, h, both)); }
+    out.push(pgm(W, h, brightOnly(g, 0.18)));
     const white = whiteOnly(r, g, b);
     out.push(pgm(W, h, white));
     for (const deg of [5, -5]) { const t2 = W > 640 ? turnedHalf(white, W, h, deg) : turned(white, W, h, deg); out.push(pgm(t2.w, t2.h, t2.data)); }
@@ -383,6 +501,36 @@ async function scanFile(file, secs, opts) {
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
   const allStills = prepareStills(file, secs);
+  // One still moment, read for part i. likely: one of the few likeliest (or straight after a black moment),
+  // which get every version of the picture; the rest only the quick ones. strict: the title must also be
+  // named by one reading on its own (not only by many noisy readings pooled). → the match, or null.
+  const readFrame = async (run, i, likely, strict) => {
+    frames++;
+    const read = [];
+    const imgs = await frameVariants(file, run.t, likely);
+    if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
+    let hit = null;
+    // All versions are read side by side, then judged in order, so the answer is the same as
+    // reading them one at a time (a few extra readings at most).
+    const tryImgs = async (list, psm) => {
+      for (const text of await readMany(list, psm)) {
+        if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
+        if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) return;
+      }
+    };
+    await tryImgs(imgs);
+    // The cleaned lettering read as one block of text too: reading for scattered words splits big ones apart.
+    if (!hit && likely && imgs.lettering) await tryImgs([imgs.lettering], '6');
+    // Small lettering: the likeliest frames also get a look at full size.
+    if (!hit && likely) await tryImgs(await frameVariants(file, run.t, false, 960));
+    // Cards often fade in: near the end of the still moment the lettering is at its clearest.
+    if (!hit && likely && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
+    if (hit && strict && !read.some((x) => { const m = opts.isMatch([x], i); return m && (!hit.entry || m.entry === hit.entry); })) hit = null;
+    if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
+    if (opts.onFrame) opts.onFrame();
+    if (hit && opts.onFound) opts.onFound({ part: i, t: run.t, hit });
+    return hit;
+  };
   for (let i = 0; i < wins.length; i++) {
     if (opts.cancelled && opts.cancelled()) break;
     report(i, 0.02);
@@ -398,30 +546,27 @@ async function scanFile(file, secs, opts) {
     if (tryRuns.length > 4) tryRuns.splice(4, 0, ...probes); else tryRuns.push(...probes);
     for (const run of tryRuns) {
       if (opts.cancelled && opts.cancelled()) break;
-      frames++;
       report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
-      const read = [];
-      // The likeliest few frames (and any straight after a black moment) get every version of the
-      // picture; the rest only the quick ones.
-      const imgs = await frameVariants(file, run.t, k <= 4 || run.rightAfterBlack);
-      if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
-      let hit = null;
-      // All versions are read side by side, then judged in order, so the answer is the same as
-      // reading them one at a time (a few extra readings at most).
-      const tryImgs = async (list, psm) => {
-        for (const text of await readMany(list, psm)) {
-          if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
-          if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) return;
+      // The likeliest few frames (and any straight after a black moment) get every version of the picture.
+      const hit = await readFrame(run, i, k <= 4 || run.rightAfterBlack);
+      if (hit) { found = true; foundHit = hit; break; } // found this cartoon's card
+    }
+    // The second cartoon's card isn't where it usually is: a long first cartoon, or a show segment before it
+    // (Patchy the Pirate's), pushes it later. Look further on, at the moments straight after a fade to black.
+    // (Only in a half-hour holding two cartoons, and a title found there must be read clearly on its own.)
+    if (!found && i === 1 && wins.length === 2 && !(opts.cancelled && opts.cancelled())) {
+      const from = wins[i].from + wins[i].len, len = Math.min(360, (secs || 1320) - 40 - from);
+      const later = len >= 30 ? await stills(file, from, len).catch(() => null) : null;
+      if (later) {
+        const cands = rankRuns(later, from).filter((r) => r.rightAfterBlack).slice(0, 6);
+        fadeOrder(later.blacks, from).filter((b) => b.b - b.a >= 0.8).slice(0, 3)
+          .forEach((b) => cands.push({ t: b.b + 1, start: b.b, secs: 0, probe: true, rightAfterBlack: true }));
+        for (const run of cands) {
+          if (opts.cancelled && opts.cancelled()) break;
+          const hit = await readFrame(run, i, true, true);
+          if (hit) { found = true; foundHit = hit; break; }
         }
-      };
-      await tryImgs(imgs);
-      // Small lettering: the likeliest frames also get a look at full size.
-      if (!hit && (k <= 4 || run.rightAfterBlack)) await tryImgs(await frameVariants(file, run.t, false, 960));
-      // Cards often fade in: near the end of the still moment the lettering is at its clearest.
-      if (!hit && (k <= 4 || run.rightAfterBlack) && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
-      if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
-      if (opts.onFrame) opts.onFrame();
-      if (hit) { found = true; foundHit = hit; if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
+      }
     }
     // Deep scan (only when you ask for it): the parts still without a card get many more tries:
     // more frames from each still moment, several sizes, both ways of reading.
@@ -502,4 +647,4 @@ async function scanFile(file, secs, opts) {
   return { texts, frames, parts };
 }
 
-module.exports = { scanFile, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, OCR_READERS };
+module.exports = { scanFile, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, letteringLayers, levelled, OCR_READERS };

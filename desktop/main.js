@@ -569,6 +569,7 @@ if (gotLock) app.whenReady().then(() => {
     const titlesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
     const runtimesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.runtimes) ? j.runtimes.slice(0, 3000).map((m) => Math.max(0, Math.min(600, Number(m) || 0))) : []]));
     const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
+    const showFor = new Map(jobs.map((j) => [j.key, String(j.show || '').slice(0, 200)]));
     const files = pickedVideos([...titlesFor.keys()].filter((k) => !onServer.has(k))).concat([...onServer]).slice(0, 2000);
     if (!files.length) return {};
     const someOnServer = files.some((f) => onServer.has(f));
@@ -599,6 +600,8 @@ if (gotLock) app.whenReady().then(() => {
         const mins = runtimesFor.get(f) || [];
         const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1, runtime: mins[n] || null }));
         const near = entries.filter((e) => nearFor.get(f).has(e.name));
+        // The show's usual episode length (the middle one of those listed), which a double-length episode stands out from.
+        const known = mins.filter((m) => m > 0).sort((a, b) => a - b), usual = known.length ? known[known.length >> 1] : 0;
         let src = null, secs = null;
         try {
           if (remote) {
@@ -616,9 +619,15 @@ if (gotLock) app.whenReady().then(() => {
         try {
           const r = await scan.scanFile(src ? src.url : f, secs, {
             deep,
-            isMatch: (texts) => P.matchCardText(texts, entries, near),
-            // An episode as long as the video (give or take the credits): it's the only one in there.
-            fillsVideo: (hit) => !!(hit && hit.entry && hit.entry.runtime && hit.entry.runtime * 60 >= secs * 0.7),
+            isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f)),
+            // An episode as long as the video (give or take the credits), and clearly longer than the show's usual one:
+            // it's the only one in there. Online lists get lengths wrong (TVmaze has 11-minute "Squid's Day Off" at
+            // 30), so one listed as longer than the whole video, or a show listing every cartoon at the half-hour's
+            // length, never stops the search early.
+            fillsVideo: (hit) => {
+              const m = hit && hit.entry && hit.entry.runtime;
+              return !!(m && usual && m >= usual * 1.4 && m * 60 >= secs * 0.7 && m * 60 <= secs * 1.15);
+            },
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),

@@ -516,7 +516,7 @@
       var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
       group.forEach(function (i) {
         var allCards = (i.cards || []).concat(markCards(i));
-        var fileCtx = Object.assign({}, ctx, { file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
+        var fileCtx = Object.assign({}, ctx, { show: c.title, file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
         var r = i.manualEp ? manualResult(i.manualEp) : P.resolveEpisode(i.parsed, list, fileCtx);
         var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
         i.showKeyId = id;
@@ -526,7 +526,8 @@
         i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how, entries: r.entries || null, needsSplit: !!r.needsSplit } : null;
         i.epNote = r && r.sure ? r.note : '';
         i.epBlock = !!(r && !r.sure);
-        i.epProblem = !r ? (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.'
+        i.epProblem = !r ? (i.parsed.episode == null && !i.parsed.airdate ? 'The name only says season ' + s + '. Auto Mode can read which episodes are in it, or pick them in the side panel.'
+          : (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.')
           : !r.sure ? r.note : '';
         applyStatus(i);
         followVideo(i);
@@ -1164,6 +1165,7 @@
       var stop = native.onProgress(function (p) { btn.textContent = 'Renaming ' + p.done + ' of ' + p.total + '…'; });
       var sendAfter = !$('renameSendRow').hidden && $('renameSend').checked && window.ShelfSend && window.ShelfSend.ready();
       native.rename(ops, settings.mode).then(function (results) {
+        lastRemoved = null; // Ctrl+Z now undoes this rename, not an earlier Remove
         var ok = 0, skipped = 0, failed = 0, newPaths = [];
         results.forEach(function (r) {
           var item = byPath[r.source];
@@ -1515,7 +1517,7 @@
         var named = list.filter(function (e) { return e.number != null && e.name; });
         // Each title's length too: once a card names an episode that fills the whole video (a double-length
         // special like "SpongeBob's Last Stand"), Shelf stops looking for a second one.
-        var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list) };
+        var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list), show: (current(i) || {}).title || '' };
         if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
         return job;
       }), { deep: !!deepNext });
@@ -1746,8 +1748,9 @@
       var k = m.season + 'x' + m.number;
       out[k] = { t: m.t, start: m.t, key: k, name: m.name, season: m.season, number: m.number, text: '', score: 1, manual: true };
     });
+    var show = (current(v) || {}).title;
     (v.cards || []).forEach(function (r) {
-      var m = P.matchCardText(r.texts, list);
+      var m = P.matchCardText(r.texts, list, null, show);
       if (!m) return;
       var k = m.entry.season + 'x' + m.entry.number;
       // Show the clearest of the readings (the one closest to the title on its own).
@@ -1843,9 +1846,16 @@
     var seasonList = list.filter(function (e) { return e.season === season && e.number != null; }).sort(function (a, b) { return a.number - b.number; });
     var at = seasonList.findIndex(function (e) { return e.number === first.number; });
     var code = function (es) { return epCode(es[0]) + (es.length > 1 ? '–E' + pad2(es[es.length - 1].number) : ''); };
-    var long = function (e) { return e && e.runtime && e.runtime >= 18; };
+    // Long next to the season's usual episode (a list that gives every cartoon the half-hour's length has none),
+    // and aired on its own: one that shares its half-hour is just listed wrong (TVmaze has "Squid's Day Off" at 30).
+    var lens = seasonList.map(function (e) { return e.runtime || 0; }).filter(Boolean).sort(function (a, b) { return a - b; });
+    var usual = lens.length ? lens[lens.length >> 1] : 11;
+    var groups = P.halfHourGroups(seasonList);
+    var long = function (e) {
+      return e && e.runtime && e.runtime >= Math.max(18, usual * 1.4) && groups.some(function (g) { return g.length === 1 && g[0] === e; });
+    };
     if (v.segmented) {
-      var groups = P.halfHourGroups(seasonList), gi = groups.findIndex(function (g) { return g.some(function (e) { return e.number === first.number; }); });
+      var gi = groups.findIndex(function (g) { return g.some(function (e) { return e.number === first.number; }); });
       // The file's own number, read as the Nth half-hour of the season (how most half-hour files are numbered).
       var n0 = v.parsed && v.parsed.episode, hh = n0 && groups[n0 - 1];
       var near = [first.number].concat(hh ? [hh[0].number] : []);

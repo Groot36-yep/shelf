@@ -43,6 +43,30 @@ Where things stand, and what's left to do. Newest first.
   final release step, and runs on Node 22.
 - Erase All Shelf Data also removes the startup log and the undo history; a window that keeps crashing shows an
   error instead of reloading forever; the Privacy sheet and README say exactly what's kept.
+- **Title cards read far better**: before reading, Shelf now cleans the picture down to the lettering alone. It splits
+  the frame into its main colours, keeps the big letter-shaped blobs that sit in rows (dropping the background's
+  pattern, bubbles and texture), keeps small letters and dots among them, and turns slanted lettering level (*Life of
+  Crime*). Measured with Shelf's own scanner on 44 real SpongeBob videos (61 cartoons whose answers were checked by
+  eye): Season 2, with the file names' hints, **32 → 36 of 36** read right in 346 s → 247 s; Season 7, with names
+  that say nothing, **25 → 37 of 52** read right, **4 → 0 wrong**, 631 s → 520 s.
+- **When the second cartoon starts late** (a Patchy the Pirate segment, a long first cartoon: *Gary Takes a Bath* 17
+  minutes into a 24-minute video), Shelf looks further on, at the moments straight after a fade to black.
+- **Fewer false readings**: the show's own logo ("SpongeBob SquarePants") is no longer taken for the episode
+  *SpongeBob SpareParts*; when two titles share most of their words (*The Battle* / *The Curse of Bikini Bottom*) the
+  word that tells them apart must be read cleanly; a one-word title isn't found by running two words together
+  ("porters old" isn't *Sold!*); and *Legends of Bikini Bottom: The Main Drain* is found from "THE MAIN DRAIN" alone.
+- **Two episodes written with "&"** (`2x23 & 2x24 - Prehibernation Week & Life of Crime`, `S02E23 & S02E24`) are read
+  as both episodes. Before, only the first was kept, and "Prehibernation" didn't match "Pre-Hibernation".
+- **Names that only give the season** (`SpongeBob.SquarePants.S07 (3).mkv`, the copies Windows makes of one name) are
+  TV episodes now, not movies: Auto Mode reads which episodes they hold. Without a title card Shelf asks instead of
+  guessing "episode 1".
+- **A video much longer than the episode it's named after** (a 24-minute file called *Whale Watching*, a 15-minute
+  cartoon) is marked for a look once its length is known, unless a title card backs the name.
+- **Double-length episodes, carefully**: the early stop only trusts an episode that's clearly longer than the show's
+  usual one and no longer than the video itself (TVmaze lists 11-minute *Squid's Day Off* at 30 minutes).
+- **Safer moves**: a folder in the library that links outside it is refused before any folder is made.
+- **Windows build**: a failing safety test now stops the build (before, only the last test in the list counted);
+  the test copy builds again; and a version that's already released is never published again over its installers.
 
 ## Done (2.1.0)
 - **Read title cards in videos on your Plex server**: after Check Library, Read Title Cards, Auto

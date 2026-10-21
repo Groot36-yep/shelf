@@ -117,7 +117,8 @@ async function walk(s, root, onFile, stats, progress, stopped) {
             stats.files++;
             found.push({ path: full, size: e.size });
           }
-        }, () => { stats.unreadable++; }).then(() => {
+        }, () => { stats.unreadable++; }).catch(() => { stats.unreadable++; }).then(() => {
+          // (Always reached, even if a folder's listing was odd: otherwise the walk would wait forever.)
           active--; stats.folders = (stats.folders || 0) + 1;
           if (progress) progress();
           pump();

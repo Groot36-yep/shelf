@@ -65,6 +65,74 @@ eq(P.resolveEpisode(P.parseFilename('[Grp] Show - 99 [1080p].mkv'), list, {}), n
 eq(P.parsePath('The Matrix (1999) {imdb-tt0133093}.mkv', []).ids, { tmdb: null, tvdb: null, year: 1999, imdb: 'tt0133093' }, 'imdb id in the name');
 eq(P.parsePath('x.mkv', ['Movies', 'The Matrix (1999) {imdb-tt0133093}']).ids.imdb, 'tt0133093', 'imdb id in the folder');
 
+// ---- Two episodes written with "&" (real file names) ----
+const sb2 = [[23, 'Pre-Hibernation Week'], [24, 'Life of Crime'], [25, 'The Secret Box']].map(([number, name]) => ({ season: 2, number, name, runtime: 11, aired: '2001-05-05' }));
+const code = (x) => x && 'S' + x.season + 'E' + x.number + (x.end ? '-E' + x.end : '') + (x.sure ? '' : ' ?');
+r = P.parseFilename('SpongeBob SquarePants - 2x23 & 2x24 - Prehibernation Week & Life of Crime.mkv');
+eq([r.season, r.episode, r.episodeEnd], [2, 23, 24], '"2x23 & 2x24" is two episodes');
+eq([P.parseFilename('Show S02E23 & S02E24.mkv').episodeEnd, P.parseFilename('Show.S02E23-S02E24.mkv').episodeEnd, P.parseFilename('Show 2x23 + 2x24.mkv').episodeEnd], [24, 24, 24], '"S02E23 & S02E24", "S02E23-S02E24", "2x23 + 2x24"');
+eq(P.parseFilename('Show 1x02 2010.mkv').episodeEnd, null, 'a number after the episode is not a second episode');
+eq(code(P.resolveEpisode(Object.assign(r, { episodeEnd: null }), sb2, {})), 'S2E23-E24', '"Prehibernation" matches "Pre-Hibernation" in a title naming two episodes');
+
+// ---- A season and no episode ("Show.S07 (3).mkv": copies Windows made of one name) ----
+r = P.parseFilename('SpongeBob.SquarePants.S07 (3).mkv');
+eq([r.kind, r.title, r.season, r.episode], ['episode', 'SpongeBob SquarePants', 7, null], 'season only: a TV episode, number unknown');
+eq(P.parseFilename('Movie S1 (2019).mkv').kind, 'movie', 'a year in brackets is still a movie');
+const sb7 = [[1, 'Tentacle-Vision'], [2, 'I Heart Dancing'], [3, 'Growth Spout'], [4, 'Stuck in the Wringer']].map(([number, name]) => ({ season: 7, number, name, runtime: 11, aired: number <= 2 ? '2009-01-01' : '2009-01-02' }));
+eq(P.resolveEpisode(r, sb7, { segmented: true, file: { minutes: 23 } }), null, 'no number and no title card: no guess (never "episode 1")');
+eq(code(P.resolveEpisode(r, sb7, { segmented: true, file: { minutes: 23, parts: 2, cards: [{ part: 0, texts: ['GROWTH SPOUT'] }, { part: 1, texts: ['STUCK IN THE WRINGER'] }] } })), 'S7E3-E4', 'its title cards say which episodes');
+
+// ---- A video much longer than what it's matched to ----
+const ww = [{ season: 11, number: 37, name: 'Whale Watching', runtime: 15, aired: '2018-08-06' }, { season: 11, number: 38, name: 'Krusty Kleaners', runtime: 15, aired: '2018-08-07' }];
+r = P.parseFilename('SpongeBob SquarePants - S11E37 - Whale Watching 720p.mkv');
+eq(code(P.resolveEpisode(r, ww, {})), 'S11E37', 'length not known: as the name says');
+eq(code(P.resolveEpisode(r, ww, { file: { minutes: 15 } })), 'S11E37', 'right length: as the name says');
+const doubt = P.resolveEpisode(r, ww, { file: { minutes: 23.7 } });
+ok(code(doubt) === 'S11E37 ?' && /24 minutes long/.test(doubt.note), 'a 24-minute video named as one 15-minute episode is checked (' + (doubt && doubt.note) + ')');
+
+// ---- Title cards that show only the part after a colon ("Legends of Bikini Bottom: The Main Drain") ----
+const legends = ['Sponge-Cano', 'The Main Drain', 'The Curse of the Hex', 'Trenchbillies'].map((n, i) => ({ season: 8, number: 18 + i, name: 'Legends of Bikini Bottom: ' + n }))
+  .concat([{ season: 7, number: 18, name: 'The Curse of Bikini Bottom' }, { season: 5, number: 34, name: 'The Battle of Bikini Bottom' }]);
+const card = (texts) => { const m = P.matchCardText(texts, legends, []); return m && m.entry.name; };
+eq(card(['THE MAIN DRAIN']), 'Legends of Bikini Bottom: The Main Drain', 'the part after the colon is enough');
+eq(card(['THE CURSE OF THE HEX']), 'Legends of Bikini Bottom: The Curse of the Hex', '…and isn\'t mistaken for "The Curse of Bikini Bottom"');
+eq(card(['THE CURSE OF BIKINI BOTTOM']), 'The Curse of Bikini Bottom', 'a title without a colon still wins on its own words');
+eq(card(['THE LEGENDS OF BIKINI BOTTOM']), null, 'the book cover all the Legends share names none of them');
+// Real misreadings from the Legends book cover: "BetTo" is "Bottom" misread, not "Battle".
+eq(card(['-~ OF i) 1 LH of TIRE 3) ~1 Huu 2 p ae', 'A%) Liihos [i Bor Biking ]', 'nl I! 7 i 1 re OEM i i BetTo) Jt me', '\\ i | I 0 Lebihos Biking © [: BoTrom | —']), null,
+  'when titles share words, the word that tells them apart must be read cleanly');
+eq(card(['The Battie of Bikini Bottom']), 'The Battle of Bikini Bottom', '…one slip in it is fine');
+// A one-word title isn't found by running two words together.
+const sold = [{ season: 10, number: 44, name: 'Sold!' }, { season: 2, number: 11, name: 'Wormy' }];
+eq(P.matchCardText(['porters, + old'], sold, []), null, '"porters, + old" is not "Sold!"');
+eq((P.matchCardText(['SOLD!'], sold, []) || {}).entry, sold[0], '"SOLD!" on its own is');
+// The show's own logo isn't an episode's title card.
+const spare = [{ season: 4, number: 30, name: 'SpongeBob SpareParts' }, { season: 7, number: 1, name: 'Tentacle-Vision' }];
+eq(P.matchCardText(['nickelodeon', 'SpongeBob SquarePants'], spare, [], 'SpongeBob SquarePants'), null, 'the "SpongeBob SquarePants" logo is not "SpongeBob SpareParts"');
+eq((P.matchCardText(['SPONGEBOB SPAREPARTS'], spare, [], 'SpongeBob SquarePants') || {}).entry, spare[0], '…the episode\'s own card still is');
+
+// ---- The lettering on its own (desktop/scan.js) ----
+{
+  const S = require('../desktop/scan.js');
+  const W = 200, H = 150, n = W * H, r = new Uint8Array(n), g = new Uint8Array(n), b = new Uint8Array(n);
+  const paint = (x0, y0, w, h, c) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { const k = y * W + x; r[k] = c[0]; g[k] = c[1]; b[k] = c[2]; } };
+  paint(0, 0, W, H, [40, 40, 140]); // blue background…
+  for (let x = 0; x < W; x += 30) paint(x, 0, 8, H, [200, 60, 60]); // …with red stripes running off the edges
+  for (let i = 0; i < 6; i++) paint(4 + 31 * i + 12, 122, 3, 3, [240, 230, 40]); // yellow specks low down
+  // Five yellow "letters" in a row (hollow, like an O: real letters never fill their box).
+  for (let i = 0; i < 5; i++) { paint(30 + i * 30, 50, 14, 40, [240, 230, 40]); paint(34 + i * 30, 55, 6, 30, [40, 40, 140]); }
+  paint(105, 40, 6, 6, [240, 230, 40]); // a dot among them (an "i")
+  const layers = S.letteringLayers(r, g, b, W, H, 8, 2);
+  const L = layers[0], at = (x, y) => L && L[y * W + x] === 0;
+  ok(L && at(31, 70) && at(151, 70) && !at(37, 70), 'the letters are kept (and their holes stay open)');
+  ok(L && at(107, 42), 'a small dot among the letters is kept');
+  ok(L && !at(4, 75) && !at(17, 123), 'stripes off the edge and specks away from the letters are dropped');
+  const tilt = new Uint8Array(n).fill(255);
+  for (let i = 0; i < 6; i++) { const cx = 30 + i * 28, cy = Math.round(110 - i * 28 * Math.tan(20 * Math.PI / 180)); for (let y = cy - 14; y < cy + 14; y++) for (let x = cx - 6; x < cx + 6; x++) tilt[y * W + x] = 0; }
+  ok(S.levelled(tilt, W, H) !== null, 'a row of letters on a slant is turned level');
+  ok(!L || S.levelled(L, W, H) === null, 'a level row is left as it is');
+}
+
 // ---- File engine ----
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-fix-'));
@@ -72,42 +140,53 @@ eq(P.parsePath('x.mkv', ['Movies', 'The Matrix (1999) {imdb-tt0133093}']).ids.im
   const dir = path.join(lib, 'Movies', 'The Matrix (1999)');
   fs.mkdirSync(dir, { recursive: true });
 
-  // Only the capital letters change. Linux tells the two names apart, so stand in for Windows/macOS
-  // with a second name for the same file (a hard link), which is exactly what those systems report.
+  // Only the capital letters change. On Windows and macOS both spellings already name the one file. Linux
+  // tells them apart, so there a second name for the same file (a hard link) stands in, which is exactly
+  // what those systems report.
   const lower = path.join(dir, 'the matrix (1999).mkv'), upper = path.join(dir, 'The Matrix (1999).mkv');
   fs.writeFileSync(lower, 'MATRIX');
-  fs.linkSync(lower, upper);
+  const caseBlind = fs.existsSync(upper);
+  const bothNames = (a, b) => { if (!caseBlind) fs.linkSync(a, b); };
+  const names = () => fs.readdirSync(dir);
+  bothNames(lower, upper);
   ok(await F.sameFileOtherCase(lower, upper), 'same file under another spelling is recognised');
   ok(!(await F.sameFileOtherCase(lower, path.join(dir, 'Other.mkv'))), 'a different name is not');
   const journal = path.join(root, 'j1.json');
   let res = (await F.run([{ source: lower, folder: ['Movies', 'The Matrix (1999)'], file: 'The Matrix (1999).mkv' }],
     { library: lib, mode: 'move', allowed: new Set([lower]), journalPath: journal })).results[0];
   ok(res.ok && !res.skipped, 'case-only rename goes ahead (' + (res.skipped || res.error || 'ok') + ')');
-  ok(fs.existsSync(upper) && !fs.existsSync(lower) && fs.readFileSync(upper, 'utf8') === 'MATRIX', 'file now has the new capitals');
-  ok(!fs.readdirSync(dir).some((n) => n.startsWith('.shelf-case-')), 'no temporary name left behind');
+  eq(names(), ['The Matrix (1999).mkv'], 'file now has the new capitals, and no temporary name is left behind');
+  ok(fs.readFileSync(upper, 'utf8') === 'MATRIX', 'same contents');
   const j = JSON.parse(fs.readFileSync(journal, 'utf8'));
   ok(j.done[0].caseOnly === true, 'journal marks it as a capitals-only change');
   // Copy and hard link modes leave it alone: it's already there.
-  fs.linkSync(upper, lower);
+  bothNames(upper, lower);
   res = (await F.run([{ source: lower, folder: ['Movies', 'The Matrix (1999)'], file: 'The Matrix (1999).mkv' }],
     { library: lib, mode: 'copy', allowed: new Set([lower]), journalPath: path.join(root, 'j2.json') })).results[0];
   eq(res.skipped, 'Already in your library', 'copy of a file onto itself is skipped');
-  fs.unlinkSync(lower);
-  // Undo a capitals-only change (on Linux, after undo the old spelling is back and the new one gone).
-  fs.linkSync(upper, lower); // stand-in again: both spellings name one file
+  if (!caseBlind) fs.unlinkSync(lower);
+  // Undo a capitals-only change.
+  bothNames(upper, lower);
   const u = await F.undo(journal);
-  ok(u.undone === 1 && fs.existsSync(lower), 'undo puts the old capitals back');
+  ok(u.undone === 1, 'undo puts the old capitals back');
+  eq(names(), ['the matrix (1999).mkv'], 'only the old spelling is left');
 
-  // A link inside the library that points outside it: nothing is written through it.
+  // A link inside the library that points outside it: nothing is written through it, not even a folder.
+  // (A junction on Windows, which needs no special rights.)
   const outside = path.join(root, 'Elsewhere');
   fs.mkdirSync(outside);
-  fs.symlinkSync(outside, path.join(lib, 'TV Shows'), 'dir');
+  fs.symlinkSync(outside, path.join(lib, 'TV Shows'), process.platform === 'win32' ? 'junction' : 'dir');
   const src = path.join(root, 'show.s01e01.mkv');
   fs.writeFileSync(src, 'EP');
   res = (await F.run([{ source: src, folder: ['TV Shows', 'Show', 'Season 01'], file: 'Show - S01E01.mkv' }],
     { library: lib, mode: 'move', allowed: new Set([src]), journalPath: path.join(root, 'j3.json') })).results[0];
   ok(!res.ok && /outside your library/.test(res.error || ''), 'a link out of the library is refused (' + (res.error || 'ok') + ')');
-  ok(fs.existsSync(src) && !fs.existsSync(path.join(outside, 'Show', 'Season 01', 'Show - S01E01.mkv')), 'file stayed where it was');
+  ok(fs.existsSync(src), 'file stayed where it was');
+  eq(fs.readdirSync(outside), [], 'no folders were made outside the library');
+  // A real folder inside the library is fine (and its new folders are made).
+  res = (await F.run([{ source: src, folder: ['Movies', 'Show', 'Season 01'], file: 'Show - S01E01.mkv' }],
+    { library: lib, mode: 'move', allowed: new Set([src]), journalPath: path.join(root, 'j4.json') })).results[0];
+  ok(res.ok && fs.existsSync(path.join(lib, 'Movies', 'Show', 'Season 01', 'Show - S01E01.mkv')), 'a new folder inside the library is made (' + (res.error || 'ok') + ')');
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log(pass + ' passed, ' + fail + ' failed');

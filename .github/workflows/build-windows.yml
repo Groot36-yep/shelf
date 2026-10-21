@@ -1,7 +1,7 @@
 name: Build Windows app
 
 on:
-  # Runs when the version number in package.json changes, or when started by hand.
+  # Runs when package.json changes (a new version number there publishes a release), or when started by hand.
   push:
     branches: [main]
     paths: ['package.json']
@@ -14,6 +14,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      new: ${{ steps.ver.outputs.NEW }}
     steps:
       # Actions are pinned to exact commits (the tag is in the comment), so a moved tag can't change the build.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -28,14 +30,26 @@ jobs:
       - name: Read version
         id: ver
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
           "VERSION=$v" >> $env:GITHUB_OUTPUT
+          # package.json changes for other reasons too (tests, build settings): a version that's already released
+          # is built and tested, never published again over the installers people already have.
+          gh release view "v$v" --repo "${{ github.repository }}" *> $null
+          $new = if ($LASTEXITCODE -eq 0) { 'false' } else { 'true' }
+          "NEW=$new" >> $env:GITHUB_OUTPUT
+          if ($new -eq 'false') { Write-Host "::notice::Shelf $v is already released: this run builds and tests only." }
+          exit 0
 
       - name: Install
         run: npm ci
 
+      # bash stops at the first test that fails. (A PowerShell step only goes by the last line's exit code, so a
+      # failing test earlier in the list used to pass unnoticed.)
       - name: Safety tests on real Windows
+        shell: bash
         run: |
           node tests/parser.test.js
           node tests/fixes.test.js
@@ -50,7 +64,9 @@ jobs:
 
       # The shipped app has Electron's RunAsNode fuse off, so nothing can run its own scripts through Shelf.exe.
       # The packaged checks below need that switch, so they run on a test copy built the same way with it on.
+      # (bash: PowerShell splits "-c.directories.output=…" at the dot and electron-builder reads it as a file name.)
       - name: Build a test copy (for the packaged checks only, never shipped)
+        shell: bash
         run: npx electron-builder --win --dir --publish never -c.electronFuses.runAsNode=true -c.directories.output=dist-test
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -137,9 +153,10 @@ jobs:
 
   release:
     needs: build
-    # Only main publishes a release. A run started by hand on another branch builds and tests the installers
-    # (downloadable from the run's page) and stops there.
-    if: github.ref == 'refs/heads/main'
+    # Only main publishes a release, and only for a new version number. A run started by hand on another branch
+    # (or with a version that's already out) builds and tests the installers (downloadable from the run's page)
+    # and stops there.
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.new == 'true'
     runs-on: windows-latest
     permissions:
       contents: write

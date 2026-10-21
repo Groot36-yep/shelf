@@ -138,10 +138,18 @@ async function sameInode(a, b) {
   return !!(x && y && x.ino === y.ino && x.dev === y.dev);
 }
 
-/** The folder Shelf will write into must really be inside the library (links and junctions followed). */
+/**
+ * The folder Shelf will write into must really be inside the library (links and junctions followed).
+ * Checked before any folder is made, on the nearest part of the path that already exists (the rest would
+ * be made inside it). A drive that can't say where its links lead (some network and RAM drives) keeps the
+ * plain check on the name.
+ */
 async function checkInsideReal(dir, realLibrary) {
-  const real = await fsp.realpath(dir);
-  if (real !== realLibrary && !inside(realLibrary, real)) throw new Error('Destination is outside your library');
+  if (!realLibrary) return;
+  let d = dir;
+  while (!(await exists(d))) { const up = path.dirname(d); if (up === d) return; d = up; }
+  const real = await fsp.realpath(d).catch(() => null);
+  if (real && real !== realLibrary && !inside(realLibrary, real)) throw new Error('Destination is outside your library');
 }
 
 /** Move without ever overwriting. Same drive: instant. Other drive: copy, check, then remove. */
@@ -184,7 +192,7 @@ async function run(ops, opts) {
   const mode = ['move', 'copy', 'link'].includes(opts.mode) ? opts.mode : 'move';
   const results = [];
   const journal = { when: new Date().toISOString(), mode, library, done: [] };
-  const realLibrary = await fsp.realpath(library).catch(() => library);
+  const realLibrary = await fsp.realpath(library).catch(() => null);
   let n = 0;
   for (const op of ops) {
     n++;
@@ -207,8 +215,8 @@ async function run(ops, opts) {
       const caseOnly = await sameFileOtherCase(from, path.resolve(to));
       if (caseOnly && mode !== 'move') { res.ok = true; res.skipped = 'Already in your library'; continue; }
       if (!caseOnly && await exists(to)) { res.skipped = 'A file with this name already exists'; continue; }
-      await fsp.mkdir(dir, { recursive: true });
       await checkInsideReal(dir, realLibrary);
+      await fsp.mkdir(dir, { recursive: true });
       if (caseOnly) await renameCase(from, to);
       else if (mode === 'move') await moveNoOverwrite(from, to);
       else if (mode === 'copy') await copyNoOverwrite(from, to);
@@ -251,6 +259,8 @@ async function runSplit(op, from, library, opts, res, journal) {
   });
   if (new Set(plan.map((p) => p.to.toLowerCase())).size !== plan.length) throw new Error('Two pieces would get the same name');
   for (const p of plan) if (await exists(p.to)) { res.skipped = 'A file with this name already exists: ' + path.basename(p.to); return; }
+  const realLibrary = await fsp.realpath(library).catch(() => null);
+  for (const p of plan) await checkInsideReal(p.dir, realLibrary);
   // A text subtitle is cut in memory at the same points as its video (times moved to match each piece).
   let subParts = null;
   if (isSub) {
@@ -265,7 +275,6 @@ async function runSplit(op, from, library, opts, res, journal) {
       const p = plan[k];
       if (subParts && !subParts[k].cues) continue; // nothing is said in this part: no empty file
       await fsp.mkdir(p.dir, { recursive: true });
-      await checkInsideReal(p.dir, await fsp.realpath(library).catch(() => library));
       if (subParts) {
         await fsp.writeFile(p.to, subParts[k].data, { flag: 'wx' }); // never over an existing file
         made.push(p.to);
