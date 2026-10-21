@@ -53,7 +53,7 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
     return route.continue();
   });
   await win.waitForLoadState();
-  await win.click('.side-item[data-open=settings]');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
   await sleep(300);
   // The graphics card setting.
@@ -67,8 +67,8 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
 
   // Fix My Plex Library.
   await win.evaluate(() => window.ShelfSend.refresh());
-  await win.waitForSelector('#fixLibBtn:not([hidden])', { timeout: 5000 });
-  await win.click('#fixLibBtn');
+  await win.waitForSelector('#fixLibBtn:not([hidden])', { state: 'attached', timeout: 5000 });
+  await win.click('#menuBtn'); await win.click('#fixLibBtn');
   for (let i = 0; i < 60; i++) {
     if (await win.evaluate(() => window.Shelf.items().length === 3 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
     await sleep(250);
@@ -84,7 +84,8 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
   assert.match(await win.textContent('#renameSummary'), /on your Plex server and will be renamed there/);
   await shot(win, '3-rename-sheet');
   await win.click('#renameNow');
-  for (let i = 0; i < 40 && !srv.files.has('/srv/disk1/Movies/Charade (1963)/Charade (1963).mkv'); i++) await sleep(250);
+  const want = ['/srv/disk1/Movies/Charade (1963)/Charade (1963).mkv', '/srv/disk1/TV/SpongeBob SquarePants {tmdb-387}/Season 05/SpongeBob SquarePants - S05E03 - Rise and Shine.mkv', '/srv/disk1/TV/SpongeBob SquarePants {tmdb-387}/Season 05/SpongeBob SquarePants - S05E03 - Rise and Shine.en.srt'];
+  for (let i = 0; i < 60 && !want.every((f) => srv.files.has(f)); i++) await sleep(250); // renamed one after another
   const now = [...srv.files.keys()].sort();
   assert.ok(now.includes('/srv/disk1/TV/SpongeBob SquarePants {tmdb-387}/Season 05/SpongeBob SquarePants - S05E03 - Rise and Shine.mkv'), now.join('\n'));
   assert.ok(now.includes('/srv/disk1/TV/SpongeBob SquarePants {tmdb-387}/Season 05/SpongeBob SquarePants - S05E03 - Rise and Shine.en.srt'), now.join('\n'));

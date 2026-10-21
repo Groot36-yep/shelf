@@ -37,8 +37,8 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
   });
   await win.waitForLoadState();
   if (process.env.THEME) await win.evaluate((t) => window.Shelf.setTheme(t, true), process.env.THEME);
-  await win.click('.side-item[data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
-  await win.click('text=Choose Folder…');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
+  await win.click('#chooseFolder');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 1 && !['pending', 'matching'].includes(window.Shelf.items()[0].status))) break; }
   await win.evaluate(() => document.querySelector('[data-id="' + window.Shelf.items()[0].id + '"]').click());
   const scanned = () => win.evaluate(() => !!window.Shelf.items()[0].cards);
@@ -112,18 +112,18 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
   const version = await win.evaluate(() => window.shelfNative.version());
 
   await setRelease(version, '## What’s new\n- Nothing');
-  await win.click('#updatesNav'); await win.waitForSelector('#upBox[data-state=current]');
+  await win.click('#menuBtn'); await win.click('#updatesNav'); await win.waitForSelector('#upBox[data-state=current]');
   assert.match(await win.textContent('#upTitle'), /Shelf is up to date/);
   await shot(win, 'update-current');
   await win.click('#upSecondary'); await sleep(200);
 
   await setRelease('9.9.9', '## What’s new\n- **Mark a title card** yourself\n- Faster scans\n  across the board\n\n## Shelf for Windows\nDownload the installer.', true);
-  await win.click('#updatesNav'); await win.waitForSelector('#upBox[data-state=available]');
+  await win.click('#menuBtn'); await win.click('#updatesNav'); await win.waitForSelector('#upBox[data-state=available]');
   assert.match(await win.textContent('#upTitle'), /Shelf 9\.9\.9 is available/);
   assert.match(await win.textContent('#upSub'), new RegExp('You have ' + version.replace(/\./g, '\\.')));
   assert.deepStrictEqual(await win.$$eval('#upNotes li', (x) => x.map((n) => n.textContent)), ['Mark a title card yourself', 'Faster scans across the board']);
   assert.ok(!(await win.textContent('#upNotes')).includes('Download the installer'), 'only the What’s new part');
-  assert.ok(await win.evaluate(() => !document.getElementById('updateDot').hidden), 'dot in the sidebar');
+  assert.ok(await win.evaluate(() => !document.getElementById('updateDot').hidden && document.getElementById('menuBtn').classList.contains('has-update')), 'dot on the menu');
   await shot(win, 'update-available');
   await win.click('#upPrimary'); // tampered download
   await win.waitForSelector('#upBox[data-state=error]', { timeout: 20000 });

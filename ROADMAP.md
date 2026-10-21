@@ -3,6 +3,15 @@
 Where things stand, and what's left to do. Newest first.
 
 ## Next release (not released yet)
+- **A calmer, clearer window.** One top bar (Find, All / Needs you, Read Title Cards, your Plex server, and a ⚙ menu
+  for Settings, updates, privacy and about); your shows down the left; one line per file saying the episode, what
+  it becomes, and how Shelf knows; and the rename button with where files go along the bottom. Warm paper and ink
+  by day, deep brown by evening.
+- **Needs you**: the files Shelf isn't sure about are asked one at a time, above the list, as a plain question with
+  its answers as buttons (or keys 1–9; N for the next one, E to check the episodes in the video).
+- **Details slide in** when you click a file (Enter from the keyboard, Esc to close), instead of a panel that is
+  always open. Find (Ctrl+F) narrows the list by file name, show, episode title or code.
+- Small, quick animations that only ever move what changed, and none at all when Windows is set to show fewer.
 - **Fixed: renames that only change capital letters** (`the matrix (1999).mkv` → `The Matrix (1999).mkv`) were
   refused on Windows as "a file with this name already exists". Undo changes them back too.
 - **Editions and split movies**: `Blade Runner (1982) {edition-Final Cut}`, `Kill Bill - Vol. 1 (2003) - cd1`. Before,

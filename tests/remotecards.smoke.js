@@ -59,8 +59,8 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
 
   // Fix My Plex Library lists the server's files (the SpongeBob half-hour among them).
   await win.evaluate(() => window.ShelfSend.refresh());
-  await win.waitForSelector('#fixLibBtn:not([hidden])', { timeout: 5000 });
-  await win.click('#fixLibBtn');
+  await win.waitForSelector('#fixLibBtn:not([hidden])', { state: 'attached', timeout: 5000 });
+  await win.click('#menuBtn'); await win.click('#fixLibBtn');
   const sb = () => win.evaluate(() => window.Shelf.items().find((i) => /S05E03.*\.mkv$/.test(i.name)) || null);
   for (let i = 0; i < 80; i++) { const it = await sb(); if (it && !['pending', 'matching'].includes(it.status)) break; await sleep(250); }
   const listed = await sb();

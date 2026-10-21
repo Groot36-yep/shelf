@@ -72,20 +72,20 @@ const SB = F.spongebob.map(([season, number, name, aired, runtime], i) => ({ id:
   await win.waitForLoadState();
 
   // 1. TheTVDB: wrong key is refused, right key works; choose TheTVDB (Aired).
-  await win.click('.side-item[data-open=settings]');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.fill('#tvdbInput', 'wrong'); await win.click('#testTvdb'); await sleep(400);
   assert.match(await win.textContent('#tvdbStatusText'), /didn’t accept/);
   await win.fill('#tvdbInput', 'tvdb-test-key'); await win.click('#testTvdb'); await sleep(400);
   assert.match(await win.textContent('#tvdbStatusText'), /It works/);
   await win.selectOption('#optOrder', 'tvdb');
   await win.keyboard.press('Escape'); await sleep(300);
-  assert.strictEqual(await win.textContent('#tvdbStatus .src-note'), 'Ready');
+  assert.doesNotMatch(await win.textContent('#orderHelp'), /Add your/, 'TheTVDB is in use');
 
-  await win.click('text=Choose Folder…');
+  await win.click('#chooseFolder');
   const settled = () => win.evaluate(() => window.Shelf.items().length > 0 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)));
   for (let i = 0; i < 60 && !(await settled()); i++) await sleep(100);
   await sleep(300); // let the list redraw
-  const names = () => win.evaluate(() => window.Shelf.items().map((i) => i.status + ' ' + [...document.querySelectorAll('[data-id="' + i.id + '"] .newname, [data-id="' + i.id + '"] .new-cell .sub')].map((n) => n.textContent + (n.title ? ' [' + n.title + ']' : '')).join(' | ')));
+  const names = () => win.evaluate(() => window.Shelf.items().map((i) => i.status + ' ' + [...document.querySelectorAll('[data-id="' + i.id + '"]')].map((r) => r.querySelector('.r-name').textContent + ' [' + r.title + ']').join(' | ')));
   let n = await names();
   console.log('TheTVDB order:\n ', n.join('\n  '));
   console.log(' ', log.join('\n  '));
@@ -99,7 +99,7 @@ const SB = F.spongebob.map(([season, number, name, aired, runtime], i) => ({ id:
 
   // 2. Switch to The Movie Database order (Plex's default): re-matches with TMDB.
   log.length = 0;
-  await win.click('.side-item[data-open=settings]');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.fill('#keyInput', 'tmdb-key'); await win.dispatchEvent('#keyInput', 'change');
   await win.selectOption('#optOrder', 'tmdb');
   await win.keyboard.press('Escape'); await sleep(300);

@@ -102,14 +102,14 @@
       // A poster fades in the first time it arrives (motion.css); after that it's simply there.
       if (shownPosters[url]) img.className = 'is-loaded';
       else img.addEventListener('load', function () { shownPosters[url] = 1; img.classList.add('is-loaded'); });
+      // No poster after all (offline, or gone): the show's initials instead of a broken picture.
+      img.addEventListener('error', function () { plainPoster(box, label); });
       img.src = url;
       box.appendChild(img);
-    } else {
-      box.style.background = tintFor(label);
-      box.textContent = initials(label);
-    }
+    } else plainPoster(box, label);
     return box;
   }
+  function plainPoster(box, label) { box.textContent = ''; box.style.background = tintFor(label); box.textContent = initials(label); }
   function fmtSize(b) {
     if (!b) return '';
     var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
@@ -526,7 +526,7 @@
         i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how, entries: r.entries || null, needsSplit: !!r.needsSplit } : null;
         i.epNote = r && r.sure ? r.note : '';
         i.epBlock = !!(r && !r.sure);
-        i.epProblem = !r ? (i.parsed.episode == null && !i.parsed.airdate ? 'The name only says season ' + s + '. Read Title Cards can find out which episodes are in it, or pick them in the side panel.'
+        i.epProblem = !r ? (i.parsed.episode == null && !i.parsed.airdate ? 'The name only says season ' + s + '. Read Title Cards can find out which episodes are in it, or click the file and pick them.'
           : (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.')
           : !r.sure ? r.note : '';
         applyStatus(i);
@@ -651,7 +651,7 @@
     var v = videoOf(item), ep = v.episode;
     var sn = ep && ep.season != null ? ep.season : v.parsed.season != null ? v.parsed.season : 1;
     var no = ep && ep.number != null ? ep.number : v.parsed.episode || 0;
-    return [sn, no, v.name, item.parsed.isSubtitle ? 1 : 0];
+    return [sn, no, v.name.replace(/\d+/g, function (d) { return ('00000000' + d).slice(-8); }), item.parsed.isSubtitle ? 1 : 0]; // "(2)" before "(10)"
   }
   function cmp(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; }
   function shelves(list) {
@@ -704,7 +704,8 @@
     if (v.kind === 'episode') {
       if (m.code === '✂') return { code: '✂ Split', name: m.text };
       if (m.code) return { code: m.code, name: m.text || (c ? c.title : '') };
-      return { code: v.parsed.season != null ? 'S' + pad2(v.parsed.season) + ' · ?' : '?', name: m.text, quiet: true };
+      // Not known yet which episode: the file's own name tells these rows apart (the show is in the heading).
+      return { code: v.parsed.season != null ? 'S' + pad2(v.parsed.season) + ' · ?' : '?', name: item.name, quiet: true };
     }
     var year = c && c.year ? c.year : v.parsed.year;
     return { code: year ? String(year) : '', name: c ? c.title : v.parsed.title || item.name, quiet: true };
@@ -871,7 +872,7 @@
   // ---------- Needs you: the one thing to settle, as a plain question with its answers ----------
   // It follows the file you've selected when that one needs you, else the first one in the list; keys 1–9
   // answer, N goes to the next one, E opens Check Episodes.
-  var needsShownId = null, needsAnswers = [];
+  var needsShownId = null, needsAnswers = [], needsOrder = [];
   function needsList() { return displayOrder().filter(function (i) { return needsReview(i) && !(i.parsed.isSubtitle && i.linkTo); }); }
   function questionFor(item) {
     var v = videoOf(item), c = current(v), name = c ? c.title : item.parsed.title || item.name;
@@ -906,14 +907,23 @@
   }
   function renderNeeds() {
     var box = $('needs'), list = needsList();
+    var old = document.querySelector('.row-item.is-asked');
+    if (old) old.classList.remove('is-asked');
     if (!list.length) {
-      needsAnswers = [];
+      needsAnswers = []; needsOrder = [];
       if (!box.hidden) { var a = move(box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.98)' }], { duration: 180, easing: EASE_IN }); if (a) a.onfinish = function () { if (!needsList().length) box.hidden = true; }; else box.hidden = true; }
       needsShownId = null;
       return;
     }
     var sel = itemById(selectedId);
-    var item = sel && list.indexOf(sel) >= 0 ? sel : list.filter(function (i) { return i.id === needsShownId; })[0] || list[0];
+    var item = sel && list.indexOf(sel) >= 0 ? sel : list.filter(function (i) { return i.id === needsShownId; })[0];
+    if (!item) { // the one it was asking about is settled: on to the one after it
+      var was = needsOrder.indexOf(needsShownId);
+      item = was < 0 ? list[0] : needsOrder.slice(was + 1).concat(needsOrder.slice(0, was)).map(itemById).filter(function (i) { return i && list.indexOf(i) >= 0; })[0] || list[0];
+    }
+    needsOrder = list.map(function (i) { return i.id; });
+    var askedRow = document.querySelector('.row-item[data-id="' + item.id + '"]');
+    if (askedRow) askedRow.classList.add('is-asked');
     var at = list.indexOf(item), q = questionFor(item), v = videoOf(item);
     var answers = q.actions.slice();
     var paint = function () {
@@ -931,7 +941,11 @@
     var thumb = el('div', { class: 'needs-thumb', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
     var card = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
     if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) thumb.replaceChildren(el('img', { src: url, alt: '' })); });
-    else if (current(v) && current(v).poster && settings.posters) { thumb.classList.add('poster'); thumb.replaceChildren(el('img', { src: current(v).poster, alt: '', referrerpolicy: 'no-referrer' })); }
+    else if (current(v) && current(v).poster && settings.posters) {
+      var warn = thumb.firstChild, pimg = el('img', { src: current(v).poster, alt: '', referrerpolicy: 'no-referrer' });
+      pimg.addEventListener('error', function () { thumb.classList.remove('poster'); thumb.replaceChildren(warn); });
+      thumb.classList.add('poster'); thumb.replaceChildren(pimg);
+    }
     var actions = el('div', { class: 'needs-actions' });
     var go = function (d) { var nx = list[(at + d + list.length) % list.length]; needsShownId = nx.id; select(nx.id); };
     var top = el('div', { class: 'needs-top' }, [
@@ -997,8 +1011,8 @@
 
     var poster = $('inspPoster');
     poster.textContent = ''; poster.removeAttribute('style');
-    if (c && c.poster && settings.posters) poster.appendChild(el('img', { src: c.poster, alt: 'Poster for ' + c.title, referrerpolicy: 'no-referrer' }));
-    else { poster.style.background = tintFor(title); poster.textContent = initials(title); }
+    if (c && c.poster && settings.posters) { var pimg = el('img', { src: c.poster, alt: 'Poster for ' + c.title, referrerpolicy: 'no-referrer' }); pimg.addEventListener('error', function () { plainPoster(poster, title); }); poster.appendChild(pimg); }
+    else plainPoster(poster, title);
 
     $('inspTitle').textContent = title;
     var meta = [];
@@ -1192,6 +1206,7 @@
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('allCount').textContent = items.length.toLocaleString();
     $('reviewCount').textContent = review.toLocaleString();
+    $('reviewCount').classList.toggle('attn', review > 0);
     var looking = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
     var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - looking;
     var total = items.filter(function (i) { return i.status !== 'skipped'; }).length;
@@ -1340,7 +1355,7 @@
   on('chooseFolder', 'click', pickFolder);
   {
     on('pickLib', 'click', function () {
-      native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('renameNow').disabled = !readyItems().length; } });
+      native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('renameNow').disabled = !readyItems().length; libPath = lib; paintDest(); } });
     });
     on('renameNow', 'click', function () {
       var ready = readyItems();
@@ -1456,7 +1471,7 @@
       v._frames = null;
     });
   }
-  on('clearBtn', 'click', function () { dropFrames(items); items = []; showChoices = {}; selectedId = null; filter = 'all'; render(); });
+  on('clearBtn', 'click', function () { dropFrames(items); items = []; showChoices = {}; selectedId = null; filter = 'all'; findText = ''; $('findInput').value = ''; drawerOpen = false; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
   // Taking a file off the list can be undone (Ctrl+Z) for half a minute: a stray Delete costs nothing.
   var lastRemoved = null;
@@ -1483,8 +1498,56 @@
     b.addEventListener('click', function () { openSheet(b.dataset.open); });
   });
   document.querySelectorAll('#filterSeg button').forEach(function (b) {
-    b.addEventListener('click', function () { filter = b.dataset.filter; render(); });
+    b.addEventListener('click', function () { if (filter === b.dataset.filter) return; filter = b.dataset.filter; render(); entrance(); });
   });
+  // Find: narrows the list as you type (file name, show, episode title or code).
+  var findTimer = 0;
+  function setFind(text) {
+    text = text.trim().toLowerCase();
+    if (text === findText) return;
+    findText = text; render(); entrance();
+  }
+  on('findInput', 'input', function (e) { clearTimeout(findTimer); findTimer = setTimeout(function () { setFind(e.target.value); }, 110); });
+  on('findInput', 'keydown', function (e) {
+    if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; setFind(''); }
+    else if (e.key === 'Enter' || e.key === 'ArrowDown') { // on to the files it found
+      e.preventDefault(); clearTimeout(findTimer); setFind(e.target.value);
+      var first = displayOrder()[0];
+      if (first) { select(first.id); $('list').focus({ preventScroll: true }); }
+    }
+  });
+  // Clicking the empty part of the list puts the details away.
+  on('list', 'click', function (e) { if (!e.target.closest('.row-item, button, a, input, select')) closeDrawer(); });
+
+  // ---------- The ⚙ menu: Settings, updates, privacy, about ----------
+  var menu = $('mainMenu'), menuBtn = $('menuBtn');
+  function menuItems() { return [].slice.call(menu.querySelectorAll('button')).filter(function (b) { return !b.hidden && !b.disabled; }); }
+  function openMenu() {
+    var r = menuBtn.getBoundingClientRect();
+    menu.style.top = Math.round(r.bottom + 6) + 'px';
+    menu.style.right = Math.max(8, Math.round(innerWidth - r.right)) + 'px';
+    menu.hidden = false;
+    menuBtn.setAttribute('aria-expanded', 'true');
+    move(menu, [{ opacity: 0, transform: 'translateY(-6px) scale(0.97)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: EASE_OUT });
+    if (menuItems()[0]) menuItems()[0].focus();
+  }
+  function closeMenu(back) {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    menuBtn.setAttribute('aria-expanded', 'false');
+    if (back) menuBtn.focus();
+  }
+  on('menuBtn', 'click', function () { if (menu.hidden) openMenu(); else closeMenu(); });
+  menu.addEventListener('click', function (e) { if (e.target.closest('button')) closeMenu(); });
+  menu.addEventListener('keydown', function (e) {
+    var its = menuItems(), at = its.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); its[(at + (e.key === 'ArrowDown' ? 1 : -1) + its.length) % its.length].focus(); }
+    else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); its[e.key === 'Home' ? 0 : its.length - 1].focus(); }
+    else if (e.key === 'Tab') closeMenu();
+  });
+  document.addEventListener('mousedown', function (e) { if (!menu.hidden && !menu.contains(e.target) && !menuBtn.contains(e.target)) closeMenu(); });
+  window.addEventListener('resize', function () { closeMenu(); });
+  window.addEventListener('blur', function () { closeMenu(); });
   document.querySelectorAll('#modeSeg button').forEach(function (b) {
     b.addEventListener('click', function () { settings.mode = b.dataset.mode; save('mode', settings.mode); syncMode(); });
   });
@@ -1704,7 +1767,7 @@
       if (p.kind === 'end') {
         items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
         var nTitles = titlesFound + ' title card' + (titlesFound === 1 ? '' : 's');
-        reader.end(titlesFound ? 'Found ' + nTitles + '. Check the episodes in the side panel.' : 'No title cards could be read. Shelf will go by name and length.',
+        reader.end(titlesFound ? 'Found ' + nTitles + '. Click a file to see what was read.' : 'No title cards could be read. Shelf will go by name and length.',
           p.stopped ? 'Stopped' : 'Finished reading', read + ' of ' + p.total + ' video' + (p.total === 1 ? '' : 's'));
         ended();
       }
@@ -1801,20 +1864,39 @@
     if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
     if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
     if (mod && k === 'z' && !typing && !sheetOpen) { if (restoreRemoved()) { e.preventDefault(); return; } if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
-    if (!mod && k === 'n' && !typing && !sheetOpen && items.some(needsReview)) { e.preventDefault(); nextToCheck(); return; }
-    if (!mod && /^[1-4]$/.test(e.key) && !typing && !sheetOpen && selectedId && !$('epQuick').hidden && $('epBrowser').hidden) {
-      var sel = itemById(selectedId);
-      if (sel && usePick(sel, Number(e.key) - 1)) { e.preventDefault(); return; }
+    if ((mod && k === 'f') || (!mod && e.key === '/' && !typing && !sheetOpen)) { if (items.length) { e.preventDefault(); $('findInput').focus(); $('findInput').select(); } return; }
+    if (sheetOpen || mod || e.altKey) return;
+    if (e.key === 'Escape') {
+      if (!$('mainMenu').hidden) { e.preventDefault(); closeMenu(true); return; }
+      if (drawerOpen && $('epBrowser').hidden) { e.preventDefault(); closeDrawer(); }
+      return;
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !sheetOpen && selectedId) { e.preventDefault(); $('removeBtn').click(); }
+    if (typing) return;
+    if (k === 'n' && items.some(needsReview)) { e.preventDefault(); nextToCheck(); return; }
+    if (/^[1-9]$/.test(e.key)) {
+      var n = Number(e.key) - 1, sel = itemById(selectedId);
+      // With the details open, the keys pick from its "Or is it…" answers; otherwise they answer the Needs-you card.
+      if (drawerOpen && sel && !$('epQuick').hidden && $('epBrowser').hidden && usePick(sel, n)) { e.preventDefault(); return; }
+      if (answerNeeds(n)) e.preventDefault();
+      return;
+    }
+    if (k === 'e') {
+      var ask = drawerOpen ? itemById(selectedId) : itemById(needsShownId) || itemById(selectedId);
+      var av = ask && (linkedVideo(ask) || ask);
+      if (av && av.fullPath && av.parsed.isVideo && av.kind === 'episode' && !scanning) { e.preventDefault(); select(ask.id); openEditor(ask); }
+      return;
+    }
+    if (e.key === 'Enter' && selectedId && (document.activeElement === document.body || document.activeElement === $('list'))) { e.preventDefault(); openDrawer(); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) { e.preventDefault(); $('removeBtn').click(); }
   });
-  // Next to Check: jump to the next file that needs a look (wraps around).
+  // Next: the next file that needs you, in the order you see them (wraps around).
   function nextToCheck() {
-    var order = items.filter(needsReview);
-    if (!order.length) return;
-    var all = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []).filter(needsReview);
-    var at = all.findIndex(function (i) { return i.id === selectedId; });
+    var all = needsList();
+    if (!all.length) all = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []).filter(needsReview);
+    if (!all.length) return;
+    var at = all.findIndex(function (i) { return i.id === (needsShownId || selectedId); });
     var nx = all[(at + 1) % all.length];
+    needsShownId = nx.id;
     select(nx.id);
   }
   // Arrow keys move through the list
@@ -1883,6 +1965,7 @@
       if (up.state !== 'checking') return;
       up.info = r;
       $('updateDot').hidden = !r.newer;
+      menuBtn.classList.toggle('has-update', !!r.newer);
       if (!r.newer) {
         upShow('current', { title: 'Shelf is up to date', sub: 'Version ' + r.current + ' is the newest version.', badge: 'ok', secondary: 'Done' });
         return;
@@ -1954,8 +2037,11 @@
       out[k] = { t: m.t, start: m.t, key: k, name: m.name, season: m.season, number: m.number, text: '', score: 1, manual: true };
     });
     var show = (current(v) || {}).title;
+    // A rougher reading counts for the episodes Shelf settled on and those around them (as when it worked them out).
+    var rows = episodeRows(v);
+    var near = list.filter(function (e) { return e.number != null && rows.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
     (v.cards || []).forEach(function (r) {
-      var m = P.matchCardText(r.texts, list, null, show);
+      var m = P.matchCardText(r.texts, list, near, show);
       if (!m) return;
       var k = m.entry.season + 'x' + m.entry.number;
       // Show the clearest of the readings (the one closest to the title on its own).
@@ -2109,6 +2195,10 @@
       if (!needsReview(item) && items.some(needsReview)) nextToCheck();
     });
     return true;
+  }
+  // A pick from the Needs-you card (it has its own picks; the card moves on to the next file by itself).
+  function usePickEntries(item, p) {
+    useEntries(linkedVideo(item) || item, p.entries, 'Saved: ' + p.label.replace(/^[^:]*: /, '') + '.');
   }
 
   // You chose these episodes for one file.

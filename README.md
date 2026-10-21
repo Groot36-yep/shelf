@@ -42,19 +42,21 @@ Windows account.
 
 ## How to use it
 
-1. Open Shelf, click **Settings** and paste your free TMDB key (themoviedb.org → Settings → API).
+1. Open Shelf, open **Settings** from the ⚙ menu (top right) and paste your free TMDB key (themoviedb.org → Settings → API).
    TV shows use the same episode order as Plex: The Movie Database by default (same key), or TheTVDB
    if your Plex is set to it (add your TheTVDB key). Without a key, TV shows use [TVmaze](https://www.tvmaze.com).
 2. Click **Choose Folder…** (or drag files onto the window).
-3. Check anything marked **Review**: click it and pick the right match on the right, or search by title.
-4. Click **Rename…**, choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
+3. If a file needs you, the **Needs you** card above the list asks one plain question at a time: click an answer
+   (or press its number). Click any file to open its details, where you can change the match or search by title.
+4. Click **Rename** (bottom right), choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
 5. Changed your mind? **Undo Rename** puts the last rename back. Press it again to go further back (Shelf
    remembers your last 50).
 6. Have a Plex server? Click **Send to Plex** (see below).
 
 Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter** rename ·
 **Ctrl+Z** undo (again to go further back) · **Ctrl+,** settings · **Delete** remove from list (Ctrl+Z puts it back) ·
-**N** next file that needs you · **1–4** pick one of the suggested episodes in the side panel.
+**Ctrl+F** find · **N** next file that needs you · **1–9** answer the Needs you card · **E** check the episodes in the video ·
+**Enter** open a file's details · **Esc** close them.
 
 ## What it understands
 
@@ -79,9 +81,9 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 Shelf never reads a video's contents on its own. These buttons are always there for TV videos, and
 each one shows a prompt naming the files first:
 
-- **Auto Mode** (top toolbar) reads the title cards of every TV video in the list. It finds the moments where the picture holds
+- **Read Title Cards** (top bar) reads the title cards of every TV video in the list. It finds the moments where the picture holds
   still and reads the text there with an OCR engine built into Shelf, then compares it with the
-  show's real episode titles, and notes how long each video is. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan**, in the side panel, finds
+  show's real episode titles, and notes how long each video is. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan**, in a file's details, finds
   more of the hard ones, and for any it can't read you can **mark the title card yourself**);
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
@@ -120,7 +122,7 @@ kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's n
 If your Plex server is another computer (for example Ubuntu) and you used to copy files with
 FileZilla, Shelf can do it for you.
 
-**Set it up once** (click **Plex Server** in the sidebar, or **Send to Plex**):
+**Set it up once** (click **Plex server** in the top bar, or **Send to Plex**):
 1. Pick your server from FileZilla's saved servers (one click), or type its address.
 2. Check the server's fingerprint and click **Yes, This Is My Server**. Shelf remembers it, and if it
    ever changes, Shelf stops before sending your password or any file.

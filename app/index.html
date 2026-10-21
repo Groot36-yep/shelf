@@ -232,8 +232,8 @@
     </div>
     <div class="group">
 <div class="row">
-        <span>Files</span>
-        <div class="segmented small" role="group" aria-label="Files" id="modeSeg">
+        <span>Your files</span>
+        <div class="segmented small" role="group" aria-label="What happens to your files" id="modeSeg">
           <button type="button" data-mode="move" aria-pressed="true">Move</button>
           <button type="button" data-mode="copy" aria-pressed="false">Copy</button>
           <button type="button" data-mode="link" aria-pressed="false">Hard Link</button>
@@ -241,7 +241,7 @@
       </div>
       <p class="row-help" id="modeHelp"></p>
 <div class="row">
-        <span>Library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
+        <span>Your Plex library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
         <button class="pill" type="button" id="pickLib">Choose…</button>
       </div>
       <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
@@ -277,7 +277,13 @@
       </button>
     </div>
     <p class="row-help flush">Both follow Windows light or dark mode.</p>
-    <span class="section-label">TMDB key (for movies)</span>
+    <div class="group">
+      <label class="row">
+        <span>Show posters and title cards<br><small class="muted">Off: no pictures are downloaded at all</small></span>
+        <input type="checkbox" class="switch" id="optPosters">
+      </label>
+    </div>
+    <span class="section-label">Movies: your free TMDB key</span>
     <div class="group">
       <div class="row stack">
         <label for="keyInput">API Key or API Read Access Token</label>
@@ -296,7 +302,7 @@
     <span class="section-label">TV shows</span>
     <div class="group">
       <div class="row stack">
-        <label for="optOrder">Episode order — use the same one as your Plex</label>
+        <label for="optOrder">Episode order: pick the one your Plex uses</label>
         <select id="optOrder" class="text">
           <option value="tmdb">The Movie Database (Plex’s default)</option>
           <option value="tvdb">TheTVDB (Aired)</option>
@@ -305,7 +311,7 @@
         <span class="row-help" id="orderHelp">Plex uses The Movie Database unless you change it in Plex: open the show → Edit → Advanced → Episode ordering.</span>
       </div>
       <div class="row stack">
-        <label for="tvdbInput">TheTVDB API key (for TheTVDB orders)</label>
+        <label for="tvdbInput">TheTVDB key (only for TheTVDB’s orders)</label>
         <div class="key-row">
           <input id="tvdbInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From thetvdb.com → Dashboard → API Keys">
           <button class="pill" type="button" id="testTvdb">Test</button>
@@ -322,7 +328,7 @@
         <input type="checkbox" class="switch" id="optShowIds">
       </label>
     </div>
-    <span class="section-label">Naming</span>
+    <span class="section-label">File names</span>
     <div class="group">
       <label class="row">
         <span>Add TMDB ID to movie names<br><small class="muted">Charade (1963) {tmdb-4808}.mkv — helps Plex never mismatch</small></span>
@@ -331,10 +337,6 @@
       <label class="row">
         <span>Add quality to file names<br><small class="muted">Charade (1963) - 1080p BluRay.mkv — Plex ignores it, you can see it</small></span>
         <input type="checkbox" class="switch" id="optQuality">
-      </label>
-      <label class="row">
-        <span>Show posters<br><small class="muted">Off: no images are downloaded at all</small></span>
-        <input type="checkbox" class="switch" id="optPosters">
       </label>
       <label class="row">
         <span>Add year to show names<br><small class="muted">Doctor Who (2005) — useful for remakes</small></span>

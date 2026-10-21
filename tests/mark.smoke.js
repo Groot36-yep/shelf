@@ -43,8 +43,8 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   const item = () => win.evaluate((n) => { const v = window.Shelf.items().find((i) => i.name === n); return { ep: v.episode && [v.episode.number, v.episode.end || null, v.episode.how], block: !!v.epBlock, marks: (v.marks || []).map((m) => m.number + '@' + Math.round(m.t)) }; }, file);
   const edT = () => win.evaluate(() => window.ShelfEditor._state().t);
 
-  await win.click('.side-item[data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
-  await win.click('text=Choose Folder…');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
+  await win.click('#chooseFolder');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 1 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await pick(file); await sleep(200);
   await win.click('#autoMode');

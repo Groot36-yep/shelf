@@ -25,18 +25,18 @@ const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') 
   const theme = () => win.evaluate(() => document.documentElement.dataset.theme);
   assert.strictEqual(await theme(), 'studio', 'Studio is the default');
 
-  await win.click('.side-item[data-open=settings]'); await sleep(300);
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await sleep(300);
   assert.strictEqual(await win.getAttribute('[data-theme-pick=studio]', 'aria-checked'), 'true');
   await win.click('[data-theme-pick=seventies]'); await sleep(900);
   assert.strictEqual(await theme(), 'seventies');
   assert.strictEqual(await win.getAttribute('[data-theme-pick=seventies]', 'aria-checked'), 'true');
   await win.keyboard.press('Escape'); await sleep(200);
-  assert.match(await win.evaluate(() => getComputedStyle(document.querySelector('.sidebar')).backgroundImage), /wood\.png/, 'walnut sidebar');
+  assert.match(await win.evaluate(() => getComputedStyle(document.querySelector('.shows')).backgroundImage), /wood\.png/, 'walnut shows column');
   await win.evaluate(() => document.fonts.ready);
   const fonts = await win.evaluate(() => ['Fraunces', 'Nunito', 'Courier Prime'].map((f) => document.fonts.check('16px "' + f + '"')));
   assert.deepStrictEqual(fonts, [true, true, true], 'bundled fonts load');
   const looks = await win.evaluate(() => ({
-    body: getComputedStyle(document.body).fontFamily, h1: getComputedStyle(document.querySelector('.tb-title h1')).fontFamily,
+    body: getComputedStyle(document.body).fontFamily, h1: getComputedStyle(document.querySelector('.wordmark')).fontFamily,
     icon: getComputedStyle(document.querySelector('.brand .app-icon')).content
   }));
   assert.match(looks.body, /Nunito/); assert.match(looks.h1, /Fraunces/); assert.match(looks.icon, /icon-70s\.svg/);
@@ -51,7 +51,7 @@ const exe = process.env.PACKAGED ? path.join(ROOT, 'dist/linux-unpacked/shelf') 
   const bg = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor());
   assert.match(bg, /#E8DCC6|#17100B/i, 'window opens in the room’s colour: ' + bg);
   // Arrow keys move between looks.
-  await win.click('.side-item[data-open=settings]'); await sleep(300);
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await sleep(300);
   await win.focus('[data-theme-pick=seventies]'); await win.keyboard.press('ArrowLeft'); await sleep(900);
   assert.strictEqual(await theme(), 'studio');
   assert.deepStrictEqual(errors, []);

@@ -89,12 +89,12 @@ const EPISODES = {
   await win.waitForLoadState();
 
   // Turn on "Add quality to file names".
-  await win.click('.side-item[data-open=settings]');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.check('#optQuality');
   await win.keyboard.press('Escape'); await sleep(300);
 
   const t0 = Date.now();
-  await win.click('text=Choose Folder…');
+  await win.click('#chooseFolder');
   const settled = () => win.evaluate(() => window.Shelf.items().length > 0 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)));
   for (let i = 0; i < 80 && !(await settled()); i++) await sleep(100);
   const took = Date.now() - t0;
@@ -131,6 +131,8 @@ const EPISODES = {
   await win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, fopA);
   await sleep(200);
   const fopShelf = '.shelf:has(h3:has-text("Fairly OddParents"))';
+  assert.match(await win.textContent('#needs .needs-q'), /one cartoon, or a half-hour/, 'the Needs you card asks it too');
+  await win.keyboard.press('Escape'); await sleep(250); // the details drawer covers the right of the list
   assert.ok(await win.isVisible(fopShelf + ' .shelf-ask.unsure'), 'the show asks, on its shelf');
   await win.click(fopShelf + ' .shelf-ask button:has-text("A half-hour")');
   await sleep(300);

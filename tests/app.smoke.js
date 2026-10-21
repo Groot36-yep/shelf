@@ -43,10 +43,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('version:', await win.textContent('#appVersion'));
   console.log('url:', win.url(), '| native:', await win.evaluate(() => document.documentElement.classList.contains('native')),
     '| page can use Node:', await win.evaluate(() => typeof require !== 'undefined' || typeof process !== 'undefined'));
-  await win.click('.side-item[data-open=settings]');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
   await win.keyboard.press('Escape'); await sleep(300);
-  await win.click('text=Choose Folder…');
+  await win.click('#chooseFolder');
   for (let i = 0; i < 40; i++) {
     if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
     await sleep(250);
