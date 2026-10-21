@@ -991,6 +991,14 @@
         // The cartoons in this file, in order (used to offer splitting it into one file each).
         entries: entries.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: cardAt[e.season + 'x' + e.number] != null ? cardAt[e.season + 'x' + e.number] : null }; }) };
       var now = 'S' + pad2(r.season) + 'E' + pad2(r.number) + (r.end ? '-E' + pad2(r.end) : '');
+      // A title card from another season than the name says (one the list has): a misnamed file is usually off by a
+      // few episodes, not seasons, so that's likelier text on screen ("THE SAN FRANCISCO" in a 2003 Mythbusters).
+      // A question, then, not an answer.
+      if (how === 'card' && r.sure && !noNumber && !parsed.airdate && r.season !== season &&
+        (list || []).some(function (e) { return e.season === season && e.number != null; })) {
+        r.sure = false;
+        r.note = 'A title card reads as ' + now + ' (' + r.name + '), but the file’s name says ' + said + '. Check which it is.';
+      }
       if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'card' ? ' (read from its title cards)' : how === 'halfhour' ? ' (' + (hour ? 'an hour' : 'a half-hour') + ' holding ' + entries.length + ' cartoons)' : '') + '.';
       return r;
     }

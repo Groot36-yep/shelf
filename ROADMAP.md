@@ -51,6 +51,9 @@ Where things stand, and what's left to do. Newest first.
   that say nothing, **25 → 37 of 52** read right, **4 → 0 wrong**, 631 s → 520 s.
 - **Fixed: a file where only the second cartoon's card was read** was marked Ready as that one episode, so renaming it
   would have left the first cartoon out of Plex. It's marked for a look now.
+- **Live-action shows**: on-screen text isn't a title card, so a "card" that points to another season than the file's
+  name says is a question now, not an answer (checked on 16 Mythbusters episodes: "THE SAN FRANCISCO" in a 2003
+  episode was being read as 2016's *San Francisco Drift*).
 - **When the second cartoon starts late** (a Patchy the Pirate segment, a long first cartoon: *Gary Takes a Bath* 17
   minutes into a 24-minute video), Shelf looks further on, at the moments straight after a fade to black.
 - **Fewer false readings**: the show's own logo ("SpongeBob SquarePants") is no longer taken for the episode

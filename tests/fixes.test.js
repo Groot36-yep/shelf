@@ -86,6 +86,15 @@ const lone = sb7.map((e) => Object.assign({}, e, { aired: '2009-01-0' + e.number
 const later = P.resolveEpisode(r, lone, { segmented: true, file: { minutes: 23, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['STUCK IN THE WRINGER'] }] } });
 ok(code(later) === 'S7E4 ?' && /not the first/.test(later.note), 'only a later cartoon\'s card: checked, not "Ready" (' + (later && later.note) + ')');
 
+// ---- A title card from another season than the name says ----
+{
+  const mb = [{ season: 1, number: 9, name: 'Escape from Alcatraz', runtime: 47, aired: '2003-12-12' }, { season: 17, number: 6, name: 'San Francisco Drift', runtime: 47, aired: '2016-02-13' }];
+  const far = P.resolveEpisode(P.parseFilename('Mythbusters S01 E09.mkv'), mb, { file: { minutes: 49, parts: 4, cards: [{ part: 0, texts: ['SAN FRANCISCO DRIFT'] }] } });
+  ok(code(far) === 'S17E6 ?' && /name says S01E09/.test(far.note), 'a card from another season is a question, not an answer (' + (far && far.note) + ')');
+  const unnamed = P.resolveEpisode(P.parseFilename('Mythbusters S01.mkv'), mb, { file: { minutes: 49, parts: 4, cards: [{ part: 0, texts: ['SAN FRANCISCO DRIFT'] }] } });
+  eq(code(unnamed), 'S17E6', '…but with no episode in the name, the card decides');
+}
+
 // ---- A video much longer than what it's matched to ----
 const ww = [{ season: 11, number: 37, name: 'Whale Watching', runtime: 15, aired: '2018-08-06' }, { season: 11, number: 38, name: 'Krusty Kleaners', runtime: 15, aired: '2018-08-07' }];
 r = P.parseFilename('SpongeBob SquarePants - S11E37 - Whale Watching 720p.mkv');
