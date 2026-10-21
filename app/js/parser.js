@@ -1060,6 +1060,11 @@
           var long1 = found[0].runtime && found[0].runtime >= 18;
           return out(found, 'card', !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
         }
+        // Only a later cartoon's card was read, and nothing listed aired with it: something comes before it in the
+        // file (a first cartoon whose card couldn't be read), so it can't be the whole file.
+        if (found.length === 1 && best[0] == null && !marks.length && (file.parts || 1) > 1 && !(g && g.length > 1)) {
+          return out(found, 'card', false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Check Episodes to add it, or pick it in the side panel.');
+        }
         if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
           // Only trust that guess if the file's own number points at the same half-hour.
           var agrees = exp.length && exp.every(function (e) { return g.indexOf(e) >= 0; });

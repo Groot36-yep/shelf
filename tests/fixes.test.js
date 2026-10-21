@@ -81,6 +81,10 @@ eq(P.parseFilename('Movie S1 (2019).mkv').kind, 'movie', 'a year in brackets is 
 const sb7 = [[1, 'Tentacle-Vision'], [2, 'I Heart Dancing'], [3, 'Growth Spout'], [4, 'Stuck in the Wringer']].map(([number, name]) => ({ season: 7, number, name, runtime: 11, aired: number <= 2 ? '2009-01-01' : '2009-01-02' }));
 eq(P.resolveEpisode(r, sb7, { segmented: true, file: { minutes: 23 } }), null, 'no number and no title card: no guess (never "episode 1")');
 eq(code(P.resolveEpisode(r, sb7, { segmented: true, file: { minutes: 23, parts: 2, cards: [{ part: 0, texts: ['GROWTH SPOUT'] }, { part: 1, texts: ['STUCK IN THE WRINGER'] }] } })), 'S7E3-E4', 'its title cards say which episodes');
+// Only the second cartoon's card read (and nothing aired with it on the list): the first is still unknown.
+const lone = sb7.map((e) => Object.assign({}, e, { aired: '2009-01-0' + e.number }));
+const later = P.resolveEpisode(r, lone, { segmented: true, file: { minutes: 23, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['STUCK IN THE WRINGER'] }] } });
+ok(code(later) === 'S7E4 ?' && /not the first/.test(later.note), 'only a later cartoon\'s card: checked, not "Ready" (' + (later && later.note) + ')');
 
 // ---- A video much longer than what it's matched to ----
 const ww = [{ season: 11, number: 37, name: 'Whale Watching', runtime: 15, aired: '2018-08-06' }, { season: 11, number: 38, name: 'Krusty Kleaners', runtime: 15, aired: '2018-08-07' }];

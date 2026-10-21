@@ -49,6 +49,8 @@ Where things stand, and what's left to do. Newest first.
   Crime*). Measured with Shelf's own scanner on 44 real SpongeBob videos (61 cartoons whose answers were checked by
   eye): Season 2, with the file names' hints, **32 → 36 of 36** read right in 346 s → 247 s; Season 7, with names
   that say nothing, **25 → 37 of 52** read right, **4 → 0 wrong**, 631 s → 520 s.
+- **Fixed: a file where only the second cartoon's card was read** was marked Ready as that one episode, so renaming it
+  would have left the first cartoon out of Plex. It's marked for a look now.
 - **When the second cartoon starts late** (a Patchy the Pirate segment, a long first cartoon: *Gary Takes a Bath* 17
   minutes into a 24-minute video), Shelf looks further on, at the moments straight after a fade to black.
 - **Fewer false readings**: the show's own logo ("SpongeBob SquarePants") is no longer taken for the episode
