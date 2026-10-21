@@ -1,0 +1,77 @@
+/*
+ * Shelf — motion. One small system, so everything moves the same way:
+ *  - only opacity and transform move (the graphics card does them; nothing is re-laid out),
+ *  - nothing loops on its own (no motion when nothing is happening, no idle battery use),
+ *  - entrances are quick (160–360 ms), exits quicker,
+ *  - all of it is off when Windows is set to show fewer animations.
+ */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --t-fast: 160ms;
+  --t-med: 240ms;
+  --t-slow: 360ms;
+}
+
+/* ---- Sheets: rise in from just below, settle; fade out a little faster ---- */
+.sheet:not(.editor-sheet) {
+  opacity: 0; transform: translateY(10px) scale(0.98);
+  transition: opacity var(--t-fast) ease, transform var(--t-med) var(--ease-out),
+    overlay var(--t-med) allow-discrete, display var(--t-med) allow-discrete;
+}
+.sheet:not(.editor-sheet)[open] { opacity: 1; transform: none; }
+@starting-style { .sheet:not(.editor-sheet)[open] { opacity: 0; transform: translateY(10px) scale(0.98); } }
+.sheet:not(.editor-sheet)::backdrop {
+  opacity: 0;
+  transition: opacity var(--t-med) ease, overlay var(--t-med) allow-discrete, display var(--t-med) allow-discrete;
+}
+.sheet:not(.editor-sheet)[open]::backdrop { opacity: 1; }
+@starting-style { .sheet:not(.editor-sheet)[open]::backdrop { opacity: 0; } }
+
+/* ---- Rows: arriving, a status that changed, a file that needs you, a file that got its new name ----
+   These run from app.js with the Web Animations API (motionRow), not CSS classes: the list re-places its
+   rows on every redraw, which would restart a CSS animation each time. The sweep's layer lives here. */
+.row-item.just-done { overflow: hidden; }
+.row-item.just-done::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(52, 199, 89, 0.22) 45%, transparent 90%);
+  transform: translateX(-100%);
+}
+
+/* ---- The side panel: switching files cross-fades instead of jumping ---- */
+.inspector.is-swapping > * { animation: insp-in var(--t-med) var(--ease-out) both; }
+.inspector.is-swapping > :nth-child(2) { animation-delay: 20ms; }
+.inspector.is-swapping > :nth-child(n+3) { animation-delay: 40ms; }
+@keyframes insp-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* ---- Toast: up and in with a little spring; down and out ---- */
+.toast.is-in { animation: toast-in var(--t-slow) var(--ease-spring) both; }
+.toast.is-out { animation: toast-out var(--t-fast) var(--ease-in) both; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.96); } }
+@keyframes toast-out { to { opacity: 0; transform: translateX(-50%) translateY(8px); } }
+
+/* ---- Dragging files over the window ---- */
+body.dragging .drag-overlay { animation: drop-in var(--t-med) var(--ease-out) both; }
+body.dragging .drag-overlay div { animation: drop-pill var(--t-slow) var(--ease-spring) both; }
+@keyframes drop-in { from { opacity: 0; } }
+@keyframes drop-pill { from { opacity: 0; transform: scale(0.85); } }
+
+/* ---- The empty window: the three cards fan out once when Shelf opens ---- */
+.drop-art .card { animation: fan-in 0.6s var(--ease-spring) both; }
+.drop-art .c1 { animation-delay: 60ms; }
+.drop-art .c2 { animation-delay: 120ms; }
+.drop-art .c3 { animation-delay: 0ms; }
+@keyframes fan-in { from { opacity: 0; transform: translateY(14px) rotate(0deg) scale(0.9); } }
+
+/* ---- Buttons answer the press ---- */
+.pill, .btn, .ed-btn { transition: transform 90ms ease, background-color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+.pill:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet:not(.editor-sheet), .sheet:not(.editor-sheet)::backdrop, .pill, .btn, .ed-btn,
+  .thumb img, .shelf-poster img, .insp-poster img, .cand-thumb img { transition: none; }
+  .inspector.is-swapping > *, .toast.is-in, .toast.is-out, body.dragging .drag-overlay,
+  body.dragging .drag-overlay div, .drop-art .card { animation: none; }
+  .row-item.just-done::after { display: none; }
+}

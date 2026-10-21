@@ -184,6 +184,9 @@ button.side-source:hover { background: var(--fill); }
 .list { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; outline: none; }
 .row-item {
   width: 100%; height: 64px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: default;
+  /* Rows out of sight aren't laid out or painted (and their posters aren't decoded): a 2,000-file list
+     costs about what the visible rows cost. */
+  content-visibility: auto; contain-intrinsic-size: auto 64px;
 }
 .row-item:nth-child(even) { background: var(--row-alt); }
 .row-item.is-selected { background: var(--select); color: #fff; }
@@ -1210,3 +1213,17 @@ body.is-busy .toolbar::after { opacity: 1; animation: work-line 1.2s ease-in-out
   #addBtn .lbl, #undoBar .lbl, #sendBtnText .lbl { display: none; }
   #addBtn { padding: 0 10px; }
 }
+
+/* ---------- Quick picks: one-click answers in the side panel (keys 1–4) ---------- */
+.ep-quick { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ep-quick-k { font-size: 11px; font-weight: 600; color: var(--text-3); }
+.ep-quick-list { display: flex; flex-direction: column; gap: 4px; }
+.ep-quick-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 8px;
+  background: var(--fill); text-align: left; cursor: default; font-size: 12.5px; line-height: 1.3;
+}
+.ep-quick-btn:hover { background: var(--fill-strong); }
+.ep-quick-btn:focus-visible { outline: 3px solid rgba(0, 122, 255, 0.4); outline-offset: 1px; }
+.ep-quick-btn kbd { flex: none; min-width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center;
+  font: 600 11px/1 inherit; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--sep); background: var(--group); }
+.ep-quick-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

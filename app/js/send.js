@@ -529,9 +529,20 @@
     fixing = true;
     var all = $('svFixAll') && $('svFixAll').checked;
     if ($('serverSheet').open) $('serverSheet').close();
-    toast('Looking through your Plex library on ' + st.host + '…');
     $('fixLibBtn').disabled = true;
+    // Always say what's happening, with numbers that move, and a Stop (it keeps what it found so far).
+    var n = function (x) { return Number(x).toLocaleString(); };
+    var job = shelf().busy ? shelf().busy('Connecting to ' + st.host + '…', false, function () { native.plexLibraryStop(); job.set('Stopping…'); }) : null;
+    var unlisten = native.onFixProgress ? native.onFixProgress(function (p) {
+      if (!job) return;
+      var lib = p.of > 1 ? ' (' + p.lib + ', ' + (p.index + 1) + ' of ' + p.of + ')' : '';
+      if (p.stage === 'plex') job.set('Asking Plex what it matched' + lib + ': ' + n(p.done) + (p.total ? ' of ' + n(p.total) : '') + '…');
+      else if (p.stage === 'walk') job.set('Looking through your folders' + lib + ': ' + n(p.folders) + ' folders, ' + n(p.files) + ' files…');
+      else if (p.stage === 'done') job.set('Adding ' + n(p.picked) + ' files to the list…');
+    }) : null;
+    var finish = function () { if (unlisten) unlisten(); if (job) job.done(); };
     native.plexLibraryScan(all ? 'all' : 'problems').then(function (r) {
+      finish();
       var s = r.stats, bits = [];
       if (s.plex) {
         if (s.unmatched) bits.push(s.unmatched + ' Plex couldn’t match');
@@ -539,10 +550,11 @@
       }
       var oddly = r.files.filter(function (f) { return !f.named; }).length;
       if (oddly) bits.push(oddly + ' not named the Plex way');
-      if (!r.files.length) { toast('Checked ' + r.total + ' files on your server. Everything looks right' + (s.plex ? '' : ' (connect Plex to also see what it couldn’t match)') + '.'); return; }
+      if (!r.files.length) { toast(r.stopped ? 'Stopped. Nothing to fix in the ' + n(r.total) + ' files checked so far.' : 'Checked ' + n(r.total) + ' files on your server. Everything looks right' + (s.plex ? '' : ' (connect Plex to also see what it couldn’t match)') + '.'); return; }
       shelf().addFiles(r.files.map(function (f) { return { name: f.name, relPath: f.relPath, size: f.size, remote: f.remote, plex: f.plex }; }));
-      toast('Checked ' + r.total + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '. Check the list, then Rename fixes them on the server.');
+      toast((r.stopped ? 'Stopped after ' : 'Checked ') + n(r.total) + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '. Check the list, then Rename fixes them on the server.');
     }, function (e) {
+      finish();
       var w = why(e);
       toast(w.text || 'Couldn’t look through your Plex library.');
       if (/^(NO_LOGIN|NO_SERVER|HOST_|AUTH)/.test(w.code)) openServer();

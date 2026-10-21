@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/parser.test.js && node tests/remember.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js && node tests/updates.test.js && node tests/ssh-loopback.test.js && node tests/server.test.js && node tests/plexsend.test.js && node tests/plexfix.test.js && node tests/hwaccel.test.js && node tests/remoteread.test.js",
+    "test": "node tests/parser.test.js && node tests/fixes.test.js && node tests/remember.test.js && node tests/fileops.test.js && node tests/subs.test.js && node tests/cards-real.test.js && node tests/scan.test.js && node tests/updates.test.js && node tests/ssh-loopback.test.js && node tests/server.test.js && node tests/plexsend.test.js && node tests/plexfix.test.js && node tests/plexwalk.test.js && node tests/hwaccel.test.js && node tests/remoteread.test.js",
     "dist:win": "electron-builder --win --publish never"
   },
   "build": {
@@ -92,7 +92,16 @@
       "node_modules/wasm-feature-detect/**",
       "node_modules/zlibjs/**"
     ],
-    "npmRebuild": false
+    "npmRebuild": false,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    }
   },
   "devDependencies": {
     "electron": "44.7.0",

@@ -33,7 +33,7 @@ function looksRight(kind, rel) {
   const parts = rel.split('/');
   if (kind === 'movies') {
     if (parts.length !== 2) return false;
-    const m = /^(.+ \(\d{4}\))(?: \{(?:tmdb|imdb|tvdb)-[\w]+\})?$/.exec(parts[0]);
+    const m = /^(.+ \(\d{4}\))(?: \{(?:tmdb|imdb|tvdb)-[\w]+\})?(?: \{edition-[^{}]{1,32}\})?$/.exec(parts[0]);
     return !!m && parts[1].startsWith(m[1]);
   }
   if (parts.length !== 3) return false;
@@ -44,12 +44,15 @@ function looksRight(kind, rel) {
 
 // ---- What Plex thinks of each file ----
 /** file path on the server → 'matched' | 'unmatched', for one library. */
-async function plexFiles(s, token, lib) {
+// Pages of 1,000; once Plex says how many there are, the rest are asked for three at a time (before: 400 at a
+// time, one after another, which took minutes on a big library). progress(done, total) after each page.
+const PLEX_PAGE = 1000;
+async function plexFiles(s, token, lib, progress, stopped) {
   const out = new Map();
   const type = lib.kind === 'movies' ? 1 : 4; // movies, or episodes
-  for (let start = 0; start < 200000; start += 400) {
+  const page = async (start) => {
     const body = await s.plex(token, '/library/sections/' + encodeURIComponent(lib.key) + '/all?type=' + type +
-      '&X-Plex-Container-Start=' + start + '&X-Plex-Container-Size=400');
+      '&X-Plex-Container-Start=' + start + '&X-Plex-Container-Size=' + PLEX_PAGE);
     const mc = (JSON.parse(body) || {}).MediaContainer || {};
     const list = mc.Metadata || [];
     for (const m of list) {
@@ -58,32 +61,73 @@ async function plexFiles(s, token, lib) {
       const state = !g || /^local:\/\/|agents\.none/.test(g) ? 'unmatched' : 'matched';
       for (const media of m.Media || []) for (const part of media.Part || []) if (part.file) out.set(String(part.file), state);
     }
-    if (list.length < 400) break;
+    return { n: list.length, total: Number(mc.totalSize) || 0 };
+  };
+  const first = await page(0);
+  let done = first.n;
+  if (progress) progress(done, first.total || done);
+  if (first.total > first.n) {
+    const starts = [];
+    for (let st = PLEX_PAGE; st < Math.min(first.total, 200000); st += PLEX_PAGE) starts.push(st);
+    let next = 0;
+    const lane = async () => {
+      while (next < starts.length && !(stopped && stopped())) {
+        const r = await page(starts[next++]);
+        done += r.n; if (progress) progress(done, first.total);
+      }
+    };
+    await Promise.all([lane(), lane(), lane()]);
+  } else if (!first.total && first.n >= PLEX_PAGE) {
+    // An old Plex that doesn't say the total: page by page.
+    for (let st = PLEX_PAGE; st < 200000 && !(stopped && stopped()); st += PLEX_PAGE) {
+      const r = await page(st);
+      done += r.n; if (progress) progress(done, 0);
+      if (r.n < PLEX_PAGE) break;
+    }
   }
   return out;
 }
 
 // ---- Walking a library folder on the server ----
-async function walk(s, root, onFile, stats) {
+// Eight folders are read at once over the one SSH connection (SFTP answers them side by side): on a big
+// library this is many times faster than one folder after another. Files come out sorted by path, the same
+// order every time. progress() after every folder; stopped() ends it early.
+const WALK_PARALLEL = 8;
+async function walk(s, root, onFile, stats, progress, stopped) {
   const queue = [{ dir: root, depth: 0 }];
-  while (queue.length) {
-    const { dir, depth } = queue.shift();
-    let entries;
-    try { entries = await s.entries(dir); } catch (e) { stats.unreadable++; continue; }
-    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    for (const e of entries) {
-      if (e.name.startsWith('.') || /^@eaDir$|^#recycle$|^\$RECYCLE\.BIN$|^lost\+found$/i.test(e.name)) continue;
-      const full = posix.join(dir, e.name);
-      // Linked folders are followed (the depth limit stops a link that points back up).
-      if (e.dir) { if (depth < 6) queue.push({ dir: full, depth: depth + 1 }); continue; }
-      // A linked file can't be renamed safely (only the link would move): left alone.
-      if (!e.file || e.link) continue;
-      if (!WANTED.has(posix.extname(e.name).slice(1).toLowerCase())) continue;
-      if (stats.files >= MAX_FILES) { stats.truncated = true; return; }
-      stats.files++;
-      onFile({ path: full, size: e.size });
-    }
-  }
+  const found = [];
+  let active = 0;
+  await new Promise((resolve) => {
+    const pump = () => {
+      if (stats.truncated || (stopped && stopped())) queue.length = 0;
+      if (!queue.length && !active) { resolve(); return; }
+      while (active < WALK_PARALLEL && queue.length) {
+        const { dir, depth } = queue.shift();
+        active++;
+        s.entries(dir).then((entries) => {
+          for (const e of entries) {
+            if (e.name.startsWith('.') || /^@eaDir$|^#recycle$|^\$RECYCLE\.BIN$|^lost\+found$/i.test(e.name)) continue;
+            const full = posix.join(dir, e.name);
+            // Linked folders are followed (the depth limit stops a link that points back up).
+            if (e.dir) { if (depth < 6) queue.push({ dir: full, depth: depth + 1 }); continue; }
+            // A linked file can't be renamed safely (only the link would move): left alone.
+            if (!e.file || e.link) continue;
+            if (!WANTED.has(posix.extname(e.name).slice(1).toLowerCase())) continue;
+            if (stats.files >= MAX_FILES) { stats.truncated = true; break; }
+            stats.files++;
+            found.push({ path: full, size: e.size });
+          }
+        }, () => { stats.unreadable++; }).then(() => {
+          active--; stats.folders = (stats.folders || 0) + 1;
+          if (progress) progress();
+          pump();
+        });
+      }
+    };
+    pump();
+  });
+  found.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+  found.forEach(onFile);
 }
 
 /** Where a file should go: its library folder + the Plex folders + name. null if anything's off. */
@@ -112,7 +156,13 @@ function setup(ctx, api) {
 
   // only: 'problems' (default: files Plex didn't match, didn't pick up, or that aren't named the
   // Plex way) or 'all'.
+  // What the check is doing right now, for the window (at most ~6 updates a second), and Stop.
+  let stopScan = false, lastSent = 0;
+  const tell = (msg, force) => { const now = Date.now(); if (force || now - lastSent > 160) { lastSent = now; if (ctx.send) ctx.send(msg); } };
+  handle('shelf:plexLibraryStop', async () => { stopScan = true; return true; });
   handle('shelf:plexLibraryScan', async (only) => {
+    stopScan = false;
+    const stopped = () => stopScan;
     const c = cfg();
     if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
     const libs = libraries();
@@ -120,13 +170,20 @@ function setup(ctx, api) {
     const token = getSecret('plex');
     const stats = { files: 0, unreadable: 0, truncated: false, matched: 0, unmatched: 0, missing: 0, named: 0, plex: !!token };
     const files = [];
+    tell({ stage: 'connect' }, true);
     await withSession(async (s) => {
-      for (const lib of libs) {
+      for (let li = 0; li < libs.length && !stopped(); li++) {
+        const lib = libs[li], name = lib.title || TOP[lib.kind];
         let known = null;
-        if (token && lib.key) { try { known = await plexFiles(s, token, lib); } catch (e) { log('Plex library list didn’t work (' + (S.friendly(e, '').code || 'OTHER') + ')'); } }
+        if (token && lib.key) {
+          try {
+            known = await plexFiles(s, token, lib, (done, total) => tell({ stage: 'plex', lib: name, index: li, of: libs.length, done, total }), stopped);
+          } catch (e) { log('Plex library list didn’t work (' + (S.friendly(e, '').code || 'OTHER') + ')'); }
+        }
         for (const root of lib.folders) {
           const clean = S.cleanRoot(root);
-          if (!clean) continue;
+          if (!clean || stopped()) continue;
+          tell({ stage: 'walk', lib: name, index: li, of: libs.length, folders: stats.folders || 0, files: stats.files }, true);
           await walk(s, clean, (f) => {
             const rel = posix.relative(clean, f.path);
             const isSub = SUB_EXT.includes(posix.extname(f.path).slice(1).toLowerCase());
@@ -135,7 +192,7 @@ function setup(ctx, api) {
             if (plex) stats[plex]++;
             if (named) stats.named++;
             files.push({ path: f.path, size: f.size, rel, root: clean, kind: lib.kind, lib: lib.key, plex, named });
-          }, stats);
+          }, stats, () => tell({ stage: 'walk', lib: name, index: li, of: libs.length, folders: stats.folders || 0, files: stats.files }), stopped);
         }
       }
     });
@@ -149,8 +206,9 @@ function setup(ctx, api) {
     }).slice(0, 5000);
     listed.clear();
     files.forEach((f) => listed.set(f.path, { root: f.root, kind: f.kind, lib: f.lib }));
+    tell({ stage: 'done', files: files.length, picked: pick.length, stopped: stopped() }, true);
     return {
-      stats, total: files.length,
+      stats, total: files.length, stopped: stopped(),
       files: pick.map((f) => ({
         remote: f.path, size: f.size, name: posix.basename(f.path),
         // Shelf reads the folders too ("TV Shows/Show/Season 1/x.mkv"), like files on this PC.
@@ -249,4 +307,4 @@ function setup(ctx, api) {
   };
 }
 
-module.exports = { setup, looksRight, targetFor, plexFiles };
+module.exports = { setup, looksRight, targetFor, plexFiles, walk };

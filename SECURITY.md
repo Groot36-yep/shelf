@@ -19,10 +19,20 @@ app before use (desktop/fileops.js):
 where the drive supports it. Across drives, Shelf copies, checks the size, and only then
 removes the original.
 
-**Undo is careful.** Every change is written to an undo record as it happens.
+**Undo is careful.** Every change is written to an undo record as it happens (one record per Rename Now; the last
+50 are kept, newest undone first).
 - *Move:* undo only moves a file back if its old spot is still empty.
 - *Copy:* undo only deletes the copy if it still matches the original.
 - *Hard link:* undo only deletes the link if it is still the same file as the original.
+
+**Names that only change capital letters** are recognised as the same file (Windows and macOS), renamed through a
+temporary name, and never mistaken for a clash. **Links out of the library** are followed before anything is
+written: a folder inside your library that really points elsewhere is refused.
+
+**The app itself is locked down.** Electron's fuses are set on the shipped app: it can't be started as a plain
+Node.js program (`ELECTRON_RUN_AS_NODE`), ignores `NODE_OPTIONS` and debugger switches, only loads its code from its
+own archive, and checks that archive's fingerprint at start-up. The Windows build runs with read-only access,
+pins every GitHub Action to an exact commit, and only the final release step can publish.
 
 **The window is locked down.**
 - Sandboxed, with no Node.js access.

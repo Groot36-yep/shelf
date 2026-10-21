@@ -1,12 +1,17 @@
 /*
  * Shelf — data sources.
- * Movies: TMDB (needs the user's own free key, kept only in their browser).
- * TV episodes: TVmaze (free, no key).
+ * Movies: TMDB (the user's own free key, stored encrypted by the app).
+ * TV: the episode order Plex uses: TMDB (default), TheTVDB, or TVmaze when there's no key.
  */
 (function (root) {
   'use strict';
 
-  var cache = {}; // the services' raw answers, in memory only; gone when Shelf closes
+  // The services' raw answers, in memory only, and only the most recent few: a TMDB show page with 19
+  // seasons can be a megabyte, and the tidy answers Shelf actually uses are kept by remembered() below.
+  var CACHE_MAX = 64;
+  var cache = new Map();
+  function cacheGet(url) { var v = cache.get(url); if (v !== undefined) { cache.delete(url); cache.set(url, v); } return v; }
+  function cachePut(url, v) { cache.set(url, v); while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value); }
 
   // Only ever use links and images that point where we expect.
   function safeUrl(u, allowed) {
@@ -73,7 +78,8 @@
   }
 
   function getJSON(url, headers) {
-    if (cache[url]) return Promise.resolve(cache[url]);
+    var hit = cacheGet(url);
+    if (hit !== undefined) return Promise.resolve(hit);
     if (inflight[url]) return inflight[url];
     var host = url.split('/')[2];
     var p = (function attempt(n) {
@@ -84,7 +90,7 @@
         if (r.status === 404) return null;
         if (r.status === 401) { var e = new Error(serviceName(host) + ' rejected the key. Check it in Settings.'); e.code = 'auth'; e.host = host; throw e; }
         if (r.status >= 400 || !r.json) { var e2 = new Error('Lookup failed (error ' + r.status + '). Try again in a moment.'); e2.code = 'server'; throw e2; }
-        cache[url] = r.json;
+        cachePut(url, r.json);
         return r.json;
       }, function (err) {
         if (n < 1) return wait(1000).then(function () { return attempt(n + 1); }); // one retry for a blip
@@ -129,15 +135,17 @@
   }
   /** Forget every remembered lookup (and this session's answers), so everything is asked afresh. */
   function forgetRemembered() {
-    asked = {}; cache = {};
+    asked = {}; cache.clear();
     return store ? store.clear() : Promise.resolve();
   }
   /** For tests: use this store instead of the window's own. */
-  function rememberIn(s) { store = s; asked = {}; cache = {}; }
+  function rememberIn(s) { store = s; asked = {}; cache.clear(); }
 
   // ---------- TMDB ----------
   var TMDB = 'https://api.themoviedb.org/3';
-  var TMDB_IMG = 'https://image.tmdb.org/t/p/w342';
+  // w185 is plenty for every place a poster shows (64 px wide at most, so 2x screens are sharp), and a
+  // third of w342's pixels to download and keep decoded in memory.
+  var TMDB_IMG = 'https://image.tmdb.org/t/p/w185';
 
   function tmdbRequest(path, params, key) {
     key = (key || '').trim();
@@ -192,6 +200,15 @@
     if (!key || !(id > 0)) return Promise.resolve([]);
     return remembered('tmdb:movie:' + id, searchDays, function () {
       return tmdbRequest('/movie/' + id, {}, key).then(function (j) { return j && j.id ? [tmdbToCandidate(j)] : []; });
+    }).then(byId);
+  }
+  // A movie named by its IMDb id ("The Matrix (1999) {imdb-tt0133093}"): TMDB's find, no search needed.
+  function movieByImdb(imdb, key) {
+    imdb = String(imdb || '').toLowerCase();
+    if (!key || !/^tt\d{7,9}$/.test(imdb)) return Promise.resolve([]);
+    return remembered('tmdb:imdb:' + imdb, searchDays, function () {
+      return tmdbRequest('/find/' + imdb, { external_source: 'imdb_id' }, key)
+        .then(function (j) { return ((j && j.movie_results) || []).slice(0, 1).map(tmdbToCandidate); });
     }).then(byId);
   }
   function byId(list) { (list || []).forEach(function (c) { c.byId = true; }); return list || []; }
@@ -411,6 +428,17 @@
         return tmdbRequest('/find/' + tvdb, { external_source: 'tvdb_id' }, keys.tmdb)
           .then(function (j) { return ((j && j.tv_results) || []).slice(0, 1).map(tmdbShowToCandidate); });
       };
+    } else if (svc === 'TMDB' && /^tt\d{7,9}$/.test(String(ids && ids.imdb))) {
+      name = 'tmdb:imdbtv:' + ids.imdb;
+      look = function () {
+        return tmdbRequest('/find/' + ids.imdb, { external_source: 'imdb_id' }, keys.tmdb)
+          .then(function (j) { return ((j && j.tv_results) || []).slice(0, 1).map(tmdbShowToCandidate); });
+      };
+    } else if (svc === 'TVmaze' && !(tvdb > 0) && /^tt\d{7,9}$/.test(String(ids && ids.imdb))) {
+      name = 'tvmaze:imdb:' + ids.imdb;
+      look = function () {
+        return getJSON(TVMAZE + '/lookup/shows?imdb=' + ids.imdb).then(function (show) { return show && show.id ? [showToCandidate(show, 0)] : []; });
+      };
     } else if (svc === 'TVmaze' && tvdb > 0) {
       name = 'tvmaze:tvdb:' + tvdb;
       look = function () {
@@ -428,6 +456,7 @@
     searchShowsFor: searchShowsFor,
     showByIdFor: showByIdFor,
     movieById: movieById,
+    movieByImdb: movieByImdb,
     getEpisodeList: getEpisodeList,
     testTvdbKey: testTvdbKey,
     forgetRemembered: forgetRemembered,

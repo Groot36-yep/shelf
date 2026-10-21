@@ -8,10 +8,11 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
-<meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches movies with TMDB and TV episodes with TVmaze.">
+<meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Matches with TMDB, TheTVDB or TVmaze.">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/styles.css">
 <link rel="stylesheet" href="css/theme-70s.css">
+<link rel="stylesheet" href="css/motion.css">
 <script src="js/theme-boot.js"></script>
 </head>
 <body>
@@ -85,7 +86,7 @@
         <h1>Rename</h1>
         <span id="subtitle">No items</span>
         <!-- Whatever Shelf is busy with right now, so it never looks frozen. -->
-        <span class="activity" id="activity" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="activityText"></span></span>
+        <span class="activity" id="activity" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="activityText"></span><button class="link-btn activity-stop" type="button" id="activityStop" hidden>Stop</button></span>
       </div>
       <div class="tb-spacer"></div>
       <div class="segmented" role="group" aria-label="Show" id="filterSeg" hidden>
@@ -199,6 +200,8 @@
       </div>
       <div class="ep-card" id="inspEpList"></div>
       <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
+      <!-- One-click answers worked out from the show's own episode list (keys 1–4). -->
+      <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
       <p class="ep-why" id="inspEpWhy"></p>
       <div class="insp-card-foot">
         <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
@@ -396,15 +399,15 @@
       <div class="fact"><span>Your video files</span><span>Never uploaded (only sent to your own Plex server, if you choose)</span></div>
       <div class="fact"><span>Original file names and folders</span><span>Never sent</span></div>
       <div class="fact"><span>Your file list</span><span>Gone when you close Shelf</span></div>
+      <div class="fact"><span>Undo history</span><span>Where your last 50 renames came from, so Undo can put them back. Erase it below</span></div>
       <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB or TVmaze answered, kept up to 30 days</span></div>
 <div class="fact"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
-      <div class="fact"><span>Your TMDB key</span><span>Encrypted with your computer account</span></div>
+      <div class="fact"><span>Your TMDB and TheTVDB keys</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Your Plex server login</span><span>Shelf’s own key, encrypted. Your password isn’t kept</span></div>
     </div>
     <span class="section-label">The only things that leave</span>
     <div class="group">
       <div class="fact"><span>Movie title + year</span><span>to TMDB</span></div>
-      <div class="fact"><span>Your TheTVDB key</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Show title</span><span>to TMDB, TheTVDB or TVmaze (the order you chose)</span></div>
       <div class="fact"><span>Posters (optional)</span><span>from TMDB / TVmaze</span></div>
       <div class="fact"><span>Files you send to Plex</span><span>Only to your own server, encrypted (SSH)</span></div>

@@ -62,7 +62,33 @@ let win = null;
 const mediaTokens = new Map(); // token → video path, only while its split window is open
 const allowedSources = new Set(); // files the user picked; nothing else can be touched
 const prefsPath = () => path.join(app.getPath('userData'), 'shelf-prefs.json');
-const journalPath = () => path.join(app.getPath('userData'), 'last-rename.json');
+// Undo history: one record per Rename Now, newest last; Undo puts back the newest, then the one before.
+// (Shelf 2.1 and earlier kept only last-rename.json; it's read as the oldest record.)
+const HISTORY_MAX = 50;
+const legacyJournal = () => path.join(app.getPath('userData'), 'last-rename.json');
+const historyDir = () => path.join(app.getPath('userData'), 'history');
+function historyFiles() {
+  let names = [];
+  try { names = fs.readdirSync(historyDir()).filter((n) => /^\d{13}-\d{1,6}\.json$/.test(n)).sort(); } catch (e) { /* none yet */ }
+  const files = names.map((n) => path.join(historyDir(), n));
+  return fs.existsSync(legacyJournal()) ? [legacyJournal()].concat(files) : files;
+}
+let batchSeq = 0;
+function newJournalPath() {
+  fs.mkdirSync(historyDir(), { recursive: true });
+  const old = historyFiles();
+  old.slice(0, Math.max(0, old.length - (HISTORY_MAX - 1))).forEach((f) => fs.rmSync(f, { force: true }));
+  return path.join(historyDir(), Date.now() + '-' + (++batchSeq % 1e6) + '.json');
+}
+async function newestUndoable() {
+  const files = historyFiles();
+  for (let i = files.length - 1; i >= 0; i--) {
+    const j = await fileops.readJournal(files[i]);
+    if (j && j.done && j.done.length) return files[i];
+    fs.rmSync(files[i], { force: true }); // empty or unreadable: nothing to put back
+  }
+  return null;
+}
 // Each key lives in its own encrypted file. Only these names exist.
 const SECRETS = { tmdb: 'tmdb-key.bin', tvdb: 'tvdb-key.bin', tvdbPin: 'tvdb-pin.bin' };
 const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] || SECRETS.tmdb);
@@ -121,9 +147,18 @@ function createWindow() {
   win.webContents.on('did-fail-load', (e, code, desc, url, isMain) => {
     if (isMain) { log('Page failed to load: ' + code + ' ' + desc); reveal('load failed'); }
   });
+  // A crashed window is reloaded, but at most twice a minute: a window that crashes as it opens
+  // gets an error message instead of a reload loop.
+  const crashes = [];
   win.webContents.on('render-process-gone', (e, d) => {
     log('Window process stopped: ' + d.reason + ' (' + d.exitCode + ')');
-    if (d.reason !== 'clean-exit' && win && !win.isDestroyed()) win.reload();
+    if (d.reason === 'clean-exit' || !win || win.isDestroyed()) return;
+    const now = Date.now();
+    while (crashes.length && now - crashes[0] > 60000) crashes.shift();
+    crashes.push(now);
+    if (crashes.length <= 2) { win.reload(); return; }
+    dialog.showErrorBox('Shelf stopped working', 'Shelf’s window stopped (' + d.reason + ') several times in a row.\n\nDetails were saved to:\n' + path.join(app.getPath('userData'), 'startup.log'));
+    app.quit();
   });
   win.webContents.on('did-finish-load', () => log('Page loaded'));
   if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayNow()); });
@@ -430,23 +465,27 @@ if (gotLock) app.whenReady().then(() => {
     const library = readPrefs().library;
     if (!library || !fs.existsSync(library)) throw new Error('Choose your library folder first.');
     if (!Array.isArray(ops)) throw new Error('Nothing to rename.');
+    const batch = newJournalPath();
     const { results } = await fileops.run(ops.slice(0, 20000), {
-      library, mode, allowed: allowedSources, journalPath: journalPath(),
+      library, mode, allowed: allowedSources, journalPath: batch,
       writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
       onProgress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:progress', p); }
     });
     // A moved file's old path is gone; its new path can be renamed again later.
-    // A moved file's old path is gone; its new path can be renamed again later.
     // (A split leaves the original where it was, so it stays allowed.)
     results.forEach((r) => { if (r.ok && r.to && mode === 'move' && !r.split) { allowedSources.delete(path.resolve(r.source)); allowedSources.add(r.to); } });
+    const id = path.basename(batch, '.json');
+    results.forEach((r) => { if (r.ok && r.to) r.batch = id; });
     return results;
   });
 
-  handle('shelf:canUndo', async () => { const j = await fileops.readJournal(journalPath()); return !!(j && j.done && j.done.length); });
+  handle('shelf:canUndo', async () => !!(await newestUndoable()));
   handle('shelf:undo', async () => {
-    const r = await fileops.undo(journalPath());
+    const file = await newestUndoable();
+    if (!file) return { undone: 0, kept: 0, nothing: true, batch: null, more: false };
+    const r = await fileops.undo(file);
     (r.restored || []).forEach((p) => allowedSources.add(path.resolve(p))); // files put back can be renamed again
-    return { undone: r.undone, kept: r.kept, nothing: !!r.nothing };
+    return { undone: r.undone, kept: r.kept, nothing: !!r.nothing, batch: path.basename(file, '.json'), more: !!(await newestUndoable()) };
   });
   // Frames per second (for frame-by-frame stepping), from ffmpeg's description of the file.
   async function frameRate(file) {
@@ -528,6 +567,7 @@ if (gotLock) app.whenReady().then(() => {
     };
     jobs = jobs.filter((j) => j && (typeof j.path === 'string' || typeof j.remote === 'string')).map((j) => Object.assign({}, j, { key: keyOf(j) })).filter((j) => j.key);
     const titlesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
+    const runtimesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.runtimes) ? j.runtimes.slice(0, 3000).map((m) => Math.max(0, Math.min(600, Number(m) || 0))) : []]));
     const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
     const files = pickedVideos([...titlesFor.keys()].filter((k) => !onServer.has(k))).concat([...onServer]).slice(0, 2000);
     if (!files.length) return {};
@@ -556,7 +596,8 @@ if (gotLock) app.whenReady().then(() => {
     async function readAll(proxy, why) {
       for (let i = 0; i < files.length && !cardCancel; i++) {
         const f = files[i], remote = onServer.has(f);
-        const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1 }));
+        const mins = runtimesFor.get(f) || [];
+        const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1, runtime: mins[n] || null }));
         const near = entries.filter((e) => nearFor.get(f).has(e.name));
         let src = null, secs = null;
         try {
@@ -576,13 +617,15 @@ if (gotLock) app.whenReady().then(() => {
           const r = await scan.scanFile(src ? src.url : f, secs, {
             deep,
             isMatch: (texts) => P.matchCardText(texts, entries, near),
+            // An episode as long as the video (give or take the credits): it's the only one in there.
+            fillsVideo: (hit) => !!(hit && hit.entry && hit.entry.runtime && hit.entry.runtime * 60 >= secs * 0.7),
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
             onFound: (fd) => send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }),
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
-          out[f] = { secs, parts: scan.windowsFor(secs).length, texts: r.texts };
+          out[f] = { secs, parts: r.parts || scan.windowsFor(secs).length, texts: r.texts };
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
         } finally {
@@ -695,13 +738,15 @@ if (gotLock) app.whenReady().then(() => {
   });
   app.on('before-quit', () => { plexSend.close(); if (scanLoaded) scanLoaded.stopOcr(); });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
-  const plexFix = require('./plexfix').setup({ app, log }, plexSend);
+  const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
 
   handle('shelf:eraseAll', async () => {
     if (scanLoaded) await scanLoaded.stopOcr();
     plexSend.forgetAll();
     plexFix.forget();
-    for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), journalPath()])) fs.rmSync(p, { force: true });
+    for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
+    fs.rmSync(historyDir(), { recursive: true, force: true });
+    logLines = [];
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();
     return true;

@@ -22,14 +22,41 @@
   var JUNK_SET = {};
   JUNK.forEach(function (w) { JUNK_SET[w] = true; });
 
-  var LANGS = {
-    en: 'en', eng: 'en', english: 'en', es: 'es', spa: 'es', spanish: 'es', fr: 'fr', fre: 'fr', fra: 'fr', french: 'fr',
-    de: 'de', ger: 'de', deu: 'de', german: 'de', it: 'it', ita: 'it', italian: 'it', pt: 'pt', por: 'pt', portuguese: 'pt',
-    nl: 'nl', dut: 'nl', nld: 'nl', dutch: 'nl', ja: 'ja', jpn: 'ja', japanese: 'ja', ko: 'ko', kor: 'ko', korean: 'ko',
-    zh: 'zh', chi: 'zh', zho: 'zh', chinese: 'zh', ru: 'ru', rus: 'ru', russian: 'ru', sv: 'sv', swe: 'sv', swedish: 'sv',
-    da: 'da', dan: 'da', danish: 'da', no: 'no', nor: 'no', norwegian: 'no', fi: 'fi', fin: 'fi', finnish: 'fi',
-    pl: 'pl', pol: 'pl', polish: 'pl', ar: 'ar', ara: 'ar', arabic: 'ar', he: 'he', heb: 'he', hebrew: 'he'
-  };
+  // Subtitle languages: [ISO 639-1 (what Plex reads), ISO 639-2/B, 639-2/T, English name, other common spellings].
+  // Regional tags (pt-BR, es-419, zh-Hans, …) are read too and named with the base language, which is what
+  // Plex recognises. ("hi" is left out on purpose: in subtitle names it nearly always means "hearing impaired".)
+  var LANG_TABLE = [
+    'en eng eng english', 'es spa spa spanish espanol castellano latino', 'fr fre fra french francais', 'de ger deu german deutsch',
+    'it ita ita italian italiano', 'pt por por portuguese portugues pob pb ptbr', 'nl dut nld dutch nederlands flemish',
+    'ja jpn jpn japanese', 'ko kor kor korean', 'zh chi zho chinese chs cht cmn yue mandarin cantonese', 'ru rus rus russian',
+    'sv swe swe swedish', 'da dan dan danish', 'no nor nor norwegian nob nno', 'fi fin fin finnish', 'pl pol pol polish',
+    'ar ara ara arabic', 'he heb heb hebrew', 'tr tur tur turkish', 'el gre ell greek', 'cs cze ces czech', 'sk slo slk slovak',
+    'hu hun hun hungarian', 'ro rum ron romanian', 'bg bul bul bulgarian', 'hr hrv hrv croatian', 'sr srp srp serbian',
+    'sl slv slv slovenian', 'uk ukr ukr ukrainian', 'et est est estonian', 'lv lav lav latvian', 'lt lit lit lithuanian',
+    'is ice isl icelandic', 'ga gle gle irish', 'cy wel cym welsh', 'ca cat cat catalan', 'eu baq eus basque', 'gl glg glg galician',
+    'th tha tha thai', 'vi vie vie vietnamese', 'id ind ind indonesian', 'ms may msa malay', 'tl tgl tgl tagalog filipino fil',
+    'fa per fas persian farsi', 'ur urd urd urdu', 'bn ben ben bengali', 'ta tam tam tamil', 'te tel tel telugu', 'ml mal mal malayalam',
+    'kn kan kan kannada', 'mr mar mar marathi', 'pa pan pan punjabi', 'gu guj guj gujarati', 'si sin sin sinhala', 'ne nep nep nepali',
+    'hy arm hye armenian', 'ka geo kat georgian', 'az aze aze azerbaijani', 'kk kaz kaz kazakh', 'uz uzb uzb uzbek',
+    'mk mac mkd macedonian', 'sq alb sqi albanian', 'bs bos bos bosnian', 'be bel bel belarusian', 'af afr afr afrikaans',
+    'sw swa swa swahili', 'am amh amh amharic', 'km khm khm khmer', 'lo lao lao lao', 'my bur mya burmese', 'mn mon mon mongolian',
+    'la lat lat latin', 'eo epo epo esperanto'
+  ];
+  // Two-letter codes that are also everyday English words at the end of a title ("…What.It.Is.srt") are
+  // only read in their three-letter form.
+  var LANG_AMBIGUOUS = { is: 1, be: 1, am: 1, my: 1, la: 1, id: 1 };
+  var LANGS = {};
+  LANG_TABLE.forEach(function (row) {
+    var w = row.split(' ');
+    w.forEach(function (k, i) { if (!LANGS[k] && !(i === 0 && LANG_AMBIGUOUS[k])) LANGS[k] = w[0]; });
+  });
+  // "pt-BR", "pt_br", "zh-Hans", "es-419", "en-US": the base language, if the base is one we know.
+  function langOf(token) {
+    var t = String(token || '').toLowerCase().replace(/_/g, '-');
+    if (LANGS[t]) return LANGS[t];
+    var m = /^([a-z]{2,3})-(?:[a-z]{2}|\d{3}|[a-z]{4})$/.exec(t);
+    return m && LANGS[m[1]] ? LANGS[m[1]] : null;
+  }
   var SUB_FLAGS = ['forced', 'sdh', 'cc', 'hi'];
 
   function cleanSpaces(s) {
@@ -120,6 +147,38 @@
     return { text: words.join(' '), resolution: resolution };
   }
 
+  /** A subtitle's name without its extension, minus ".en", ".forced", ".eng.sdh", ".pt-BR" at the end. */
+  function peelSubtitle(base) {
+    var lang = null, flags = [];
+    for (var k = 0; k < 3; k++) {
+      var dot = base.lastIndexOf('.');
+      if (dot <= 0) break;
+      var tok = base.slice(dot + 1).toLowerCase();
+      if (!/^[a-z0-9_-]{2,12}$/.test(tok)) break;
+      var lg = langOf(tok);
+      if (lg && !lang) { lang = lg; base = base.slice(0, dot); continue; }
+      if (SUB_FLAGS.indexOf(tok) >= 0) { flags.unshift(tok === 'hi' ? 'sdh' : tok); base = base.slice(0, dot); continue; }
+      break;
+    }
+    return { base: base, lang: lang, flags: flags };
+  }
+
+  // ---- Editions and split movies (Plex: "{edition-Director's Cut}", "Movie (2008) - pt1") ----
+  var ED_WORDS = "director'?s cut|directors cut|final cut|extended(?: (?:edition|cut|version))?|special edition|" +
+    "ultimate (?:edition|cut)|unrated(?: (?:edition|cut|version))?|uncut|theatrical(?: (?:cut|edition|version))?|" +
+    "imax(?: edition)?|collector'?s edition|\\d{1,3}(?:st|nd|rd|th) anniversary edition|anniversary edition|" +
+    'criterion(?: collection| edition)?';
+  var ED_TAIL = new RegExp('\\b(?:the )?(' + ED_WORDS + ')\\b', 'i');
+  var ED_STRONG = /\b(director'?s cut|directors cut|(?:extended|special|ultimate|unrated|collector'?s|anniversary|imax) (?:edition|cut)|theatrical cut)\b/i;
+  var PART_ANY = /\b(cd|disc|disk)[ ._-]?([1-9])\b/i;
+  var PART_WORD = /\b(part|pt|cd|disc|disk)[ ._-]?([1-9])\b/i;
+  function editionLabel(raw) {
+    var t = String(raw).toLowerCase().replace(/\s+/g, ' ').trim()
+      .replace(/^directors cut$/, "director's cut").replace(/^collectors edition$/, "collector's edition")
+      .replace(/^criterion(?: collection| edition)?$/, 'criterion');
+    return t.split(' ').map(function (w) { return w === 'imax' ? 'IMAX' : w.charAt(0).toUpperCase() + w.slice(1); }).join(' ').slice(0, 32);
+  }
+
   function splitExt(name) {
     var i = name.lastIndexOf('.');
     if (i <= 0) return { base: name, ext: '' };
@@ -142,16 +201,12 @@
     var subFlags = [];
 
     if (isSubtitle) {
-      // Peel ".en", ".forced", ".eng.sdh" off the end.
-      for (var k = 0; k < 3; k++) {
-        var p = splitExt(base);
-        if (!p.ext) break;
-        if (LANGS[p.ext] && !lang) { lang = LANGS[p.ext]; base = p.base; continue; }
-        if (SUB_FLAGS.indexOf(p.ext) >= 0) { subFlags.unshift(p.ext === 'hi' ? 'sdh' : p.ext); base = p.base; continue; }
-        break;
-      }
+      var peeled = peelSubtitle(base);
+      base = peeled.base; lang = peeled.lang; subFlags = peeled.flags;
     }
 
+    // An edition already written Plex's way: "Blade Runner (1982) {edition-Final Cut}".
+    var edTag = /\{edition-([^}]{1,40})\}/i.exec(base);
     // Normalise separators. Keep hyphens inside words (Spider-Man) but split "Show-S01E01".
     var s = base
       .replace(/[_]+/g, ' ')
@@ -230,6 +285,22 @@
       return result;
     }
 
+    // Anime and other shows numbered from the first episode: "[SubsPlease] One Piece - 1085 (1080p)",
+    // "Frieren - Beyond Journey's End - 05 [1080p]". The number is counted from the start of the show
+    // and turned into a season and episode with the show's episode list (resolveEpisode).
+    var am = /^(.+?)\s[-–]\s(\d{2,4})(?:v\d)?(?=\s*$|\s*[(\[]|\s+(?:\d{3,4}p|[-–]\s))/i.exec(s);
+    if (am && !(am[2].length === 4 && /^(19[2-9]\d|20[0-4]\d)$/.test(am[2])) && /[a-z]/i.test(am[1])) {
+      var aShow = showPart(am[1].replace(/[\s\-–]+$/, ''));
+      var aRest = s.slice(am.index + am[0].length);
+      setQuality(aRest);
+      result.kind = 'episode';
+      result.absolute = parseInt(am[2], 10);
+      result.episode = result.absolute;
+      result.resolution = stripJunk(cleanSpaces(aRest.replace(/[()\[\]]/g, ' '))).resolution || aShow.resolution;
+      if (!result.resolution) { var arm = base.match(/(?:^|[^0-9])(2160|1080|720|576|480)p/i); if (arm) result.resolution = arm[1] + 'p'; }
+      return result;
+    }
+
     // --- Movie -------------------------------------------------------------
     // The year is the LAST plausible 4-digit year that isn't the very first word
     // (so "2001 A Space Odyssey 1968" works, and "1917 (2019)" too).
@@ -241,6 +312,36 @@
       lastYear = { year: parseInt(ym[1], 10), index: startIdx };
     }
     var titlePart = s;
+    // Editions ("Final Cut", "Director's Cut", "Extended Edition") and parts of a split movie ("cd1", "pt2"),
+    // so two versions of a film, or its two halves, never get the same name. After the year, the usual
+    // words count; before it, only unmistakable ones ("The Final Cut" is also a film's title).
+    result.edition = edTag ? cleanSpaces(edTag[1]).slice(0, 32) : null;
+    var tail = lastYear ? s.slice(lastYear.index + 4) : '';
+    var edAfter = lastYear && ED_TAIL.exec(tail);
+    var edBefore = ED_STRONG.exec(lastYear ? s.slice(0, lastYear.index) : s);
+    if (!result.edition && (edAfter || edBefore)) result.edition = editionLabel((edAfter || edBefore)[1]);
+    if (edBefore) s = s.slice(0, edBefore.index) + ' ' + s.slice(edBefore.index + edBefore[0].length);
+    // "cd1" / "disc 2" anywhere; "part2" / "pt.2" only after the year ("Deathly Hallows Part 1 (2010)" is a title).
+    var pm = PART_ANY.exec(s), pAt = pm ? pm.index : -1;
+    if (!pm && lastYear) {
+      var pw = PART_WORD.exec(s.slice(lastYear.index + 4));
+      if (pw) { pm = pw; pAt = lastYear.index + 4 + pw.index; }
+    }
+    if (pm) {
+      var pk = pm[1].toLowerCase();
+      result.part = (pk === 'disk' ? 'disc' : pk === 'part' ? 'pt' : pk) + parseInt(pm[2], 10);
+      s = s.slice(0, pAt) + ' ' + s.slice(pAt + pm[0].length);
+    }
+    // (Find the year again: taking words out moved it.)
+    if (edBefore || pm) {
+      lastYear = null; yearRe.lastIndex = 0;
+      while ((ym = yearRe.exec(s)) !== null) {
+        var startIdx2 = ym.index + ym[0].indexOf(ym[1]);
+        if (startIdx2 === 0) continue;
+        lastYear = { year: parseInt(ym[1], 10), index: startIdx2 };
+      }
+    }
+    titlePart = s;
     if (lastYear) {
       result.year = lastYear.year;
       titlePart = s.slice(0, lastYear.index);
@@ -289,10 +390,12 @@
   // show or movie it is (Plex's own naming, and Shelf's). Looked for in the file name, then in the
   // show's folder (for an episode) or the folder the file sits in (for a movie).
   function idsIn(s) {
-    var tm = /\{tmdb-(\d{1,9})\}/i.exec(s || ''), tv = /\{tvdb-(\d{1,9})\}/i.exec(s || '');
-    if (!tm && !tv) return null;
+    var tm = /\{tmdb-(\d{1,9})\}/i.exec(s || ''), tv = /\{tvdb-(\d{1,9})\}/i.exec(s || ''), im = /\{imdb-(tt\d{7,9})\}/i.exec(s || '');
+    if (!tm && !tv && !im) return null;
     var y = /\((19\d{2}|20\d{2})\)/.exec(s);
-    return { tmdb: tm ? parseInt(tm[1], 10) : null, tvdb: tv ? parseInt(tv[1], 10) : null, year: y ? parseInt(y[1], 10) : null };
+    var ids = { tmdb: tm ? parseInt(tm[1], 10) : null, tvdb: tv ? parseInt(tv[1], 10) : null, year: y ? parseInt(y[1], 10) : null };
+    if (im) ids.imdb = im[1].toLowerCase();
+    return ids;
   }
   function idsFor(fileName, folders, r) {
     if (!(r.isVideo || r.isSubtitle)) return null;
@@ -319,7 +422,7 @@
     // "Season 2/E05.mkv", "Season 2/05 - Title.mkv", "Season 2/Episode 5.mkv"
     if (r.kind !== 'episode' && seasonAt >= 0) {
       var base = splitExt(fileName).base;
-      if (r.isSubtitle) for (var k = 0; k < 3; k++) base = base.replace(/\.(?:[a-z]{2,3}|forced|sdh|cc|hi)$/i, '');
+      if (r.isSubtitle) base = peelSubtitle(base).base;
       base = base.replace(/[._]+/g, ' ').trim();
       var em = base.match(/^(?:e|ep|episode)\s*(\d{1,3})\b/i) || base.match(/\b(?:e|ep|episode)\s*(\d{1,3})\b/i) || base.match(/^(\d{1,3})(?=$|\s|-)/);
       if (em) {
@@ -836,6 +939,16 @@
       }
       return null;
     }
+    // Counted from the show's first episode ("One Piece - 1085"): the Nth episode of the regular seasons.
+    if (parsed.absolute && parsed.season == null) {
+      var ordered = (list || []).filter(function (e) { return e.season >= 1 && e.number != null; })
+        .sort(function (a, b) { return a.season - b.season || a.number - b.number; });
+      var nth = ordered[parsed.absolute - 1];
+      if (!nth) return null;
+      var abs = out([nth], 'absolute', true);
+      abs.note = nth.season === 1 && nth.number === parsed.absolute ? '' : 'Episode ' + parsed.absolute + ', counted from the start of the show.';
+      return abs;
+    }
     var seasonList = seasonEntries(list, season);
     var groupsAll = halfHourGroups(seasonList);
     // Where the file's number points (used to judge title cards): its cartoon or half-hour.
@@ -971,7 +1084,14 @@
       var name = safeName(match.title) + (year > 1800 ? ' (' + year + ')' : '');
       var tmdbId = parseInt(match.id, 10);
       var idTag = opts.movieIds && tmdbId > 0 ? ' {tmdb-' + tmdbId + '}' : '';
-      return { folder: ['Movies', name + idTag], file: name + idTag + qTag + subSuffix + '.' + ext };
+      // Plex's edition tag goes on the folder and the file; a split movie's part ends the name
+      // ("… - pt1"), and then the quality is left out so the part stays the last thing Plex reads.
+      var edition = opts.edition !== undefined ? opts.edition : parsed.edition;
+      edition = edition ? safeName(String(edition).replace(/[{}\[\]]/g, '')).slice(0, 32).replace(/[. ]+$/, '') : '';
+      var edTag = edition && edition !== 'Unknown' ? ' {edition-' + edition + '}' : '';
+      var part = opts.part !== undefined ? opts.part : parsed.part;
+      var partTag = /^(cd|disc|dvd|pt)[1-9]$/.test(part || '') ? ' - ' + part : '';
+      return { folder: ['Movies', name + idTag + edTag], file: name + idTag + edTag + (partTag || qTag) + subSuffix + '.' + ext };
     }
     var showYear = parseInt(match.showYear, 10);
     var season = Math.max(0, parseInt(match.season, 10) || 0);
@@ -1004,6 +1124,7 @@
     rankCandidates: rankCandidates,
     plexName: plexName,
     safeName: safeName,
+    subtitleStem: function (base) { return peelSubtitle(String(base || '')).base; },
     VIDEO_EXT: VIDEO_EXT,
     SUB_EXT: SUB_EXT
   };

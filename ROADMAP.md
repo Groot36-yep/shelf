@@ -2,6 +2,48 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Fixed: renames that only change capital letters** (`the matrix (1999).mkv` → `The Matrix (1999).mkv`) were
+  refused on Windows as "a file with this name already exists". Undo changes them back too.
+- **Editions and split movies**: `Blade Runner (1982) {edition-Final Cut}`, `Kill Bill - Vol. 1 (2003) - cd1`. Before,
+  two versions of a film (or its two halves) got the same name and the second was silently skipped.
+- **Two files that would get the same name** are now marked "Same name" and wait for you, instead of one being
+  skipped at Rename Now.
+- **Subtitle languages**: about 80 languages and regional tags (`pt-BR`, `zh-Hans`, `es-419`, `chs`); before, many
+  were lost and showed up as the episode title.
+- **Anime and other shows numbered from episode 1** (`[Group] One Piece - 1085 (1080p)`, `Show - 05 [1080p]`).
+- **IMDb ids** in names (`{imdb-tt0133093}`) are looked up directly.
+- **Undo history**: Undo puts back your last 50 renames, one at a time, not just the last one. Taking a file off
+  the list can be undone too (Ctrl+Z).
+- **Safer moves**: moving to another drive keeps the file's dates; nothing is written through a link that leads out
+  of your library folder.
+- **Faster and lighter with big folders** (2,080 files, measured in the window): matching 42 s → 27 s, layout work
+  15.8 s → 1.5 s, script time 7.2 s → 2.4 s, window memory 11.6 MB → 5.8 MB, poster downloads 5.4 MB → 1.9 MB.
+  Rows out of sight aren't drawn, posters are the size they're shown at, lookups kept in memory are capped, and
+  title-card reading starts fewer readers when memory is short.
+- **Double-length episodes**: once a title card names an episode as long as the whole video (a special like
+  *SpongeBob's Last Stand* or *Pest of the West*), Shelf stops looking for a second cartoon. Before, it searched
+  the rest of the video for one, which was slow and could turn up a false second episode. On the two real specials:
+  114 s → 28 s, and both now come out as one episode.
+- **Fixing a file in one click**: when Shelf isn't sure, the side panel offers the likeliest answers from the show's
+  own episode list (the half-hour the file's number points at, the whole half-hour, a nearby double-length episode,
+  just the first cartoon, the half-hours either side). Click one or press 1–4, and Shelf moves on to the next file
+  that needs you, so a whole season can be settled from the keyboard.
+- **Fix My Plex Library, faster and clearer**: folders on the server are read eight at a time, Plex is asked
+  1,000 files a page with pages side by side, and the title bar says exactly what's happening ("Asking Plex what
+  it matched: 3,000 of 12,400…", "Looking through your folders: 412 folders, 5,230 files…") with a Stop that
+  keeps what was found so far.
+- **Checked on 10 real SpongeBob episodes** (Shelf's own scanner end to end: frame picking, ffmpeg, OCR, matching):
+  13 of 18 title cards read by the normal scan, none wrong, same as before the changes.
+- **Motion**: sheets rise in and settle, new files slide into place, a changed status springs, a renamed file gets a
+  sweep, posters fade in, the side panel cross-fades. Only opacity and transform move, nothing loops, and all of it
+  is off when Windows is set to show fewer animations.
+- **Security**: Electron's fuses are set on the shipped app (it can't be used to run other scripts, and its files are
+  checked at start-up); the Windows build pins every action to an exact commit, uses read-only access except for the
+  final release step, and runs on Node 22.
+- Erase All Shelf Data also removes the startup log and the undo history; a window that keeps crashing shows an
+  error instead of reloading forever; the Privacy sheet and README say exactly what's kept.
+
 ## Done (2.1.0)
 - **Read title cards in videos on your Plex server**: after Check Library, Read Title Cards, Auto
   Mode and Deep Scan work on files on the server too. Only the minutes Shelf needs are read, over

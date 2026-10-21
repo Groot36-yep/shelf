@@ -116,6 +116,34 @@ async function exists(p) {
   try { await fsp.lstat(p); return true; } catch (e) { return false; }
 }
 
+/**
+ * Is `to` the very same file as `from` under another spelling? On Windows and macOS, names that differ
+ * only in capital letters ("the matrix (1999).mkv" → "The Matrix (1999).mkv") are one file.
+ */
+async function sameFileOtherCase(from, to) {
+  if (from === to || from.toLowerCase() !== to.toLowerCase()) return false;
+  return sameInode(from, to);
+}
+
+/** Change only the capital letters of a name: through a temporary name, so every file system takes it. */
+async function renameCase(from, to) {
+  const tmp = path.join(path.dirname(to), '.shelf-case-' + process.pid + '-' + Date.now() + path.extname(to));
+  await fsp.rename(from, tmp);
+  try { await fsp.rename(tmp, to); } catch (e) { await fsp.rename(tmp, from).catch(() => {}); throw e; }
+  // (If `to` was a second name for the same file, rename leaves the temporary name in place: tidy it.)
+  if (await exists(tmp) && await sameInode(tmp, to)) await fsp.unlink(tmp);
+}
+async function sameInode(a, b) {
+  const [x, y] = await Promise.all([fsp.stat(a, { bigint: true }).catch(() => null), fsp.stat(b, { bigint: true }).catch(() => null)]);
+  return !!(x && y && x.ino === y.ino && x.dev === y.dev);
+}
+
+/** The folder Shelf will write into must really be inside the library (links and junctions followed). */
+async function checkInsideReal(dir, realLibrary) {
+  const real = await fsp.realpath(dir);
+  if (real !== realLibrary && !inside(realLibrary, real)) throw new Error('Destination is outside your library');
+}
+
 /** Move without ever overwriting. Same drive: instant. Other drive: copy, check, then remove. */
 async function moveNoOverwrite(from, to) {
   try {
@@ -134,6 +162,8 @@ async function moveNoOverwrite(from, to) {
     await fsp.copyFile(from, to, fs.constants.COPYFILE_EXCL);
     const [a, b] = await Promise.all([fsp.stat(from), fsp.stat(to)]);
     if (a.size !== b.size) { await fsp.unlink(to); throw new Error('Copy check failed'); }
+    // Keep the file's own dates (Plex's "recently added" and your folder's sort order use them).
+    await fsp.utimes(to, a.atime, a.mtime).catch(() => {});
     await fsp.unlink(from);
   }
 }
@@ -154,6 +184,7 @@ async function run(ops, opts) {
   const mode = ['move', 'copy', 'link'].includes(opts.mode) ? opts.mode : 'move';
   const results = [];
   const journal = { when: new Date().toISOString(), mode, library, done: [] };
+  const realLibrary = await fsp.realpath(library).catch(() => library);
   let n = 0;
   for (const op of ops) {
     n++;
@@ -172,14 +203,19 @@ async function run(ops, opts) {
       if (!inside(library, to)) throw new Error('Destination is outside your library');
       if (path.resolve(to) === from) { res.ok = true; res.skipped = 'Already has this name'; continue; }
       if (!(await exists(from))) throw new Error('File not found (was it moved?)');
-      if (await exists(to)) { res.skipped = 'A file with this name already exists'; continue; }
+      // Only the capital letters change: on Windows and macOS that's the same file, not a clash.
+      const caseOnly = await sameFileOtherCase(from, path.resolve(to));
+      if (caseOnly && mode !== 'move') { res.ok = true; res.skipped = 'Already in your library'; continue; }
+      if (!caseOnly && await exists(to)) { res.skipped = 'A file with this name already exists'; continue; }
       await fsp.mkdir(dir, { recursive: true });
-      if (mode === 'move') await moveNoOverwrite(from, to);
+      await checkInsideReal(dir, realLibrary);
+      if (caseOnly) await renameCase(from, to);
+      else if (mode === 'move') await moveNoOverwrite(from, to);
       else if (mode === 'copy') await copyNoOverwrite(from, to);
       else await fsp.link(from, to);
       res.ok = true;
       res.to = to;
-      journal.done.push({ from, to });
+      journal.done.push(caseOnly ? { from, to, caseOnly: true } : { from, to });
       if (opts.journalPath) await writeJournal(opts.journalPath, journal); // saved as we go
     } catch (e) {
       res.error = e.code === 'EEXIST' ? 'A file with this name already exists' : e.code === 'EXDEV' ? 'Hard links only work on the same drive' : (e.message || String(e));
@@ -229,6 +265,7 @@ async function runSplit(op, from, library, opts, res, journal) {
       const p = plan[k];
       if (subParts && !subParts[k].cues) continue; // nothing is said in this part: no empty file
       await fsp.mkdir(p.dir, { recursive: true });
+      await checkInsideReal(p.dir, await fsp.realpath(library).catch(() => library));
       if (subParts) {
         await fsp.writeFile(p.to, subParts[k].data, { flag: 'wx' }); // never over an existing file
         made.push(p.to);
@@ -287,6 +324,11 @@ async function undo(journalPath) {
         await removeEmptyDirs(path.dirname(to), j.library);
         continue;
       }
+      if (rec.caseOnly) {
+        // Only the capital letters changed: change them back (if it's still the same file).
+        if (await sameFileOtherCase(path.resolve(to), path.resolve(from))) { await renameCase(to, from); restored.push(from); undone++; } else kept++;
+        continue;
+      }
       if (j.mode === 'move') {
         if ((await exists(to)) && !(await exists(from))) {
           await fsp.mkdir(path.dirname(from), { recursive: true });
@@ -317,4 +359,4 @@ async function removeEmptyDirs(dir, library) {
   }
 }
 
-module.exports = { expand, run, undo, readJournal, inside, removeEmptyDirs };
+module.exports = { expand, run, undo, readJournal, inside, removeEmptyDirs, sameFileOtherCase };

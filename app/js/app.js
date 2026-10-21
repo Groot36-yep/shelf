@@ -94,10 +94,16 @@
   }
   var TINTS = ['#FFB27A', '#C9B8FF', '#B8C2CE', '#F5D58A', '#9CC7FF', '#A8E0C0', '#F4A9B8'];
   function tintFor(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return TINTS[Math.abs(h) % TINTS.length]; }
+  var shownPosters = {};
   function posterNode(cls, url, label) {
     var box = el('div', { class: cls });
     if (url && settings.posters) {
-      box.appendChild(el('img', { src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }));
+      var img = el('img', { alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' });
+      // A poster fades in the first time it arrives (motion.css); after that it's simply there.
+      if (shownPosters[url]) img.className = 'is-loaded';
+      else img.addEventListener('load', function () { shownPosters[url] = 1; img.classList.add('is-loaded'); });
+      img.src = url;
+      box.appendChild(img);
     } else {
       box.style.background = tintFor(label);
       box.textContent = initials(label);
@@ -112,8 +118,15 @@
   }
   var toastTimer;
   function toast(msg) {
-    var t = $('toast'); t.textContent = msg; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
+    var t = $('toast'), was = !t.hidden && !t.classList.contains('is-out');
+    t.textContent = msg; t.hidden = false;
+    t.classList.remove('is-out');
+    if (!was) { t.classList.remove('is-in'); void t.offsetWidth; t.classList.add('is-in'); } // replay the entrance
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      t.classList.remove('is-in'); t.classList.add('is-out');
+      toastTimer = setTimeout(function () { t.hidden = true; t.classList.remove('is-out'); }, 170);
+    }, 3200);
   }
   // ---------- "Working…": whatever Shelf is busy with, shown under the title (never a silent freeze) ----------
   var jobs = [], lookups = '';
@@ -123,11 +136,12 @@
     var a = $('activity');
     a.hidden = !label; $('subtitle').hidden = !!label;
     if (label && $('activityText').textContent !== label) $('activityText').textContent = label;
+    $('activityStop').hidden = !(top && top.stop);
     document.body.classList.toggle('is-busy', !!label);
   }
   // Start a job; it shows at once (or after a moment for quick ones), and .done() takes it away.
-  function busy(label, quiet) {
-    var job = { label: label, shown: !quiet };
+  function busy(label, quiet, stop) {
+    var job = { label: label, shown: !quiet, stop: stop || null };
     jobs.push(job);
     if (quiet) job.timer = setTimeout(function () { job.shown = true; syncActivity(); }, 180);
     syncActivity();
@@ -136,6 +150,7 @@
       done: function () { clearTimeout(job.timer); var i = jobs.indexOf(job); if (i >= 0) jobs.splice(i, 1); syncActivity(); }
     };
   }
+  on('activityStop', 'click', function () { var top = jobs.filter(function (j) { return j.shown; }).pop(); if (top && top.stop) { top.stop(); top.stop = null; syncActivity(); } });
   // Heavier work: show what's happening first (it gets painted), then do it.
   function work(label, fn) {
     var job = busy(label);
@@ -193,10 +208,29 @@
     return P.plexName(item.parsed, m, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(item) });
   }
 
-  function isReady(item) {
+  // Two files that would get the same name: neither is renamed until you settle it (before, the second was
+  // silently skipped at Rename Now). Worked out once per redraw.
+  var dupeIds = {};
+  function targetsOf(item) {
+    var pieces = splitOf(item) ? pieceNames(item) : null;
+    var names = pieces && pieces.length ? pieces : [plexFor(item)];
+    return names.filter(Boolean).map(function (p) { return (item.remote ? 'server:' : '') + p.folder.concat(p.file).join('/').toLowerCase(); });
+  }
+  function refreshDupes() {
+    var seen = {}, out = {};
+    items.forEach(function (i) {
+      if (i.status === 'done' || !readyBase(i)) return;
+      targetsOf(i).forEach(function (k) {
+        if (seen[k] && seen[k] !== i.id) { out[i.id] = 1; out[seen[k]] = 1; } else seen[k] = i.id;
+      });
+    });
+    dupeIds = out;
+  }
+  function isReady(item) { return readyBase(item) && !dupeIds[item.id]; }
+  function readyBase(item) {
     if (item.split && (item.status === 'matched' || item.status === 'review')) return true; // you chose how to split it
     var v = item.linkTo && linkedVideo(item);
-    if (v && v.split) return item.status !== 'done' && subSplittable(item) && isReady(v); // cut along with its video
+    if (v && v.split) return item.status !== 'done' && subSplittable(item) && readyBase(v); // cut along with its video
     return !item.epBlock && (item.status === 'matched' || (item.status === 'review' && item.confirmed));
   }
   // Text subtitles (SRT, WebVTT, ASS/SSA) can be cut along with their video; picture ones (IDX/SUB) can't.
@@ -220,6 +254,7 @@
   }
   function needsReview(item) {
     var v = item.linkTo && linkedVideo(item);
+    if (dupeIds[item.id]) return true;
     if (v && v.split) return false; // goes with its video (split along, or explained in the rename summary)
     return !splitOf(item) && (item.status === 'review' && (!item.confirmed || item.epBlock) || item.status === 'nomatch' || item.status === 'error');
   }
@@ -250,7 +285,7 @@
   function stemKey(item) {
     var dir = item.relPath.indexOf('/') >= 0 ? item.relPath.slice(0, item.relPath.lastIndexOf('/')) : '';
     var base = item.name.replace(/\.[^.]+$/, '');
-    if (item.parsed.isSubtitle) for (var k = 0; k < 3; k++) base = base.replace(/\.(?:[a-z]{2,3}|forced|sdh|cc|hi)$/i, '');
+    if (item.parsed.isSubtitle) base = P.subtitleStem(base);
     return (dir + '/' + base).toLowerCase();
   }
   var subsOf = {}; // video id → its subtitles
@@ -365,7 +400,7 @@
     var lookup;
     var ids = !query && parsed.ids; // "Lost {tvdb-73739}": the folder already says which show it is
     if (item.kind === 'movie') {
-      lookup = ids && ids.tmdb ? byIdOr(S.movieById(ids.tmdb, settings.tmdbKey), ids, function () { return S.searchMovies(title, year, settings.tmdbKey); })
+      lookup = ids && (ids.tmdb || ids.imdb) ? byIdOr(ids.tmdb ? S.movieById(ids.tmdb, settings.tmdbKey) : S.movieByImdb(ids.imdb, settings.tmdbKey), ids, function () { return S.searchMovies(title, year, settings.tmdbKey); })
         : S.searchMovies(title, year, settings.tmdbKey);
     } else {
       lookup = ids ? byIdOr(S.showByIdFor(ids, keys()), ids, function () { return S.searchShowsFor(title, keys()).then(function (c) { return pinId(c, ids); }); })
@@ -570,6 +605,7 @@
       var ok = item.episode && item.episode.how === 'card';
       return el('span', { class: 'tag ' + (ok ? 'tag-ok' : 'tag-warn') }, [el('span', { class: 'check-pop', text: ok ? '✓' : '?' }), ok ? ' Read' : ' Not sure']);
     }
+    if (dupeIds[item.id] && item.status !== 'done') return el('span', { class: 'tag tag-warn', text: 'Same name', title: 'Another file would get this name too' });
     switch (item.status) {
       case 'pending': case 'matching':
         t = el('span', { class: 'tag tag-wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Matching']); break;
@@ -636,6 +672,7 @@
   function reasonFor(item) {
     if (item.status === 'error') return item.needsKey ? 'Movies need a TMDB key. Add one in Settings.' : 'Couldn’t look this up. Try Again at the top.';
     if (item.status === 'nomatch') return 'No match found. Search by title in the side panel.';
+    if (dupeIds[item.id]) return 'Another file would get the same name. Pick a different match, or remove one.';
     if (!needsReview(item)) return '';
     var iss = item.kind === 'episode' && current(item) && issueFor(item);
     var v = videoOf(item);
@@ -643,7 +680,7 @@
     if (iss && iss.kind === 'single') return 'Only one title card found. One long episode, or two?';
     if (v.segmented && !v.numberSure) return 'Cartoon or half-hour? Answer above.';
     if (iss) return (String(iss.text || '').split(/(?<=\.)\s/)[0] || iss.title).slice(0, 110);
-    if (item.showAmbiguous) return 'A few shows look alike. Pick the right one in the side panel.';
+    if (item.showAmbiguous) return 'A few ' + (item.kind === 'movie' ? 'titles' : 'shows') + ' look alike. Pick the right one in the side panel.';
     return 'Not sure about this one. Check it in the side panel.';
   }
   function shelfHead(sh) {
@@ -675,7 +712,37 @@
       ask
     ]);
   }
+  // ---------- Motion (see css/motion.css) ----------
+  // One-shot animations with the Web Animations API: they keep running when the list re-places a row on
+  // its next redraw (a CSS animation would start over). Only opacity and transform move; nothing loops;
+  // nothing moves at all when Windows is set to show fewer animations.
+  var calm = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  var EASE_OUT = 'cubic-bezier(0.2, 0.9, 0.25, 1)', SPRING = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
+  function move(node, frames, opts) { if (!calm.matches && node && node.animate) node.animate(frames, opts); }
+  var seenRows = {}, newThisRender = 0, doneThisRender = 0;
+  function motionRow(item, row, reason) {
+    if (!seenRows[item.id]) { // arrives: slides up into place, a few at a time
+      seenRows[item.id] = 1;
+      if (newThisRender < 24) move(row, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 360, delay: newThisRender * 22, easing: EASE_OUT, fill: 'backwards' });
+      newThisRender++;
+    }
+    var tagEl = row.querySelector('.tag'), tagText = tagEl ? tagEl.textContent : '';
+    if (tagEl && item._tagText && item._tagText !== tagText) move(tagEl, [{ opacity: 0, transform: 'scale(0.82)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: SPRING, fill: 'backwards' });
+    item._tagText = tagText;
+    if (reason && !item._flagged && tagEl) { // needs you: one gentle nudge, never a blink
+      move(tagEl, [{ transform: 'scale(1)' }, { transform: 'scale(1.12)', offset: 0.3 }, { transform: 'scale(0.97)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: 900, delay: 150, easing: EASE_OUT });
+    }
+    item._flagged = !!reason;
+    if (item._justDone) { // renamed: a soft sweep across the row, as if it slid onto its shelf
+      item._justDone = false;
+      row.classList.add('just-done');
+      var d = Math.min(20, doneThisRender++) * 30;
+      move(row, [{ transform: 'translateX(-100%)' }, { transform: 'translateX(100%)' }], { duration: 900, delay: d, easing: EASE_OUT, pseudoElement: '::after' });
+      if (tagEl) move(tagEl, [{ opacity: 0, transform: 'scale(0.82)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: d + 120, easing: SPRING, fill: 'backwards' });
+    }
+  }
   function renderList() {
+    newThisRender = 0; doneThisRender = 0;
     var list = $('list');
     var shown = shownItems();
     var keep = {};
@@ -727,6 +794,7 @@
       ]),
       el('div', { class: 'match-cell' }, [tagFor(item)])
     ]);
+    motionRow(item, row, reason);
     if (item.scan === 'reading') row.classList.add('is-scanning');
     if (item.scan === 'queued') row.classList.add('is-queued');
     if (item.scan === 'done') row.classList.add('scan-flash');
@@ -813,6 +881,7 @@
         number: 'From the episode number in the file name.'
       }[how] || 'From the file name.';
       var iss = issueFor(item);
+      paintQuickPicks(item, src0, rowsEp);
       $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Auto Mode or Deep Scan.' : ' Not sure? Check Episodes… shows you the video.');
       $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
       var badge = $('inspEpBadge');
@@ -828,6 +897,12 @@
     }
     // The problem card.
     var iss1 = showEp ? issueFor(item) : null, issBox = $('inspIssue');
+    if (dupeIds[item.id]) {
+      var twin = items.filter(function (o) { return o !== item && dupeIds[o.id] && targetsOf(o).some(function (k) { return targetsOf(item).indexOf(k) >= 0; }); })[0];
+      iss1 = { kind: 'same', title: 'Two files would get this name',
+        text: (twin ? '“' + twin.name + '” would be named the same. ' : '') + 'Pick a different match for one of them, or take one off the list. Nothing is renamed until it’s settled.',
+        actions: [{ label: 'Take This One Off the List', run: function () { $('removeBtn').click(); } }].concat(twin ? [{ label: 'Show the Other One', link: true, run: function () { select(twin.id); } }] : []) };
+    }
     issBox.hidden = !iss1;
     if (iss1) {
       issBox.className = 'insp-issue ' + iss1.kind;
@@ -899,11 +974,13 @@
   function scheduleRender() {
     if (renderQueued) return;
     renderQueued = true;
-    // At most ~8 redraws a second while lots of lookups finish at once.
-    setTimeout(function () { renderQueued = false; render(); }, 120);
+    // At most ~8 redraws a second while lots of lookups finish at once (fewer for very long lists, where
+    // each redraw costs more and nobody reads a list that fast).
+    setTimeout(function () { renderQueued = false; render(); }, items.length > 600 ? 350 : 120);
   }
 
   function render() {
+    refreshDupes();
     var has = items.length > 0;
     $('dropZone').hidden = has;
     $('listWrap').hidden = !has;
@@ -949,7 +1026,9 @@
     // Just move the highlight and refresh the side panel; the list itself doesn't change.
     var old = document.querySelector('.row-item.is-selected');
     if (old) { old.classList.remove('is-selected'); old.setAttribute('aria-selected', 'false'); }
+    var changed = selectedId !== id;
     selectedId = id;
+    if (changed) { var ins = $('inspector'); ins.classList.remove('is-swapping'); void ins.offsetWidth; ins.classList.add('is-swapping'); }
     var now = document.querySelector('.row-item[data-id="' + id + '"]');
     if (now) { now.classList.add('is-selected'); now.setAttribute('aria-selected', 'true'); }
     renderInspector();
@@ -1008,6 +1087,7 @@
   }
 
   function prepareRename() {
+    refreshDupes();
     var r = readyItems();
     var movies = r.filter(function (i) { return i.kind === 'movie'; }).length;
     var eps = r.length - movies;
@@ -1088,8 +1168,9 @@
         results.forEach(function (r) {
           var item = byPath[r.source];
           if (!item) return;
-          if (r.ok && r.split) { ok++; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
-          else if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
+          if (r.ok && r.to) item.batch = r.batch || null; // which Rename Now this was, for Undo
+          if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
@@ -1139,10 +1220,10 @@
     }
     function undoLocal() {
       native.undo().then(function (r) {
-        $('undoBar').hidden = true;
+        $('undoBar').hidden = !r.more; // earlier renames can be put back too, one at a time
         if (r.nothing) { toast('Nothing to undo.'); return; }
         items.forEach(function (i) {
-          if (i.status === 'done' && !i.origRemote) { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
+          if (i.status === 'done' && !i.origRemote && (!r.batch || i.batch === r.batch)) { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
         });
         $('renameSheet').close();
         toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
@@ -1170,13 +1251,26 @@
   }
   on('clearBtn', 'click', function () { dropFrames(items); items = []; showChoices = {}; selectedId = null; filter = 'all'; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
+  // Taking a file off the list can be undone (Ctrl+Z) for half a minute: a stray Delete costs nothing.
+  var lastRemoved = null;
   on('removeBtn', 'click', function () {
     var idx = items.findIndex(function (i) { return i.id === selectedId; });
     if (idx < 0) return;
-    dropFrames(items.splice(idx, 1));
+    if (lastRemoved) dropFrames([lastRemoved.item]);
+    var gone = items.splice(idx, 1)[0];
+    lastRemoved = { item: gone, idx: idx, at: Date.now() };
     selectedId = items.length ? items[Math.min(idx, items.length - 1)].id : null;
     render();
+    toast('Took “' + gone.name + '” off the list. Ctrl+Z puts it back.');
   });
+  function restoreRemoved() {
+    if (!lastRemoved || Date.now() - lastRemoved.at > 30000) return false;
+    items.splice(Math.min(lastRemoved.idx, items.length), 0, lastRemoved.item);
+    selectedId = lastRemoved.item.id; lastRemoved = null;
+    render();
+    toast('Put it back on the list.');
+    return true;
+  }
 
   document.querySelectorAll('[data-open]').forEach(function (b) {
     b.addEventListener('click', function () { openSheet(b.dataset.open); });
@@ -1418,7 +1512,10 @@
       };
       return native.readCards(files.map(function (i) {
         var list = listOf(i);
-        var job = { titles: list.filter(function (e) { return e.number != null && e.name; }).map(function (e) { return e.name; }), near: nearFor(i, list) };
+        var named = list.filter(function (e) { return e.number != null && e.name; });
+        // Each title's length too: once a card names an episode that fills the whole video (a double-length
+        // special like "SpongeBob's Last Stand"), Shelf stops looking for a second one.
+        var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list) };
         if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
         return job;
       }), { deep: !!deepNext });
@@ -1496,8 +1593,12 @@
     if (mod && k === 'o') { e.preventDefault(); if (e.shiftKey) pickFolder(); else pickFiles(); return; }
     if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
     if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
-    if (mod && k === 'z' && !typing && !sheetOpen) { if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
+    if (mod && k === 'z' && !typing && !sheetOpen) { if (restoreRemoved()) { e.preventDefault(); return; } if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
     if (!mod && k === 'n' && !typing && !sheetOpen && items.some(needsReview)) { e.preventDefault(); nextToCheck(); return; }
+    if (!mod && /^[1-4]$/.test(e.key) && !typing && !sheetOpen && selectedId && !$('epQuick').hidden && $('epBrowser').hidden) {
+      var sel = itemById(selectedId);
+      if (sel && usePick(sel, Number(e.key) - 1)) { e.preventDefault(); return; }
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && !sheetOpen && selectedId) { e.preventDefault(); $('removeBtn').click(); }
   });
   // Next to Check: jump to the next file that needs a look (wraps around).
@@ -1727,6 +1828,74 @@
   }
   // Deep Scan works on any TV video you've added from your computer or listed from your Plex server.
   function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && canLook(v) && v.parsed.isVideo && !v.split); }
+  // ---------- Quick picks: fixing a file in one click (or one key) ----------
+  // From the show's own episode list, the few answers that are likeliest when Shelf isn't sure: the whole
+  // half-hour this cartoon aired in, one long episode (a double-length special), just the first cartoon,
+  // the half-hours either side. Picking one moves on to the next file that needs you.
+  var quickFor = { id: null, picks: [] };
+  function samePick(a, b) { return a.length === b.length && a.every(function (e, k) { return e.season === b[k].season && e.number === b[k].number; }); }
+  function quickPicks(v, rows, list) {
+    var picks = [], add = function (label, es) {
+      if (!es || !es.length || samePick(es, rows) || picks.some(function (p) { return samePick(p.entries, es); })) return;
+      picks.push({ label: label, entries: es });
+    };
+    var first = rows[0], season = first.season;
+    var seasonList = list.filter(function (e) { return e.season === season && e.number != null; }).sort(function (a, b) { return a.number - b.number; });
+    var at = seasonList.findIndex(function (e) { return e.number === first.number; });
+    var code = function (es) { return epCode(es[0]) + (es.length > 1 ? '–E' + pad2(es[es.length - 1].number) : ''); };
+    var long = function (e) { return e && e.runtime && e.runtime >= 18; };
+    if (v.segmented) {
+      var groups = P.halfHourGroups(seasonList), gi = groups.findIndex(function (g) { return g.some(function (e) { return e.number === first.number; }); });
+      // The file's own number, read as the Nth half-hour of the season (how most half-hour files are numbered).
+      var n0 = v.parsed && v.parsed.episode, hh = n0 && groups[n0 - 1];
+      var near = [first.number].concat(hh ? [hh[0].number] : []);
+      var dist = function (e) { return Math.min.apply(null, near.map(function (x) { return Math.abs(e.number - x); })); };
+      // The file holds one long episode (a double-length special): the nearest one, or any when the season has
+      // only a few.
+      var allLong = seasonList.filter(long);
+      var longs = allLong.filter(function (e) { return dist(e) <= 12 || allLong.length <= 3; }).sort(function (a, b) { return dist(a) - dist(b); });
+      if (rows.length > 1 && long(rows[0])) add('Just one long episode: ' + rows[0].name, [rows[0]]);
+      if (hh && hh !== groups[gi]) add('Half-hour ' + n0 + ' of the season: ' + code(hh) + ' ' + P.joinNames(hh), hh);
+      if (gi >= 0) add('The whole half-hour: ' + code(groups[gi]) + ' ' + P.joinNames(groups[gi]), groups[gi]);
+      if (longs[0]) add('One long episode: ' + epCode(longs[0]) + ' ' + longs[0].name, [longs[0]]);
+      if (rows.length > 1 && !long(rows[0])) add('Just ' + epCode(rows[0]) + ' ' + rows[0].name, [rows[0]]);
+      if (gi > 0) add('The half-hour before: ' + code(groups[gi - 1]) + ' ' + P.joinNames(groups[gi - 1]), groups[gi - 1]);
+      if (gi >= 0 && groups[gi + 1]) add('The half-hour after: ' + code(groups[gi + 1]) + ' ' + P.joinNames(groups[gi + 1]), groups[gi + 1]);
+    } else if (at >= 0) {
+      if (rows.length > 1) add('Just ' + epCode(rows[0]) + ' ' + rows[0].name, [rows[0]]);
+      else if (seasonList[at + 1] && (!v.minutes || v.minutes >= 36)) add('Two episodes: ' + code([first, seasonList[at + 1]]) + ' ' + first.name + ' & ' + seasonList[at + 1].name, [seasonList[at], seasonList[at + 1]]);
+      if (seasonList[at - 1]) add(epCode(seasonList[at - 1]) + ' ' + seasonList[at - 1].name, [seasonList[at - 1]]);
+      if (seasonList[at + 1]) add(epCode(seasonList[at + 1]) + ' ' + seasonList[at + 1].name, [seasonList[at + 1]]);
+    }
+    return picks.slice(0, 4);
+  }
+  function paintQuickPicks(item, v, rows) {
+    var box = $('epQuick'), out = $('epQuickList'), c = current(v);
+    var wanted = item.status !== 'done' && !v.split && c && rows.length && (needsReview(item) || !item.confirmed && v.episode && v.episode.how !== 'card' && v.episode.how !== 'title');
+    quickFor = { id: item.id, picks: [] };
+    if (!wanted) { box.hidden = true; return; }
+    listFor(c).then(function (list) {
+      if (selectedId !== item.id) return;
+      var picks = quickPicks(v, rows, list);
+      quickFor = { id: item.id, picks: picks };
+      box.hidden = !picks.length;
+      out.replaceChildren.apply(out, picks.map(function (p, k) {
+        return el('button', { type: 'button', class: 'ep-quick-btn', title: 'Press ' + (k + 1), onclick: function () { usePick(item, k); } },
+          [el('kbd', { text: String(k + 1) }), el('span', { text: p.label })]);
+      }));
+    }, function () { box.hidden = true; });
+  }
+  function usePick(item, k) {
+    var p = quickFor.id === item.id && quickFor.picks[k];
+    if (!p) return false;
+    var v = linkedVideo(item) || item;
+    useEntries(v, p.entries, 'Saved: ' + p.label.replace(/^[^:]*: /, '') + '.').then(function () {
+      // On to the next file that needs you, so a whole season can be settled from the keyboard.
+      if (!needsReview(item) && items.some(needsReview)) nextToCheck();
+    });
+    return true;
+  }
+
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
     var clean = es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; });
@@ -1951,5 +2120,5 @@
 
   // Handy for testing: work every show's episodes out again (after test code fills in title cards).
   function resolveAll() { var seen = {}; return Promise.all(items.map(current).filter(function (c) { if (!c) return false; var k = showIdKey(c); if (seen[k]) return false; return (seen[k] = true); }).map(resolveShow)).then(render); }
-  window.Shelf = { addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender };
+  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender };
 })();

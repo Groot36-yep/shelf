@@ -107,6 +107,17 @@ contextBridge.exposeInMainWorld('shelfNative', {
   plexLibraryFix: (ops) => ipcRenderer.invoke('shelf:plexLibraryFix', Array.isArray(ops) ? ops.map((o) => ({
     remote: String((o && o.remote) || ''), folder: Array.isArray(o && o.folder) ? o.folder.map(String) : [], file: String((o && o.file) || '')
   })) : []),
+  plexLibraryStop: () => ipcRenderer.invoke('shelf:plexLibraryStop'),
+  // What Fix My Plex Library is doing right now: { stage: 'connect' | 'plex' | 'walk' | 'done', … numbers }.
+  onFixProgress: (fn) => {
+    const listener = (e, m) => fn({
+      stage: String((m && m.stage) || ''), lib: String((m && m.lib) || ''), index: Number(m && m.index) || 0, of: Number(m && m.of) || 0,
+      done: Number(m && m.done) || 0, total: Number(m && m.total) || 0, folders: Number(m && m.folders) || 0, files: Number(m && m.files) || 0,
+      picked: Number(m && m.picked) || 0, stopped: !!(m && m.stopped)
+    });
+    ipcRenderer.on('shelf:fixProgress', listener);
+    return () => ipcRenderer.removeListener('shelf:fixProgress', listener);
+  },
   plexLibraryCanUndo: () => ipcRenderer.invoke('shelf:plexLibraryCanUndo'),
   plexLibraryUndo: () => ipcRenderer.invoke('shelf:plexLibraryUndo'),
   onSend: (fn) => {

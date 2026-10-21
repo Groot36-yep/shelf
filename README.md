@@ -14,7 +14,8 @@ bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bo
 
 > **Private by design.** Your videos, folders and file list never leave your computer (unless you send
 > the videos to your own Plex server). Only a
-> cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts or tracking, and it
+> cleaned-up title (like `Charade` + `1963`) is ever looked up. No accounts, no tracking, and it
+> never checks for updates on its own.
 
 
 **Two looks.** *Studio* is clean and quiet. *Living Room* is warm walnut with 1970s type and one
@@ -47,11 +48,13 @@ Windows account.
 2. Click **Choose Folder…** (or drag files onto the window).
 3. Check anything marked **Review**: click it and pick the right match on the right, or search by title.
 4. Click **Rename…**, choose your Plex library folder and **Move**, **Copy** or **Hard Link**, then **Rename Now**.
-5. Changed your mind? **Undo Rename** puts everything back.
+5. Changed your mind? **Undo Rename** puts the last rename back. Press it again to go further back (Shelf
+   remembers your last 50).
 6. Have a Plex server? Click **Send to Plex** (see below).
 
 Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter** rename ·
-**Ctrl+Z** undo rename · **Ctrl+,** settings · **Delete** remove from list.
+**Ctrl+Z** undo (again to go further back) · **Ctrl+,** settings · **Delete** remove from list (Ctrl+Z puts it back) ·
+**N** next file that needs you · **1–4** pick one of the suggested episodes in the side panel.
 
 ## What it understands
 
@@ -73,7 +76,7 @@ Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter
 
 ## Looking inside videos (only when you ask)
 
-Shelf never reads a video's contents on its own. Two buttons are always there for TV videos, and
+Shelf never reads a video's contents on its own. These buttons are always there for TV videos, and
 each one shows a prompt naming the files first:
 
 - **Auto Mode** (top toolbar) reads the title cards of every TV video in the list. It finds the moments where the picture holds

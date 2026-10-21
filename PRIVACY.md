@@ -46,7 +46,8 @@ something. Shelf sends no cookies and no "referrer".
   permission window. Only a click in that window says yes: the main window can't answer it.
 - The app asks for no permissions (camera, microphone, location, notifications) and can't open
   other websites inside its window. Links open in your normal browser.
-- Settings, remembered lookups and the undo record are kept in `%APPDATA%\Shelf`. **Privacy → Erase
+- Settings, remembered lookups and the undo history (where your last 50 renames came from and went to, so Undo can put
+  them back) are kept in `%APPDATA%\Shelf`. **Privacy → Erase
   All Shelf Data** removes them.
 
 ## Looking inside your videos

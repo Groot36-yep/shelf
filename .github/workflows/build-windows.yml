@@ -7,18 +7,22 @@ on:
     paths: ['package.json']
   workflow_dispatch:
 
+# Every step gets read-only access; only the last job (which publishes the release) can write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      # Actions are pinned to exact commits (the tag is in the comment), so a moved tag can't change the build.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          node-version: 20
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
           cache: npm
 
       - name: Read version
@@ -34,12 +38,22 @@ jobs:
       - name: Safety tests on real Windows
         run: |
           node tests/parser.test.js
+          node tests/fixes.test.js
+          node tests/plexwalk.test.js
+          node tests/remember.test.js
           node tests/fileops.test.js
           node tests/scan.test.js
           node tests/subs.test.js
           node tests/cards-real.test.js
           node tests/updates.test.js
           node tests/ssh-loopback.test.js
+
+      # The shipped app has Electron's RunAsNode fuse off, so nothing can run its own scripts through Shelf.exe.
+      # The packaged checks below need that switch, so they run on a test copy built the same way with it on.
+      - name: Build a test copy (for the packaged checks only, never shipped)
+        run: npx electron-builder --win --dir --publish never -c.electronFuses.runAsNode=true -c.directories.output=dist-test
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Build installer
         run: npx electron-builder --win --publish never
@@ -50,7 +64,7 @@ jobs:
         shell: pwsh
         run: |
           $env:ELECTRON_RUN_AS_NODE = '1'
-          $p = Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\packaged-scan.test.js' -Wait -PassThru -NoNewWindow -RedirectStandardOutput scan-out.txt -RedirectStandardError scan-err.txt
+          $p = Start-Process -FilePath dist-test\win-unpacked\Shelf.exe -ArgumentList 'tests\packaged-scan.test.js' -Wait -PassThru -NoNewWindow -RedirectStandardOutput scan-out.txt -RedirectStandardError scan-err.txt
           Get-Content scan-out.txt, scan-err.txt | Write-Host
           if ($p.ExitCode -ne 0) { Write-Host "::error::The built app couldn't read a title card"; exit 1 }
 
@@ -58,7 +72,7 @@ jobs:
         shell: pwsh
         run: |
           $env:ELECTRON_RUN_AS_NODE = '1'
-          $p = Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\ssh-loopback.test.js','packaged' -Wait -PassThru -NoNewWindow -RedirectStandardOutput ssh-out.txt -RedirectStandardError ssh-err.txt
+          $p = Start-Process -FilePath dist-test\win-unpacked\Shelf.exe -ArgumentList 'tests\ssh-loopback.test.js','packaged' -Wait -PassThru -NoNewWindow -RedirectStandardOutput ssh-out.txt -RedirectStandardError ssh-err.txt
           Get-Content ssh-out.txt, ssh-err.txt | Write-Host
           if ($p.ExitCode -ne 0) { Write-Host "::error::The built app couldn't send over SSH"; exit 1 }
 
@@ -104,10 +118,44 @@ jobs:
           Stop-Shelf
           exit $bad
 
-      - uses: actions/upload-artifact@v4
+      - name: The shipped app refuses to run scripts (RunAsNode fuse off)
+        shell: pwsh
+        run: |
+          # With the fuse on this would run tests\fuse-check.js and write fuse-ran.txt. With it off, Shelf just
+          # opens its window, which is stopped after a few seconds.
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          Start-Process -FilePath dist\win-unpacked\Shelf.exe -ArgumentList 'tests\fuse-check.js'
+          Start-Sleep 10
+          Get-Process | Where-Object { $_.ProcessName -match 'shelf' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (Test-Path fuse-ran.txt) { Write-Host "::error::Shelf.exe ran a script with ELECTRON_RUN_AS_NODE set"; exit 1 }
+          Write-Host "::notice::RunAsNode is off in the shipped app"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Shelf-Windows
           path: dist/*.exe
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Shelf-Windows
+          path: dist
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "VERSION=$v" >> $env:GITHUB_OUTPUT
 
       - name: Release notes (the newest "Done" section of ROADMAP.md becomes "What's new")
         shell: pwsh
@@ -126,7 +174,7 @@ jobs:
           Get-Content release-notes.md | Write-Host
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.ver.outputs.VERSION }}
           name: Shelf ${{ steps.ver.outputs.VERSION }}

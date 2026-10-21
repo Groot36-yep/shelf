@@ -236,7 +236,12 @@ function preview(W, h, r, g, b) {
 
 // Reading text is most of a scan's time, and one reader uses one processor core. Several readers
 // work side by side (one per spare core, at most 6), each on its own picture.
-const OCR_READERS = Number(process.env.SHELF_OCR_READERS) || Math.max(1, Math.min(6, (os.cpus() || []).length - 2 || 1));
+// One text reader per spare processor core, up to 6, but never more than free memory comfortably holds
+// (each reader keeps its own copy of the OCR engine, roughly 100-150 MB): a busy 8 GB laptop gets fewer
+// readers instead of being pushed into swapping.
+const OCR_READER_MB = 160;
+const OCR_READERS = Number(process.env.SHELF_OCR_READERS) || Math.max(1, Math.min(6, (os.cpus() || []).length - 2 || 1,
+  Math.floor((os.freemem() / 1048576 - 1024) / OCR_READER_MB)));
 let readers = [];      // [{ worker: Promise, psm, busy }]
 const waiting = [];    // callers waiting for a free reader
 function newReader() {
@@ -374,6 +379,7 @@ async function scanFile(file, secs, opts) {
   const texts = [];
   let frames = 0;
   const wins = windowsFor(secs);
+  let parts = wins.length; // fewer when the first card names an episode that fills the video
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
   const allStills = prepareStills(file, secs);
@@ -384,7 +390,7 @@ async function scanFile(file, secs, opts) {
     report(i, 0.2);
     // Most likely spots first; at most 30 still moments per cartoon.
     const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
-    let k = 0, found = false;
+    let k = 0, found = false, foundHit = null;
     // Title cards come straight after a black fade, often fading in: besides the still moments, look
     // a moment after the black fades nearest to where a card is expected.
     const probeBlacks = fadeOrder(runs.blacks, wins[i].likely).slice(0, 2);
@@ -415,7 +421,7 @@ async function scanFile(file, secs, opts) {
       if (!hit && (k <= 4 || run.rightAfterBlack) && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
       if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
       if (opts.onFrame) opts.onFrame();
-      if (hit) { found = true; if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
+      if (hit) { found = true; foundHit = hit; if (opts.onFound) opts.onFound({ part: i, t: run.t, hit }); break; } // found this cartoon's card
     }
     // Deep scan (only when you ask for it): the parts still without a card get many more tries:
     // more frames from each still moment, several sizes, both ways of reading.
@@ -462,13 +468,17 @@ async function scanFile(file, secs, opts) {
           }
           // Only the readings that made the match are kept (see above).
           if (hit) texts.push({ part: i, t: Math.round(tt * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: hitTexts, deep: true });
-          if (hit) { found = true; if (opts.onFound) opts.onFound({ part: i, t: tt, hit }); break deep; }
+          if (hit) { found = true; foundHit = hit; if (opts.onFound) opts.onFound({ part: i, t: tt, hit }); break deep; }
         }
       }
     }
     // No card read for a later cartoon: is one starting here at all? A new cartoon shows its
     // credits ("storyboard directors", "written by") a few seconds after a black moment; one long
     // episode doesn't. Shelf notes what it sees so the file isn't wrongly called one episode.
+    // The card names an episode as long as the whole video (a double-length special): there's no second
+    // cartoon to look for, so stop here. (Before, Shelf searched the rest of the video for one, which was
+    // slow and could turn up a false second episode.)
+    if (found && opts.fillsVideo && opts.fillsVideo(foundHit)) { parts = i + 1; break; }
     if (i > 0 && !found && !(opts.cancelled && opts.cancelled())) {
       // A short still moment between two black fades (black → card → black) is a title card even
       // when its lettering can't be read: a new cartoon starts here.
@@ -489,7 +499,7 @@ async function scanFile(file, secs, opts) {
     }
   }
   report(wins.length, 0);
-  return { texts, frames };
+  return { texts, frames, parts };
 }
 
 module.exports = { scanFile, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, OCR_READERS };
