@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.2.0)
 - **A calmer, clearer window.** One top bar (Find, All / Needs you, Read Title Cards, your Plex server, and a ⚙ menu
   for Settings, updates, privacy and about); your shows down the left; one line per file saying the episode, what
   it becomes, and how Shelf knows; and the rename button with where files go along the bottom. Warm paper and ink
@@ -34,10 +34,10 @@ Where things stand, and what's left to do. Newest first.
   *SpongeBob's Last Stand* or *Pest of the West*), Shelf stops looking for a second cartoon. Before, it searched
   the rest of the video for one, which was slow and could turn up a false second episode. On the two real specials:
   114 s → 28 s, and both now come out as one episode.
-- **Fixing a file in one click**: when Shelf isn't sure, the side panel offers the likeliest answers from the show's
-  own episode list (the half-hour the file's number points at, the whole half-hour, a nearby double-length episode,
-  just the first cartoon, the half-hours either side). Click one or press 1–4, and Shelf moves on to the next file
-  that needs you, so a whole season can be settled from the keyboard.
+- **Fixing a file in one click**: when Shelf isn't sure, the Needs you card offers the likeliest answers from the
+  show's own episode list (the half-hour the file's number points at, the whole half-hour, a nearby double-length
+  episode, just the first cartoon, the half-hours either side). Click one or press its number, and Shelf moves on to
+  the next file that needs you, so a whole season can be settled from the keyboard.
 - **Fix My Plex Library, faster and clearer**: folders on the server are read eight at a time, Plex is asked
   1,000 files a page with pages side by side, and the title bar says exactly what's happening ("Asking Plex what
   it matched: 3,000 of 12,400…", "Looking through your folders: 412 folders, 5,230 files…") with a Stop that
@@ -45,7 +45,7 @@ Where things stand, and what's left to do. Newest first.
 - **Checked on 10 real SpongeBob episodes** (Shelf's own scanner end to end: frame picking, ffmpeg, OCR, matching):
   13 of 18 title cards read by the normal scan, none wrong, same as before the changes.
 - **Motion**: sheets rise in and settle, new files slide into place, a changed status springs, a renamed file gets a
-  sweep, posters fade in, the side panel cross-fades. Only opacity and transform move, nothing loops, and all of it
+  sweep, posters fade in, the details slide in. Only opacity and transform move, nothing loops, and all of it
   is off when Windows is set to show fewer animations.
 - **Security**: Electron's fuses are set on the shipped app (it can't be used to run other scripts, and its files are
   checked at start-up); the Windows build pins every action to an exact commit, uses read-only access except for the
@@ -72,7 +72,7 @@ Where things stand, and what's left to do. Newest first.
 - **Two episodes written with "&"** (`2x23 & 2x24 - Prehibernation Week & Life of Crime`, `S02E23 & S02E24`) are read
   as both episodes. Before, only the first was kept, and "Prehibernation" didn't match "Pre-Hibernation".
 - **Names that only give the season** (`SpongeBob.SquarePants.S07 (3).mkv`, the copies Windows makes of one name) are
-  TV episodes now, not movies: Auto Mode reads which episodes they hold. Without a title card Shelf asks instead of
+  TV episodes now, not movies: Read Title Cards finds which episodes they hold. Without a title card Shelf asks instead of
   guessing "episode 1".
 - **A video much longer than the episode it's named after** (a 24-minute file called *Whale Watching*, a 15-minute
   cartoon) is marked for a look once its length is known, unless a title card backs the name.

@@ -187,7 +187,7 @@ jobs:
             for ($i = $start; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^## ') { break }; $news += $lines[$i] }
           }
           $body = @("## What's new") + $news + @('', '## Shelf for Windows', '',
-            "**Download ``Shelf-Setup-....exe``** (installer), or the Portable version if you'd rather not install anything. Already have Shelf? Click **Updates** in its sidebar.",
+            "**Download ``Shelf-Setup-....exe``** (installer), or the Portable version if you'd rather not install anything. Already have Shelf? Click **Check for Updates** in its ⚙ menu (**Updates** in the sidebar before 2.2).",
             '', "Windows will warn that the app is from an unknown publisher, because it isn't code-signed yet: click **More info → Run anyway**.",
             '', 'Private by design: your videos never leave your computer, only titles are looked up on TMDB and TVmaze, and your TMDB key is stored encrypted with your Windows account.')
           $body -join "`n" | Set-Content release-notes.md -Encoding utf8
