@@ -137,6 +137,9 @@ jobs:
 
   release:
     needs: build
+    # Only main publishes a release. A run started by hand on another branch builds and tests the installers
+    # (downloadable from the run's page) and stops there.
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     permissions:
       contents: write
