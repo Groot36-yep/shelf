@@ -128,13 +128,13 @@
       toastTimer = setTimeout(function () { t.hidden = true; t.classList.remove('is-out'); }, 170);
     }, 3200);
   }
-  // ---------- "Working…": whatever Shelf is busy with, shown under the title (never a silent freeze) ----------
+  // ---------- "Working…": whatever Shelf is busy with, shown in the top bar (never a silent freeze) ----------
   var jobs = [], lookups = '';
   function syncActivity() {
     var top = jobs.filter(function (j) { return j.shown; }).pop();
     var label = top ? top.label : lookups;
     var a = $('activity');
-    a.hidden = !label; $('subtitle').hidden = !!label;
+    a.hidden = !label;
     if (label && $('activityText').textContent !== label) $('activityText').textContent = label;
     $('activityStop').hidden = !(top && top.stop);
     document.body.classList.toggle('is-busy', !!label);
@@ -526,7 +526,7 @@
         i.episode = r ? { season: r.season, number: r.number, end: r.end, name: r.name, how: r.how, entries: r.entries || null, needsSplit: !!r.needsSplit } : null;
         i.epNote = r && r.sure ? r.note : '';
         i.epBlock = !!(r && !r.sure);
-        i.epProblem = !r ? (i.parsed.episode == null && !i.parsed.airdate ? 'The name only says season ' + s + '. Auto Mode can read which episodes are in it, or pick them in the side panel.'
+        i.epProblem = !r ? (i.parsed.episode == null && !i.parsed.airdate ? 'The name only says season ' + s + '. Read Title Cards can find out which episodes are in it, or pick them in the side panel.'
           : (i.parsed.airdate ? 'No episode aired on ' + i.parsed.airdate : 'Season ' + s + ', episode ' + e + ' isn\'t listed') + ' for ' + c.title + ' on ' + c.source + '.')
           : !r.sure ? r.note : '';
         applyStatus(i);
@@ -594,37 +594,50 @@
   }
 
   // ---------- Rendering ----------
-  function tagFor(item) {
-    var t;
-    if (item.scan === 'queued') return el('span', { class: 'tag tag-queued', text: 'Queued' });
+  function svgIcon(d, cls) {
+    var ns = 'http://www.w3.org/2000/svg', s = document.createElementNS(ns, 'svg');
+    s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); if (cls) s.setAttribute('class', cls);
+    [].concat(d).forEach(function (one) { var p = document.createElementNS(ns, 'path'); p.setAttribute('d', one); s.appendChild(p); });
+    return s;
+  }
+  // "Known by": how Shelf knows what a file is, in a word or two, or what it's doing with it right now.
+  // Only a file that needs you stands out; everything else stays quiet.
+  function knownFor(item) {
+    var k = function (cls, kids, title) { return el('span', { class: 'known ' + cls, title: title || '' }, [el('i')].concat(kids)); };
+    var v = videoOf(item);
+    if (item.scan === 'queued') return k('queued', ['Waiting to read']);
     if (item.scan === 'reading') {
       var pct = Math.round((item.scanFrac || 0) * 100);
       var ring = el('span', { class: 'ring', 'aria-hidden': 'true' }); ring.style.setProperty('--p', pct);
-      return el('span', { class: 'tag tag-scan', title: 'Reading title cards' }, [ring, 'Reading ' + pct + '%']);
+      return k('scan', [ring, 'Reading ' + pct + '%'], 'Reading the title cards inside this video');
     }
     if (item.scan === 'done') {
-      var ok = item.episode && item.episode.how === 'card';
-      return el('span', { class: 'tag ' + (ok ? 'tag-ok' : 'tag-warn') }, [el('span', { class: 'check-pop', text: ok ? '✓' : '?' }), ok ? ' Read' : ' Not sure']);
+      var ok = v.episode && v.episode.how === 'card';
+      return k(ok ? 'card' : 'attn', [el('span', { class: 'check-pop', text: ok ? 'Title cards' : 'Not sure' })]);
     }
-    if (dupeIds[item.id] && item.status !== 'done') return el('span', { class: 'tag tag-warn', text: 'Same name', title: 'Another file would get this name too' });
+    if (dupeIds[item.id] && item.status !== 'done') return k('attn', ['Same name'], 'Another file would get this name too');
     switch (item.status) {
-      case 'pending': case 'matching':
-        t = el('span', { class: 'tag tag-wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Matching']); break;
-      case 'matched': t = item.epBlock ? el('span', { class: 'tag tag-warn', text: 'Check' }) : el('span', { class: 'tag tag-ok', text: 'Ready', title: 'Matched (' + (current(item) ? current(item).score : '') + '% sure)' }); break;
-      case 'review': t = splitOf(item) ? el('span', { class: 'tag tag-ok', text: '✂ Split' }) : item.confirmed && !item.epBlock ? el('span', { class: 'tag tag-ok', text: 'Ready' }) : el('span', { class: 'tag tag-warn', text: 'Check' }); break;
-      case 'nomatch': t = el('span', { class: 'tag tag-warn', text: 'No match' }); break;
-      case 'skipped': t = el('span', { class: 'tag tag-wait', text: 'Skipped' }); break;
+      case 'pending': case 'matching': return el('span', { class: 'known wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Looking up']);
+      case 'nomatch': return k('attn', ['Not found']);
+      case 'skipped': return el('span', { class: 'known wait', text: 'Not a video' });
+      case 'error': return k(item.needsKey ? 'attn' : 'err', [item.needsKey ? 'Needs a key' : 'Couldn’t look up']);
       case 'done':
-        t = item.sendState === 'sent' ? el('span', { class: 'tag tag-ok tag-plex', text: '✓ On Plex', title: 'Renamed and sent to your Plex server' })
-          : item.sendState === 'sending' ? el('span', { class: 'tag tag-scan' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Sending'])
-          : item.sendState === 'queued' ? el('span', { class: 'tag tag-queued', text: 'Waiting to send' })
-          : item.sendState === 'failed' ? el('span', { class: 'tag tag-err', text: 'Not sent', title: 'Renamed, but not sent to Plex. Click Send to Plex to try again.' })
-          : item.sendState === 'skipped' ? el('span', { class: 'tag tag-warn', text: 'On server already', title: 'A different file with this name is already on your Plex server' })
-          : el('span', { class: 'tag tag-ok', text: '✓ Renamed' });
-        break;
-      default: t = el('span', { class: 'tag tag-err', text: item.needsKey ? 'Needs key' : 'Error' });
+        return item.sendState === 'sent' ? k('done', ['On Plex'], 'Renamed and sent to your Plex server')
+          : item.sendState === 'sending' ? el('span', { class: 'known scan' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Sending'])
+          : item.sendState === 'queued' ? k('queued', ['Waiting to send'])
+          : item.sendState === 'failed' ? k('err', ['Not sent'], 'Renamed, but not sent to Plex. Click Send to Plex to try again.')
+          : item.sendState === 'skipped' ? k('attn', ['On server already'], 'A different file with this name is already on your Plex server')
+          : k('done', ['Renamed']);
     }
-    return t;
+    if (needsReview(item)) return k('attn', ['Needs you']);
+    if (splitOf(item)) return k('you', ['You split it']);
+    if (item.parsed.isSubtitle && item.linkTo) return k('', ['Its video'], 'Named to go with its video');
+    var how = v.kind === 'episode' ? (v.episode ? v.episode.how : '') : '';
+    if (how === 'card') return k('card', ['Title cards'], 'Read from the title cards inside the video');
+    if (how === 'manual' || item.handPicked || (v.kind === 'movie' && item.confirmed)) return k('you', ['You chose']);
+    if (how === 'date') return k('', ['Air date'], 'From the air date in the file name');
+    var c = current(v);
+    return k('', ['File name'], c ? 'From the file name (' + c.score + '% sure)' : 'From the file name');
   }
 
   // ---------- Shelves: the list, one shelf per show (and one for movies) ----------
@@ -652,7 +665,19 @@
       return { key: k, items: its };
     });
   }
-  function shownItems() { return items.filter(function (i) { return filter === 'all' || needsReview(i); }); }
+  // What the list shows: the filter (All / Needs you), the show picked on the left, and what you typed in Find.
+  var showFilter = 'all', findText = '';
+  function findHay(i) {
+    var v = videoOf(i), c = current(v), ep = v.episode;
+    return [i.name, i.relPath, c && c.title, ep && ep.name, ep && epCodeOf(ep)].filter(Boolean).join(' ').toLowerCase();
+  }
+  function shownItems() {
+    return items.filter(function (i) {
+      if (filter !== 'all' && !needsReview(i)) return false;
+      if (showFilter !== 'all' && shelfKey(i) !== showFilter) return false;
+      return !findText || findHay(i).indexOf(findText) >= 0;
+    });
+  }
   // The order you see (and move through with the arrow keys).
   function displayOrder() { return shelves(shownItems()).reduce(function (a, sh) { return a.concat(sh.items); }, []); }
   function epCodeOf(ep) { return 'S' + pad2(ep.season) + 'E' + pad2(ep.number) + (ep.end && ep.end > ep.number ? '–E' + pad2(ep.end) : ''); }
@@ -669,69 +694,112 @@
     }
     return { code: '', text: c ? c.title + (c.year ? ' (' + c.year + ')' : '') : v.parsed.title || item.name };
   }
-  // Why a file needs a look, in plain words (empty when it doesn't).
+  // The row's first two columns: the episode (or year), and what it becomes.
+  function rowParts(item) {
+    var v = videoOf(item), c = current(v), m = rowMain(item);
+    if (item.parsed.isSubtitle) {
+      var flags = (item.parsed.subFlags || []).join(' ');
+      return { code: '↳ ' + (item.parsed.lang ? item.parsed.lang.toUpperCase() : 'Subtitles') + (flags ? ' · ' + flags : ''), name: m.text || (c ? c.title : item.parsed.title || item.name), sub: true };
+    }
+    if (v.kind === 'episode') {
+      if (m.code === '✂') return { code: '✂ Split', name: m.text };
+      if (m.code) return { code: m.code, name: m.text || (c ? c.title : '') };
+      return { code: v.parsed.season != null ? 'S' + pad2(v.parsed.season) + ' · ?' : '?', name: m.text, quiet: true };
+    }
+    var year = c && c.year ? c.year : v.parsed.year;
+    return { code: year ? String(year) : '', name: c ? c.title : v.parsed.title || item.name, quiet: true };
+  }
+  // Why a file needs you, in plain words (empty when it doesn't).
   function reasonFor(item) {
-    if (item.status === 'error') return item.needsKey ? 'Movies need a TMDB key. Add one in Settings.' : 'Couldn’t look this up. Try Again at the top.';
-    if (item.status === 'nomatch') return 'No match found. Search by title in the side panel.';
-    if (dupeIds[item.id]) return 'Another file would get the same name. Pick a different match, or remove one.';
+    if (item.status === 'error') return item.needsKey ? 'Movies need a free TMDB key: add one in Settings.' : 'Couldn’t look this up. Try Again in the top bar.';
+    if (item.status === 'nomatch') return 'Couldn’t find it. Open it to search by name.';
+    if (dupeIds[item.id]) return 'Another file would get the same name.';
     if (!needsReview(item)) return '';
     var iss = item.kind === 'episode' && current(item) && issueFor(item);
     var v = videoOf(item);
-    if (iss && iss.kind === 'apart') return 'Holds ' + ((v.episode && v.episode.entries) || []).length + ' episodes that aren’t next to each other. Resolve it.';
-    if (iss && iss.kind === 'single') return 'Only one title card found. One long episode, or two?';
-    if (v.segmented && !v.numberSure) return 'Cartoon or half-hour? Answer above.';
+    if (iss && iss.kind === 'apart') return 'Holds ' + ((v.episode && v.episode.entries) || []).length + ' episodes that aren’t next to each other.';
+    if (iss && iss.kind === 'single') return 'One title card found. One long episode, or two?';
+    if (v.segmented && !v.numberSure) return 'One cartoon or a half-hour? Answer above.';
     if (iss) return (String(iss.text || '').split(/(?<=\.)\s/)[0] || iss.title).slice(0, 110);
-    if (item.showAmbiguous) return 'A few ' + (item.kind === 'movie' ? 'titles' : 'shows') + ' look alike. Pick the right one in the side panel.';
-    return 'Not sure about this one. Check it in the side panel.';
+    if (item.showAmbiguous) return 'A few ' + (item.kind === 'movie' ? 'movies' : 'shows') + ' have this name. Which one?';
+    return 'Shelf isn’t sure about this one.';
+  }
+  function shelfTitle(sh) {
+    var v = videoOf(sh.items[0]), c = current(v);
+    return sh.key === 'movies' ? 'Movies' : c ? c.title : v.parsed.title || 'TV show';
+  }
+  function shelfPoster(sh, cls) {
+    var v = videoOf(sh.items[0]), c = current(v);
+    return sh.key === 'movies' ? el('div', { class: cls + ' movies', 'aria-hidden': 'true' }) : posterNode(cls, c && c.poster, shelfTitle(sh));
   }
   function shelfHead(sh) {
     var first = sh.items[0], v = videoOf(first), c = current(v), tv = sh.key !== 'movies';
-    var title = tv ? (c ? c.title : v.parsed.title || 'TV show') : 'Movies';
-    var n = sh.items.length;
-    var ready = sh.items.filter(isReady).length, check = sh.items.filter(needsReview).length;
+    var title = shelfTitle(sh);
+    var n = sh.items.length, check = sh.items.filter(needsReview).length;
     var busy = sh.items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
-    var meta = (tv ? ['TV show', c && c.year] : []).concat([n + (n === 1 ? ' file' : ' files')]).filter(Boolean).join(' · ');
-    var chips = [];
-    if (busy) chips.push(el('span', { class: 'shelf-chip wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Looking up']));
-    if (ready) chips.push(el('span', { class: 'shelf-chip ok', text: ready + ' ready' }));
-    if (check) chips.push(el('span', { class: 'shelf-chip warn', text: check + ' to check' }));
+    var cards = tv ? sh.items.filter(function (i) { return !i.linkTo && i.episode && i.episode.how === 'card'; }).length : 0;
+    var bits = [tv && c && c.year, n + (n === 1 ? ' file' : ' files'), cards ? cards + ' read from title cards' : '', busy ? 'looking up ' + busy + '…' : ''].filter(Boolean);
+    var meta = el('span', { class: 'shelf-meta' }, [bits.join(' · ')].concat(check ? [' · ', el('b', { text: check + (check === 1 ? ' needs you' : ' need you') })] : busy ? [] : [' · all ready']));
     // How this show's files are numbered (cartoon shows only): asked once, here, and always yours to change.
     var ask = null;
     if (tv && c && v.segmented) {
       var mode = v.numberSure ? v.numberMode : '';
       ask = el('div', { class: 'shelf-ask' + (v.numberSure ? '' : ' unsure') }, [
-        el('span', { text: v.numberSure ? 'Each file is' : 'Shelf isn’t sure. Each file is' }),
+        el('span', { text: v.numberSure ? 'Each file is' : 'Each file is…?' }),
         el('div', { class: 'segmented small', role: 'group', 'aria-label': 'Each file of ' + title + ' is' }, [['segments', 'One cartoon'], ['halfhours', 'A half-hour']].map(function (m) {
-          return el('button', { type: 'button', 'aria-pressed': mode === m[0] ? 'true' : 'false', text: m[1], onclick: function () { numbering[showIdKey(c)] = m[0]; work('Working out the episodes…', function () { return resolveShow(c); }).then(render); } });
+          return el('button', { type: 'button', 'aria-pressed': mode === m[0] ? 'true' : 'false', text: m[1], onclick: function () { setNumbering(c, m[0]); } });
         }))
       ]);
     }
-    return el('div', { class: 'shelf-head' + (ask ? ' has-ask' : '') }, [
-      tv ? posterNode('shelf-poster', c && c.poster, title) : el('div', { class: 'shelf-poster movies', 'aria-hidden': 'true' }),
-      el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), el('span', { class: 'shelf-meta', text: meta })]),
-      el('div', { class: 'shelf-chips' }, chips),
-      ask
-    ]);
+    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta]), ask]);
   }
+  function setNumbering(c, mode) { numbering[showIdKey(c)] = mode; work('Working out the episodes…', function () { return resolveShow(c); }).then(render); }
+
+  // ---------- Shows on the left: pick one to see just its files ----------
+  function renderShows() {
+    var nav = $('shows'), all = shelves(items);
+    if (showFilter !== 'all' && !all.some(function (s) { return s.key === showFilter; })) showFilter = 'all';
+    nav.hidden = all.length < 2;
+    $('stage').classList.toggle('one-show', showFilter !== 'all' || all.length === 1);
+    if (nav.hidden) return;
+    var line = function (key, swatch, name, sub, count, attn) {
+      var on = showFilter === key;
+      return el('button', { type: 'button', class: 'show-item', 'aria-current': on ? 'true' : 'false', 'data-show': key, title: name,
+        onclick: function () { if (showFilter === key) return; showFilter = key; render(); entrance(); } }, [
+        swatch,
+        el('span', { class: 'show-text' }, [el('span', { class: 'show-name', text: name }), el('span', { class: 'show-sub' + (attn ? ' attn' : ''), text: sub })]),
+        attn ? el('span', { class: 'show-dot', 'aria-label': attn + ' need you' }) : el('span', { class: 'show-count', text: String(count) })
+      ]);
+    };
+    var subFor = function (its) {
+      var a = its.filter(needsReview).length, busy = its.some(function (i) { return i.status === 'matching' || i.status === 'pending'; });
+      return a ? a + (a === 1 ? ' needs you' : ' need you') : busy ? 'Looking up…' : its.length + (its.length === 1 ? ' file' : ' files');
+    };
+    var attnAll = items.filter(needsReview).length;
+    nav.replaceChildren.apply(nav, [el('span', { class: 'shows-k', text: 'Your shows' }),
+      line('all', el('span', { class: 'show-swatch all', 'aria-hidden': 'true' }, [svgIcon(['M4 7h16', 'M4 12h16', 'M4 17h10'])]), 'All files', subFor(items), items.length, attnAll)]
+      .concat(all.map(function (s) { return line(s.key, shelfPoster(s, 'show-swatch'), shelfTitle(s), subFor(s.items), s.items.length, s.items.filter(needsReview).length); })));
+  }
+
   // ---------- Motion (see css/motion.css) ----------
   // One-shot animations with the Web Animations API: they keep running when the list re-places a row on
   // its next redraw (a CSS animation would start over). Only opacity and transform move; nothing loops;
   // nothing moves at all when Windows is set to show fewer animations.
   var calm = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
-  var EASE_OUT = 'cubic-bezier(0.2, 0.9, 0.25, 1)', SPRING = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
-  function move(node, frames, opts) { if (!calm.matches && node && node.animate) node.animate(frames, opts); }
+  var EASE_OUT = 'cubic-bezier(0.2, 0.9, 0.25, 1)', SPRING = 'cubic-bezier(0.34, 1.45, 0.64, 1)', EASE_IN = 'cubic-bezier(0.5, 0, 0.75, 0)';
+  function move(node, frames, opts) { return !calm.matches && node && node.animate ? node.animate(frames, opts) : null; }
   var seenRows = {}, newThisRender = 0, doneThisRender = 0;
   function motionRow(item, row, reason) {
     if (!seenRows[item.id]) { // arrives: slides up into place, a few at a time
       seenRows[item.id] = 1;
-      if (newThisRender < 24) move(row, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 360, delay: newThisRender * 22, easing: EASE_OUT, fill: 'backwards' });
+      if (newThisRender < 24) move(row, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 380, delay: newThisRender * 24, easing: EASE_OUT, fill: 'backwards' });
       newThisRender++;
     }
-    var tagEl = row.querySelector('.tag'), tagText = tagEl ? tagEl.textContent : '';
-    if (tagEl && item._tagText && item._tagText !== tagText) move(tagEl, [{ opacity: 0, transform: 'scale(0.82)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: SPRING, fill: 'backwards' });
-    item._tagText = tagText;
-    if (reason && !item._flagged && tagEl) { // needs you: one gentle nudge, never a blink
-      move(tagEl, [{ transform: 'scale(1)' }, { transform: 'scale(1.12)', offset: 0.3 }, { transform: 'scale(0.97)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: 900, delay: 150, easing: EASE_OUT });
+    var known = row.querySelector('.known'), knownText = known ? known.textContent : '';
+    if (known && item._knownText && item._knownText !== knownText) move(known, [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: EASE_OUT, fill: 'backwards' });
+    item._knownText = knownText;
+    if (reason && !item._flagged && known) { // needs you: one gentle nudge, never a blink
+      move(known, [{ transform: 'none' }, { transform: 'translateX(3px)', offset: 0.25 }, { transform: 'translateX(-2px)', offset: 0.55 }, { transform: 'none' }], { duration: 600, delay: 200, easing: EASE_OUT });
     }
     item._flagged = !!reason;
     if (item._justDone) { // renamed: a soft sweep across the row, as if it slid onto its shelf
@@ -739,9 +807,17 @@
       row.classList.add('just-done');
       var d = Math.min(20, doneThisRender++) * 30;
       move(row, [{ transform: 'translateX(-100%)' }, { transform: 'translateX(100%)' }], { duration: 900, delay: d, easing: EASE_OUT, pseudoElement: '::after' });
-      if (tagEl) move(tagEl, [{ opacity: 0, transform: 'scale(0.82)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: d + 120, easing: SPRING, fill: 'backwards' });
+      if (known) move(known, [{ opacity: 0, transform: 'scale(0.85)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: d + 140, easing: SPRING, fill: 'backwards' });
     }
   }
+  // The list changes as a whole (another show, the filter, Find): its rows come in again, top first.
+  function entrance() {
+    var rows = [].slice.call(document.querySelectorAll('#list .shelf-head, #list .row-item'), 0, 22);
+    rows.forEach(function (r, i) { move(r, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 360, delay: i * 18, easing: EASE_OUT, fill: 'backwards' }); });
+  }
+  // A number that changed (the Rename button, the counts) gives a small hop so you notice it.
+  function hop(node) { move(node, [{ transform: 'scale(1)' }, { transform: 'scale(1.06)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 320, easing: EASE_OUT }); }
+
   function renderList() {
     newThisRender = 0; doneThisRender = 0;
     var list = $('list');
@@ -749,11 +825,12 @@
     var keep = {};
     var groups = shelves(shown).map(function (sh) {
       var rows = sh.items.map(function (item) { keep[item.id] = 1; return rowNode(item); });
-      return el('div', { class: 'shelf', role: 'group', 'aria-label': sh.key === 'movies' ? 'Movies' : (current(videoOf(sh.items[0])) || {}).title || 'TV show' }, [shelfHead(sh)].concat(rows));
+      return el('div', { class: 'shelf', role: 'group', 'aria-label': shelfTitle(sh) }, [shelfHead(sh)].concat(rows));
     });
     Object.keys(rowCache).forEach(function (id) { if (!keep[id] && !itemById(+id)) delete rowCache[id]; });
     if (!shown.length && items.length) {
-      groups.push(el('div', { class: 'all-clear' }, [el('b', { text: 'Nothing left to check.' }), el('span', { text: 'Everything is matched. Show All to see every file.' })]));
+      groups.push(findText ? el('div', { class: 'all-clear' }, [el('b', { text: 'Nothing matches “' + $('findInput').value.trim() + '”' }), el('span', { text: 'Try part of the file name, the show, or an episode title.' })])
+        : el('div', { class: 'all-clear' }, [el('span', { class: 'check' }, [svgIcon('M5 12.5l4.5 4.5L19 7.5')]), el('b', { text: 'Nothing needs you' }), el('span', { text: 'Every file here is ready to rename.' })]));
     }
     list.replaceChildren.apply(list, groups);
   }
@@ -761,9 +838,9 @@
     var c = current(item);
     var plex = plexFor(item);
     var pieces = splitOf(item) ? pieceNames(item) : null;
-    var main = rowMain(item), reason = reasonFor(item);
+    var parts = rowParts(item), reason = reasonFor(item);
     // Rows that haven't changed are reused, not rebuilt: keeps long lists smooth.
-    var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.sendState || '', item.confirmed, item.needsKey, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score + ':' + (settings.posters ? c.poster : '') : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title, main.code, main.text, reason].join('|');
+    var sig = [pieces ? pieces.map(function (x) { return x.file; }).join('+') : '', item.status, item.sendState || '', item.confirmed, item.needsKey, item.handPicked, item.scan || '', Math.round((item.scanFrac || 0) * 50), c ? c.id + ':' + c.score : '', plex ? plex.folder.join('/') + '/' + plex.file : '', item.parsed.title, parts.code, parts.name, reason, dupeIds[item.id] ? 1 : 0, (videoOf(item).episode || {}).how || ''].join('|');
     var cached = rowCache[item.id];
     if (cached && cached.sig === sig) {
       var on = item.id === selectedId;
@@ -771,29 +848,17 @@
       cached.node.setAttribute('aria-selected', on ? 'true' : 'false');
       return cached.node;
     }
-    var title = c ? c.title : item.parsed.title || item.name;
-    var newName = pieces && pieces.length ? pieces.map(function (x) { return x.file; }).join('  +  ') : plex ? plex.file : (item.status === 'skipped' ? 'Skipped' : item.status === 'matching' || item.status === 'pending' ? 'Looking up “' + (item.parsed.title || item.name) + '”…' : 'Not matched yet');
+    var newName = pieces && pieces.length ? pieces.map(function (x) { return x.file; }).join('  +  ') : plex ? plex.folder.concat(plex.file).join(' / ') : '';
     var sel = item.id === selectedId;
-    var v = videoOf(item), ep = v.kind === 'episode';
-    // Episodes show their number (the shelf already shows the show); movies their poster.
-    var badge = ep && main.code && main.code !== '✂'
-      ? el('div', { class: 'thumb ep-num', 'aria-hidden': 'true' }, [el('b', { text: main.code.replace(/^S\d+/, '').replace('–E', '–') }), el('span', { text: 'S' + (+main.code.slice(1, 3)) })])
-      : ep ? el('div', { class: 'thumb ep-num', 'aria-hidden': 'true' }, [el('b', { text: main.code === '✂' ? '✂' : '?' })]) : posterNode('thumb', c && c.poster, title);
+    var name = parts.name || (item.status === 'matching' || item.status === 'pending' ? 'Looking up “' + (item.parsed.title || item.name) + '”…' : item.status === 'skipped' ? item.name : '—');
     var row = el('button', {
-      type: 'button', class: 'row-item' + (sel ? ' is-selected' : '') + (reason ? ' has-reason' : ''), role: 'option', 'aria-selected': sel ? 'true' : 'false',
-      'data-id': item.id, onclick: function () { select(item.id); }
+      type: 'button', class: 'row-item' + (sel ? ' is-selected' : '') + (reason ? ' has-reason' : '') + (parts.sub ? ' is-sub' : ''), role: 'option', 'aria-selected': sel ? 'true' : 'false',
+      'data-id': item.id, title: newName ? 'Becomes ' + newName : '', onclick: function () { select(item.id); openDrawer(); }
     }, [
-      badge,
-      el('div', { class: 'cell orig-cell' }, [
-        el('span', { class: 'orig', text: item.name, title: item.relPath }),
-        el('span', { class: 'sub', text: [item.remote ? PLEX_STATE[item.plexState] || 'On server' : '', fmtSize(item.size), P.qualityLabel(item.parsed), item.parsed.isSubtitle ? 'Subtitle' + (item.parsed.lang ? ' · ' + item.parsed.lang.toUpperCase() : '') : ''].filter(Boolean).join(' · ') || ' ' })
-      ]),
-      svgArrow(),
-      el('div', { class: 'cell new-cell' }, [
-        el('span', { class: 'newname' }, [main.code && main.code !== '✂' ? el('span', { class: 'ep-code', text: main.code }) : null, main.text || newName]),
-        reason ? el('span', { class: 'sub reason', text: reason }) : el('span', { class: 'sub newfile', text: newName, title: plex ? plex.folder.concat(plex.file).join(' / ') : '' })
-      ]),
-      el('div', { class: 'match-cell' }, [tagFor(item)])
+      el('span', { class: 'r-code' + (parts.quiet ? ' muted-code' : ''), text: parts.code }),
+      el('span', { class: 'r-name' }, [parts.code === '✂ Split' ? el('span', { class: 'r-split', text: name }) : name]),
+      knownFor(item),
+      reason ? el('span', { class: 'r-file reason', text: reason, title: item.relPath }) : el('span', { class: 'r-file', text: item.name, title: item.relPath + (item.size ? ' · ' + fmtSize(item.size) : '') })
     ]);
     motionRow(item, row, reason);
     if (item.scan === 'reading') row.classList.add('is-scanning');
@@ -803,10 +868,130 @@
     return row;
   }
 
+  // ---------- Needs you: the one thing to settle, as a plain question with its answers ----------
+  // It follows the file you've selected when that one needs you, else the first one in the list; keys 1–9
+  // answer, N goes to the next one, E opens Check Episodes.
+  var needsShownId = null, needsAnswers = [];
+  function needsList() { return displayOrder().filter(function (i) { return needsReview(i) && !(i.parsed.isSubtitle && i.linkTo); }); }
+  function questionFor(item) {
+    var v = videoOf(item), c = current(v), name = c ? c.title : item.parsed.title || item.name;
+    var drawer = function (focusSearch) { return function () { select(item.id); openDrawer(); if (focusSearch) setTimeout(function () { $('searchInput').focus(); }, 60); }; };
+    if (dupeIds[item.id]) {
+      var twin = items.filter(function (o) { return o !== item && dupeIds[o.id] && targetsOf(o).some(function (k) { return targetsOf(item).indexOf(k) >= 0; }); })[0];
+      return { title: 'Two files would get the same name', text: (twin ? '“' + twin.name + '” would be named the same. ' : '') + 'Pick a different match for one of them, or take one off the list. Nothing is renamed until it’s settled.',
+        actions: [{ label: 'Take This One Off the List', run: function () { select(item.id); $('removeBtn').click(); } }].concat(twin ? [{ label: 'Show the Other One', link: true, run: function () { select(twin.id); } }] : []) };
+    }
+    if (item.status === 'error' && item.needsKey) return { title: 'Movies need a TMDB key', text: 'It’s free from themoviedb.org and takes a minute. Shelf keeps it encrypted on this PC and only ever sends it to TMDB.',
+      actions: [{ label: 'Add a Key…', run: function () { openSheet('settings'); setTimeout(function () { $('keyInput').focus(); }, 80); } }] };
+    if (item.status === 'error') return { title: 'Couldn’t look up “' + (item.parsed.title || item.name) + '”', text: 'Check that this PC is online, then try again.', actions: [{ label: 'Try Again', run: retryFailed }] };
+    if (item.status === 'nomatch') return { title: 'Shelf couldn’t find “' + (item.parsed.title || item.name) + '”', text: 'Search for it by name. A typo or an extra word in the file name is the usual reason.',
+      actions: [{ label: 'Search by Name…', run: drawer(true) }] };
+    if (item.showAmbiguous && !item.confirmed) {
+      return { title: 'Which ' + (item.kind === 'movie' ? 'movie' : 'show') + ' is this?', text: 'A few have this name. Pick the one this file is.',
+        actions: item.candidates.slice(0, 3).map(function (cd, idx) { return { label: cd.title + (cd.year ? ' (' + cd.year + ')' : ''), run: function () { choose(item, idx); } }; })
+          .concat([{ label: 'Something Else…', link: true, run: drawer(true) }]) };
+    }
+    if (v.kind === 'episode' && c && v.segmented && !v.numberSure) {
+      return { title: 'Is each ' + c.title + ' file one cartoon, or a half-hour?', text: 'Cartoon shows air two or three short cartoons in each half-hour. Tell Shelf how your files are cut, and it numbers every one of them right.',
+        actions: [{ label: 'One Cartoon', run: function () { setNumbering(c, 'segments'); } }, { label: 'A Half-Hour', run: function () { setNumbering(c, 'halfhours'); } }] };
+    }
+    var iss = v.kind === 'episode' && c ? issueFor(item) : null;
+    if (iss) {
+      var acts = iss.actions.map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
+      return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: true };
+    }
+    var label = rowParts(item).code ? rowParts(item).code + ' ' + rowParts(item).name : name;
+    return { title: 'Is this ' + label + '?', text: 'Shelf isn’t sure. ' + (item.kind === 'movie' ? 'If it’s right, say so; if not, search for the right one.' : 'Check the episode, and change it if it’s wrong.'),
+      actions: [{ label: 'Yes, That’s Right', run: function () { choose(item, item.choice); } }, { label: 'Change…', run: drawer(item.kind === 'movie') }], picks: item.kind === 'episode' };
+  }
+  function renderNeeds() {
+    var box = $('needs'), list = needsList();
+    if (!list.length) {
+      needsAnswers = [];
+      if (!box.hidden) { var a = move(box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.98)' }], { duration: 180, easing: EASE_IN }); if (a) a.onfinish = function () { if (!needsList().length) box.hidden = true; }; else box.hidden = true; }
+      needsShownId = null;
+      return;
+    }
+    var sel = itemById(selectedId);
+    var item = sel && list.indexOf(sel) >= 0 ? sel : list.filter(function (i) { return i.id === needsShownId; })[0] || list[0];
+    var at = list.indexOf(item), q = questionFor(item), v = videoOf(item);
+    var answers = q.actions.slice();
+    var paint = function () {
+      needsAnswers = answers.filter(function (a) { return !a.link; });
+      var keyed = 0;
+      var btns = answers.map(function (a) {
+        var key = a.link ? '' : String(++keyed);
+        return el('button', { type: 'button', class: 'answer' + (a.link ? ' link' : keyed === 1 && !a.link ? ' primary' : ''), title: a.title || (key ? 'Press ' + key : ''), onclick: function () { a.run(); } },
+          [el('span', { text: a.label })].concat(key && keyed <= 9 ? [el('kbd', { text: key })] : []));
+      });
+      if (v.fullPath && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Open the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Check Episodes…' }), el('kbd', { text: 'E' })]));
+      actions.replaceChildren.apply(actions, btns);
+      box.classList.toggle('is-wide', btns.length > 3);
+    };
+    var thumb = el('div', { class: 'needs-thumb', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
+    var card = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
+    if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) thumb.replaceChildren(el('img', { src: url, alt: '' })); });
+    else if (current(v) && current(v).poster && settings.posters) { thumb.classList.add('poster'); thumb.replaceChildren(el('img', { src: current(v).poster, alt: '', referrerpolicy: 'no-referrer' })); }
+    var actions = el('div', { class: 'needs-actions' });
+    var go = function (d) { var nx = list[(at + d + list.length) % list.length]; needsShownId = nx.id; select(nx.id); };
+    var top = el('div', { class: 'needs-top' }, [
+      el('span', { text: list.length === 1 ? 'Needs you' : 'Needs you · ' + list.length + ' files' }), el('span', { class: 'flex' }),
+      el('span', { class: 'needs-nav' }, [
+        el('button', { type: 'button', 'aria-label': 'Previous', title: 'Previous', disabled: list.length < 2 ? 'disabled' : null, onclick: function () { go(-1); } }, [svgIcon('M15 6l-6 6 6 6')]),
+        el('span', { class: 'pos', text: (at + 1) + ' of ' + list.length }),
+        el('button', { type: 'button', 'aria-label': 'Next (N)', title: 'Next (N)', disabled: list.length < 2 ? 'disabled' : null, onclick: function () { go(1); } }, [svgIcon('M9 6l6 6-6 6')])
+      ])
+    ]);
+    var meta = [item.name, v.minutes ? Math.round(v.minutes) + ' min' : ''].filter(Boolean).join(' · ');
+    var changed = needsShownId !== item.id || box.hidden;
+    box.replaceChildren(top, thumb, el('div', { class: 'needs-body' }, [el('div', { class: 'needs-q', text: q.title }), el('div', { class: 'needs-text', text: q.text }), el('div', { class: 'needs-file', text: meta, title: item.relPath })]), actions);
+    paint();
+    // The likeliest answers from the show's own episode list, as one-key answers too.
+    if (q.picks && current(v) && !v.split) {
+      listFor(current(v)).then(function (eps) {
+        if (needsShownId !== item.id) return;
+        var picks = quickPicks(v, episodeRows(v, item), eps).slice(0, Math.max(0, 5 - answers.length));
+        picks.forEach(function (p) { answers.splice(answers.length - (answers.length && answers[answers.length - 1].link ? 1 : 0), 0, { label: p.label, run: function () { usePickEntries(item, p); } }); });
+        if (picks.length) paint();
+      }, function () {});
+    }
+    var wasHidden = box.hidden;
+    box.hidden = false;
+    needsShownId = item.id;
+    if (wasHidden) move(box, [{ opacity: 0, transform: 'translateY(-6px) scale(0.99)' }, { opacity: 1, transform: 'none' }], { duration: 340, easing: EASE_OUT });
+    else if (changed) [].slice.call(box.children, 1).forEach(function (n, i) { move(n, [{ opacity: 0, transform: 'translateX(14px)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: i * 30, easing: EASE_OUT, fill: 'backwards' }); });
+  }
+  function answerNeeds(k) {
+    var a = needsAnswers[k];
+    if (!a || $('needs').hidden) return false;
+    a.run();
+    return true;
+  }
+
+  // ---------- Details: a drawer that slides in over the files ----------
+  var drawerOpen = false;
+  function openDrawer() {
+    if (!itemById(selectedId)) return;
+    var ins = $('inspector'), was = drawerOpen && !ins.hidden;
+    drawerOpen = true;
+    renderInspector();
+    if (!was) move(ins, [{ opacity: 0, transform: 'translateX(28px)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: EASE_OUT });
+  }
+  function closeDrawer() {
+    if (!drawerOpen) return;
+    drawerOpen = false;
+    var ins = $('inspector');
+    var a = move(ins, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(24px)' }], { duration: 170, easing: EASE_IN });
+    if (a) a.onfinish = function () { if (!drawerOpen) ins.hidden = true; }; else ins.hidden = true;
+    $('list').focus({ preventScroll: true });
+  }
+  on('inspClose', 'click', closeDrawer);
+
   function renderInspector() {
     var item = itemById(selectedId);
-    $('inspector').hidden = !item;
-    if (!item) return;
+    if (!item) drawerOpen = false;
+    $('inspector').hidden = !item || !drawerOpen;
+    if (!item || !drawerOpen) return;
     var c = current(item);
     var title = c ? c.title : (item.parsed.title || item.name);
 
@@ -883,7 +1068,7 @@
       }[how] || 'From the file name.';
       var iss = issueFor(item);
       paintQuickPicks(item, src0, rowsEp);
-      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Auto Mode or Deep Scan.' : ' Not sure? Check Episodes… shows you the video.');
+      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Read Title Cards or Deep Scan.' : ' Not sure? Check Episodes… shows you the video.');
       $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
       var badge = $('inspEpBadge');
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
@@ -980,61 +1165,81 @@
     setTimeout(function () { renderQueued = false; render(); }, items.length > 600 ? 350 : 120);
   }
 
+  var lastReady = -1;
   function render() {
     refreshDupes();
     var has = items.length > 0;
     $('dropZone').hidden = has;
     $('listWrap').hidden = !has;
     $('filterSeg').hidden = !has;
+    $('findBox').hidden = !has;
     $('addBtn').hidden = !has;
     $('clearBtn').hidden = !has;
+    $('actionbar').hidden = !has;
     var ready = items.filter(isReady).length;
     var review = items.filter(needsReview).length;
-    $('renameBtn').disabled = ready === 0;
-    $('renameBtn').textContent = ready ? 'Rename ' + ready + (ready === 1 ? ' File…' : ' Files…') : 'Rename…';
-    // Auto Mode: in the toolbar whenever there are TV videos (not only when Shelf thinks it's needed).
+    var rb = $('renameBtn');
+    rb.disabled = ready === 0;
+    rb.textContent = ready ? 'Rename ' + ready.toLocaleString() : 'Rename';
+    rb.title = ready ? 'Rename ' + ready + (ready === 1 ? ' file' : ' files') + ' (Ctrl+Enter)' : 'Nothing is ready to rename yet';
+    if (ready !== lastReady && lastReady >= 0 && ready) hop(rb);
+    lastReady = ready;
+    // Reading title cards: in the top bar whenever there are TV videos (not only when Shelf thinks it's needed).
     var tvVids = tvVideos();
     $('autoMode').hidden = !tvVids.length;
     $('autoMode').disabled = scanning;
-    $('autoMode').title = scanning ? 'Shelf is reading title cards right now' : 'Auto Mode: Shelf looks at the title cards inside your ' + tvVids.length + ' TV video' + (tvVids.length === 1 ? '' : 's') + ' and works out which episodes each one holds (it asks first)';
+    $('autoMode').title = scanning ? 'Shelf is reading title cards right now' : 'Look at the title card inside each of your ' + tvVids.length + ' TV video' + (tvVids.length === 1 ? '' : 's') + ' to see which episodes it really holds. Shelf asks first.';
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
-    $('reviewCount').textContent = review;
-    $('navCount').hidden = !has;
-    $('navCount').textContent = items.length;
+    $('allCount').textContent = items.length.toLocaleString();
+    $('reviewCount').textContent = review.toLocaleString();
     var looking = items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
     var done = items.filter(function (i) { return i.status !== 'skipped'; }).length - looking;
     var total = items.filter(function (i) { return i.status !== 'skipped'; }).length;
-    $('subtitle').textContent = !has ? 'Add files to get started'
-      : [items.length + (items.length === 1 ? ' file' : ' files'), review ? review + ' to check' : 'all ready'].join(' · ');
     lookups = looking ? 'Looking up ' + done + ' of ' + total + '…' : ''; syncActivity();
-    $('statusText').textContent = has ? ready + ' ready to rename' + (review ? ' · ' + review + ' need' + (review === 1 ? 's' : '') + ' a look' : '') : '';
+    var stx = $('statusText'); stx.textContent = '';
+    if (has) {
+      stx.appendChild(el('b', { text: ready.toLocaleString() }));
+      stx.appendChild(document.createTextNode(' ready'));
+      if (review) { stx.appendChild(document.createTextNode(' · ')); stx.appendChild(el('span', { class: 'attn', text: review.toLocaleString() + (review === 1 ? ' needs you' : ' need you') })); }
+    }
     document.querySelectorAll('#filterSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.filter === filter ? 'true' : 'false'); });
+    paintDest();
 
-    var st = $('tmdbStatus');
-    st.querySelector('.dot').className = 'dot ' + (settings.tmdbKey ? 'dot-ok' : 'dot-warn');
-    st.querySelector('.src-note').textContent = settings.tmdbKey ? 'Ready' : 'Add key';
-    var tv = $('tvdbStatus');
-    tv.querySelector('.dot').className = 'dot ' + (settings.tvdbKey ? 'dot-ok' : 'dot-warn');
-    tv.querySelector('.src-note').textContent = settings.tvdbKey ? 'Ready' : 'Add key';
-
-    if (has) { renderList(); renderInspector(); }
-    else $('inspector').hidden = true;
+    if (has) { renderShows(); renderList(); renderNeeds(); renderInspector(); }
+    else { drawerOpen = false; $('inspector').hidden = true; $('shows').hidden = true; $('needs').hidden = true; showFilter = 'all'; }
     if (window.ShelfSend) window.ShelfSend.paint();
   }
 
+  // Where renamed files go, along the bottom: "Move into D:\Plex". Click it to change.
+  var libPath;
+  function paintDest() {
+    if (libPath === undefined) { libPath = null; native.getLibrary().then(function (l) { libPath = l || ''; paintDest(); }, function () { libPath = ''; }); }
+    var onServer = items.length > 0 && items.every(function (i) { return i.remote; });
+    var verb = { move: 'Move into', copy: 'Copy into', link: 'Hard link into' }[settings.mode] || 'Move into';
+    var span = $('destText');
+    span.textContent = '';
+    if (onServer) span.textContent = 'Renamed where they are, on your Plex server';
+    else if (libPath) { span.appendChild(document.createTextNode(verb + ' ')); span.appendChild(el('b', { text: libPath })); }
+    else span.textContent = 'Choose your Plex library folder…';
+    $('destBtn').classList.toggle('need', !onServer && !libPath);
+  }
+  on('destBtn', 'click', function () { openSheet('rename'); });
+
   var rowCache = {};
   function select(id) {
-    // Just move the highlight and refresh the side panel; the list itself doesn't change.
+    // Just move the highlight, and refresh the question and the drawer; the list itself doesn't change.
     var old = document.querySelector('.row-item.is-selected');
     if (old) { old.classList.remove('is-selected'); old.setAttribute('aria-selected', 'false'); }
     var changed = selectedId !== id;
     selectedId = id;
-    if (changed) { var ins = $('inspector'); ins.classList.remove('is-swapping'); void ins.offsetWidth; ins.classList.add('is-swapping'); }
     var now = document.querySelector('.row-item[data-id="' + id + '"]');
     if (now) { now.classList.add('is-selected'); now.setAttribute('aria-selected', 'true'); }
+    if (changed && drawerOpen) {
+      var ins = $('inspector'); ins.classList.remove('is-swapping'); void ins.offsetWidth; ins.classList.add('is-swapping');
+    }
     renderInspector();
-    var row = document.querySelector('.row-item[data-id="' + id + '"]');
-    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
+    renderNeeds();
+    if (now && now.scrollIntoView) now.scrollIntoView({ block: 'nearest' });
   }
 
   // ---------- Files in ----------
@@ -1360,7 +1565,7 @@
       return i.kind === 'episode' && !i.linkTo && canLook(i) && i.parsed.isVideo && cc && showIdKey(cc) === id && ['done', 'skipped'].indexOf(i.status) < 0;
     });
   }
-  // Every TV video in the list that can still be renamed (what Auto Mode reads).
+  // Every TV video in the list that can still be renamed (what Read Title Cards reads).
   function tvVideos() { return items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && canLook(i) && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; }); }
   var scanJob = null;
   function setScanStatus(text) { if (scanJob) scanJob.set(text); }
@@ -1455,7 +1660,7 @@
     if (scanning || !canLook(v)) return;
     readCardsOf([v], true);
   }
-  // Auto Mode: every TV video not read yet (or all of them again, if they all have been).
+  // Read Title Cards: every TV video not read yet (or all of them again, if they all have been).
   function autoMode() {
     if (scanning) return;
     var all = tvVideos(), unread = all.filter(function (i) { return !i.cards; });
@@ -1482,7 +1687,7 @@
       if (p.kind === 'found') { titlesFound++; reader.found(p); return; }
       if (p.kind === 'start' || p.kind === 'step') {
         reader.progress((p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
-        setScanStatus((deepNext ? 'Deep scan' : 'Auto Mode') + ': reading video ' + (p.index + 1) + ' of ' + p.total + '…');
+        setScanStatus((deepNext ? 'Deep Scan' : 'Reading title cards') + ': video ' + (p.index + 1) + ' of ' + p.total + '…');
       }
       if (p.kind === 'file' && it) {
         var r = p.result || {};
