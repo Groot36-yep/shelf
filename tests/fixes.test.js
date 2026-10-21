@@ -85,6 +85,13 @@ eq(code(P.resolveEpisode(r, sb7, { segmented: true, file: { minutes: 23, parts: 
 const lone = sb7.map((e) => Object.assign({}, e, { aired: '2009-01-0' + e.number }));
 const later = P.resolveEpisode(r, lone, { segmented: true, file: { minutes: 23, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['STUCK IN THE WRINGER'] }] } });
 ok(code(later) === 'S7E4 ?' && /not the first/.test(later.note), 'only a later cartoon\'s card: checked, not "Ready" (' + (later && later.note) + ')');
+// A half-hour file named S01E09 that really holds E6 and E7: the second card read only roughly ("P a kto") still
+// counts, as it did while reading the video (it's the cartoon right after the one read clearly).
+{
+  const sb1 = require('./fixtures/cartoons.json').spongebob.map(([season, number, name, aired, runtime]) => ({ season, number, name, aired, runtime }));
+  const two = P.resolveEpisode(P.parseFilename('SpongeBob.S01E09.mkv'), sb1, { segmented: true, file: { minutes: 22, parts: 2, cards: [{ part: 0, t: 64, texts: ['Jellyfishing'] }, { part: 1, t: 670, texts: ['P a kto'] }] } });
+  eq(code(two), 'S1E6-E7', 'a rough reading of the cartoon after a clear one counts');
+}
 
 // ---- A title card from another season than the name says ----
 {

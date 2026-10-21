@@ -102,17 +102,16 @@ try { theme = readPrefs().theme === 'seventies' ? 'seventies' : 'studio'; } catc
 // On Windows the minimise / maximise / close buttons sit inside Shelf's own toolbar.
 function overlayColors() {
   const dark = nativeTheme.shouldUseDarkColors;
-  // Living Room: the buttons sit on the chocolate trim strip along the top of the window.
-  if (theme === 'seventies') return { color: '#2E1B11', symbolColor: '#F3E2BE', height: TRIM };
-  return dark ? { color: '#232326', symbolColor: '#F2F2F7', height: 52 } : { color: '#FBFBFD', symbolColor: '#1D1D1F', height: 52 };
+  // Living Room: the buttons sit on the chocolate top bar.
+  if (theme === 'seventies') return { color: '#2E1B11', symbolColor: '#F3E2BE', height: 52 };
+  return dark ? { color: '#12100E', symbolColor: '#F3EEE7', height: 52 } : { color: '#F4F1EC', symbolColor: '#1F1A15', height: 52 };
 }
-const TRIM = 34; // height of the Living Room's top strip (Windows)
 // The window's own buttons take the colour of whatever is under them (sent by the page).
 let barColor = null;
 function overlayNow() { return Object.assign(overlayColors(), barColor || {}); }
 function windowColor() {
   const dark = nativeTheme.shouldUseDarkColors;
-  return theme === 'seventies' ? (dark ? '#17100B' : '#E8DCC6') : (dark ? '#1E1E20' : '#FFFFFF');
+  return theme === 'seventies' ? (dark ? '#17100B' : '#E8DCC6') : (dark ? '#12100E' : '#F4F1EC');
 }
 
 function createWindow() {

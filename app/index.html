@@ -16,115 +16,73 @@
 <script src="js/theme-boot.js"></script>
 </head>
 <body>
-<div class="win-trim" aria-hidden="true"></div>
 <div class="app" id="app">
 
-  <nav class="sidebar" aria-label="Sidebar">
-    <div class="brand">
-      <img class="app-icon" src="assets/icon.svg" alt="" width="30" height="30">
-      <span>Shelf</span>
+  <!-- Top bar: find, filter, the few things you do, and one menu for the rest. You drag the window by it. -->
+  <header class="topbar" id="topbar">
+    <div class="brand"><img class="app-icon" src="assets/icon.svg" alt="" width="26" height="26"><span class="wordmark">Shelf</span></div>
+    <label class="find" id="findBox" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="findInput" type="search" placeholder="Find a file or show" autocomplete="off" spellcheck="false" aria-label="Find a file or show">
+    </label>
+    <div class="segmented filter" role="group" aria-label="Show" id="filterSeg" hidden>
+      <button type="button" data-filter="all" aria-pressed="true">All <span class="count" id="allCount">0</span></button>
+      <button type="button" data-filter="review" aria-pressed="false">Needs you <span class="count attn" id="reviewCount">0</span></button>
     </div>
-
-    <div class="side-group">
-      <span class="side-label">Organize</span>
-      <button class="side-item is-active" type="button" data-nav="rename">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 15l6-6 2 2-6 6H8z"/></svg>
-        Rename
-        <span class="badge" id="navCount" hidden>0</span>
-      </button>
-      <button class="side-item" type="button" data-open="settings" title="Settings (Ctrl+,)">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
-        Settings
-      </button>
-      <button class="side-item" type="button" data-open="privacy">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-        Privacy
-      </button>
-      <button class="side-item" type="button" data-open="about">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>
-        About
-      </button>
-      <button class="side-item" type="button" id="updatesNav" title="Check for a newer version of Shelf (only when you click)">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v8M8.5 12.5L12 16l3.5-3.5"/></svg>
-        Updates
-        <span class="update-dot" id="updateDot" hidden></span>
-      </button>
-    </div>
-
-    <div class="side-group">
-      <span class="side-label">Plex Server</span>
-      <button class="side-source server-src" type="button" id="serverStatus" title="Your Plex server: where Send to Plex puts your files">
-        <span class="dot dot-off"></span><span class="src-name" id="serverName">Not set up</span><span class="src-note" id="serverNote">Set Up</span>
-      </button>
-      <button class="side-source" type="button" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there">
-        <span class="src-name">Fix My Plex Library</span>
-      </button>
-    </div>
-
-    <div class="side-group">
-      <span class="side-label">Sources</span>
-      <button class="side-source" type="button" data-open="settings" id="tmdbStatus">
-        <span class="dot dot-warn"></span><span class="src-name">TMDB</span><span class="src-note">Add key</span>
-      </button>
-      <button class="side-source" type="button" data-open="settings" id="tvdbStatus">
-        <span class="dot dot-warn"></span><span class="src-name">TheTVDB</span><span class="src-note">Add key</span>
-      </button>
-      <div class="side-source">
-        <span class="dot dot-ok"></span><span class="src-name">TVmaze</span><span class="src-note">Ready</span>
-      </div>
-    </div>
-
-    <button class="side-foot" type="button" data-open="privacy">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-      <span>Private by design. Your videos only go to your own Plex server, when you send them.</span>
+    <!-- Whatever Shelf is busy with right now, so it never looks frozen. -->
+    <span class="activity" id="activity" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="activityText"></span><button class="link-btn activity-stop" type="button" id="activityStop" hidden>Stop</button></span>
+    <span class="tb-spacer"></span>
+    <button class="tool tool-auto" type="button" id="autoMode" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15.2l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18.5 15.5l.8 2 2 .7-2 .7-.8 2-.8-2-2-.7 2-.7z"/></svg><span class="lbl">Read Title Cards</span>
     </button>
-  </nav>
+    <button class="tool" type="button" id="retryBtn" hidden title="Look up the files that failed again">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg><span class="lbl">Try Again</span>
+    </button>
+    <button class="tool icon" type="button" id="addBtn" title="Add files (Ctrl+O)" aria-label="Add files" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="tool server" type="button" id="serverStatus" title="Your Plex server: where Send to Plex puts your files">
+      <span class="dot dot-off"></span><span class="lbl" id="serverName">Plex server</span><span class="src-note" id="serverNote">Set Up</span>
+    </button>
+    <button class="tool icon menu-btn" type="button" id="menuBtn" title="Settings and more (Ctrl+,)" aria-label="Settings and more" aria-haspopup="menu" aria-expanded="false" aria-controls="mainMenu">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <div class="menu" id="mainMenu" role="menu" aria-label="Settings and more" hidden>
+    <button type="button" role="menuitem" data-open="settings"><span>Settings</span><kbd>Ctrl+,</kbd></button>
+    <button type="button" role="menuitem" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there"><span>Fix My Plex Library…</span></button>
+    <button type="button" role="menuitem" id="updatesNav" title="Check for a newer version of Shelf (only when you click)"><span>Check for Updates</span><span class="update-dot" id="updateDot" hidden></span></button>
+    <span class="menu-sep" role="separator"></span>
+    <button type="button" role="menuitem" data-open="privacy"><span>Privacy</span></button>
+    <button type="button" role="menuitem" data-open="about"><span>About Shelf</span></button>
+  </div>
+
+  <div class="stage" id="stage">
+  <!-- Your shows (and movies), one line each: pick one to see just its files. -->
+  <nav class="shows" id="shows" aria-label="Shows" hidden></nav>
 
   <main class="main">
-    <header class="toolbar">
-      <div class="tb-title">
-        <h1>Rename</h1>
-        <span id="subtitle">No items</span>
-        <!-- Whatever Shelf is busy with right now, so it never looks frozen. -->
-        <span class="activity" id="activity" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="activityText"></span><button class="link-btn activity-stop" type="button" id="activityStop" hidden>Stop</button></span>
-      </div>
-      <div class="tb-spacer"></div>
-      <div class="segmented" role="group" aria-label="Show" id="filterSeg" hidden>
-        <button type="button" data-filter="all" aria-pressed="true">All</button>
-        <button type="button" data-filter="review" aria-pressed="false">Needs Review <span id="reviewCount">0</span></button>
-      </div>
-      <button class="pill pill-auto" type="button" id="autoMode" title="Auto Mode: Shelf looks at the title cards inside your TV videos and works out which episodes each one holds (it asks first)" hidden>
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15.2l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18.5 15.5l.8 2 2 .7-2 .7-.8 2-.8-2-2-.7 2-.7z"/></svg>Auto Mode
-      </button>
-      <button class="pill" type="button" id="addBtn" title="Add files (Ctrl+O)" hidden>
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Add</span>
-      </button>
-      <button class="pill" type="button" id="undoBar" title="Put the last rename back (Ctrl+Z)" hidden>Undo<span class="lbl"> Rename</span></button>
-      <button class="pill" type="button" id="retryBtn" hidden>Try Again</button>
-      <button class="pill pill-primary" type="button" id="renameBtn" title="Rename (Ctrl+Enter)" disabled>Rename…</button>
-      <button class="pill pill-send" type="button" id="sendBtn" title="Send your renamed files to your Plex server">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span id="sendBtnText">Send<span class="lbl"> to Plex</span></span><span class="badge" id="sendCount" hidden>0</span>
-      </button>
-    </header>
-
     <section class="drop" id="dropZone" aria-label="Add files">
       <div class="drop-art" aria-hidden="true">
         <span class="card c1"></span><span class="card c2"></span>
         <span class="card c3"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></span>
       </div>
-      <h2>Drop movies and TV shows here</h2>
-      <p>Shelf works out what each file is, looks it up on TMDB or TVmaze, and gives it the name Plex expects. Messy filenames are fine.</p>
+      <h2>Add your movies and TV episodes</h2>
+      <p>Shelf works out what each file is and gives it the exact name and folder Plex expects. Messy file names are fine.</p>
       <div class="drop-actions">
         <button class="btn btn-primary" type="button" id="chooseFiles" title="Ctrl+O">Choose Files…</button>
-        <button class="btn" type="button" id="chooseFolder" title="Ctrl+Shift+O">Choose Folder…</button>
+        <button class="btn" type="button" id="chooseFolder" title="Ctrl+Shift+O">Choose a Folder…</button>
       </div>
-      <button class="link-btn" type="button" id="sampleBtn">Or try it with sample filenames</button>
-      <span class="drop-hint">MKV · MP4 · AVI · M4V · MOV · SRT</span>
+      <button class="link-btn" type="button" id="sampleBtn">Or try it with some example file names</button>
+      <span class="drop-hint">You can also drop files or folders anywhere on this window.</span>
     </section>
 
     <section class="list-wrap" id="listWrap" hidden>
+      <!-- The one thing that needs you right now, as a plain question with its answers (keys 1–4). -->
+      <div class="needs" id="needs" hidden></div>
       <div class="list-head" aria-hidden="true">
-        <span></span><span>Your file</span><span></span><span>Becomes</span><span class="right">Status</span>
+        <span>Episode</span><span>Becomes</span><span>Known by</span><span>Your file</span>
       </div>
       <div class="list" id="list" role="listbox" aria-label="Files" tabindex="0"></div>
       <!-- Live title-card reader: shows the frame Shelf is reading right now (kept in memory only). -->
@@ -147,16 +105,6 @@
         </div>
         <button class="reader-stop" type="button" id="readerStop" title="Stop after this video">Stop</button>
       </div>
-      <footer class="statusbar">
-        <span class="status-left"><span id="statusText"></span><button class="link-btn" type="button" id="clearBtn" title="Take every file off this list (nothing on your disk changes)" hidden>Clear List</button></span>
-        <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">
-          <span class="scan-eye" aria-hidden="true"></span>
-          <span id="scanBarText"></span>
-          <span class="scan-track" aria-hidden="true"><i id="scanBarFill"></i></span>
-          <button class="link-btn" type="button" id="scanBarStop">Stop</button>
-        </div>
-        <span class="muted" id="dropHint">Drop more files anywhere to add them</span>
-      </footer>
     </section>
 
     <!-- Sending to your Plex server: always visible while it works, even with the list cleared. -->
@@ -170,79 +118,104 @@
       <button class="pill small-pill" type="button" id="sendStop">Stop</button>
       <button class="pill small-pill" type="button" id="sendClose" hidden>Close</button>
     </div>
+    <!-- A file's details: slides in when you open a file, and away again (Esc). -->
+    <aside class="inspector" id="inspector" aria-label="File details" hidden>
+      <button class="insp-close" type="button" id="inspClose" title="Close (Esc)" aria-label="Close details"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="insp-hero">
+        <div class="insp-poster" id="inspPoster"></div>
+        <div class="insp-head">
+          <h2 id="inspTitle"></h2>
+          <span id="inspMeta" class="muted"></span>
+        </div>
+      </div>
+      <!-- A problem Shelf found, in plain words, with what you can do about it. -->
+      <div class="insp-issue" id="inspIssue" hidden role="status">
+        <span class="issue-icon" aria-hidden="true">!</span>
+        <div class="issue-body">
+          <b id="issueTitle"></b>
+          <p id="issueText"></p>
+          <div class="issue-actions" id="issueActions"></div>
+        </div>
+      </div>
+      <p class="insp-error" id="inspError" hidden></p>
+      <section class="insp-card" id="inspEpWrap" hidden>
+        <div class="insp-card-head"><span class="section-label" id="inspEpLabel">This file holds</span><span class="ep-badge" id="inspEpBadge"></span></div>
+        <!-- Always yours to set: one episode, or more than one. -->
+        <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
+          <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
+          <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
+        </div>
+        <div class="ep-card" id="inspEpList"></div>
+        <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
+        <!-- One-click answers worked out from the show's own episode list (keys 1–4). -->
+        <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
+        <p class="ep-why" id="inspEpWhy"></p>
+        <div class="insp-card-foot">
+          <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
+          <button class="pill small-pill" type="button" id="deepScan" title="Deep Scan: a much closer look for this video’s title cards (a few minutes, Shelf asks first)">Deep Scan</button>
+          <span class="foot-flex"></span>
+          <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
+        </div>
+      </section>
+      <p class="insp-note" id="inspNote" hidden></p>
+      <div class="insp-section" id="inspCandWrap" hidden>
+        <span class="section-label">Is this the right one?</span>
+        <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
+      </div>
+
+      <div class="insp-section">
+        <span class="section-label">Will be saved as</span>
+        <div class="crumbs" id="inspCrumbs"></div>
+        <div class="mono-box" id="inspFile"></div>
+      </div>
+
+      <details class="insp-more" id="inspMore">
+        <summary>More about this file</summary>
+        <div class="group" id="inspFacts"></div>
+      </details>
+
+      <form class="insp-section" id="searchForm">
+        <label class="section-label" for="searchInput">Not right? Search by name</label>
+        <div class="search-row">
+          <div class="search">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
+          </div>
+          <select id="searchKind" aria-label="Search for">
+            <option value="movie">Movie</option>
+            <option value="episode">TV</option>
+          </select>
+        </div>
+      </form>
+
+      <button class="link-btn danger" type="button" id="removeBtn">Take Off the List</button>
+    </aside>
   </main>
 
-  <aside class="inspector" id="inspector" aria-label="Details" hidden>
-    <div class="titlebar-space" aria-hidden="true"></div>
-    <div class="insp-hero">
-      <div class="insp-poster" id="inspPoster"></div>
-      <div class="insp-head">
-        <h2 id="inspTitle"></h2>
-        <span id="inspMeta" class="muted"></span>
-      </div>
-    </div>
-    <!-- A problem Shelf found, in plain words, with what you can do about it. -->
-    <div class="insp-issue" id="inspIssue" hidden role="status">
-      <span class="issue-icon" aria-hidden="true">!</span>
-      <div class="issue-body">
-        <b id="issueTitle"></b>
-        <p id="issueText"></p>
-        <div class="issue-actions" id="issueActions"></div>
-      </div>
-    </div>
-    <p class="insp-error" id="inspError" hidden></p>
-    <section class="insp-card" id="inspEpWrap" hidden>
-      <div class="insp-card-head"><span class="section-label" id="inspEpLabel">This file holds</span><span class="ep-badge" id="inspEpBadge"></span></div>
-      <!-- Always yours to set: one episode, or more than one. -->
-      <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
-        <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
-        <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
-      </div>
-      <div class="ep-card" id="inspEpList"></div>
-      <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
-      <!-- One-click answers worked out from the show's own episode list (keys 1–4). -->
-      <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
-      <p class="ep-why" id="inspEpWhy"></p>
-      <div class="insp-card-foot">
-        <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
-        <button class="pill small-pill" type="button" id="deepScan" title="Deep Scan: a much closer look for this video’s title cards (a few minutes, Shelf asks first)">Deep Scan</button>
-        <span class="foot-flex"></span>
-        <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
-      </div>
-    </section>
-    <p class="insp-note" id="inspNote" hidden></p>
-    <div class="insp-section" id="inspCandWrap" hidden>
-      <span class="section-label">Is this the right one?</span>
-      <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
-    </div>
 
-    <div class="insp-section">
-      <span class="section-label">Will be saved as</span>
-      <div class="crumbs" id="inspCrumbs"></div>
-      <div class="mono-box" id="inspFile"></div>
+  <!-- What happens next, and the one big button. -->
+  <footer class="actionbar" id="actionbar" hidden>
+    <button class="dest" type="button" id="destBtn" title="Where your renamed files go, and how (move, copy or hard link)">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span id="destText">Choose your Plex library folder</span>
+    </button>
+    <div class="scanbar" id="scanBar" hidden role="status" aria-live="polite">
+      <span class="scan-eye" aria-hidden="true"></span>
+      <span id="scanBarText"></span>
+      <span class="scan-track" aria-hidden="true"><i id="scanBarFill"></i></span>
+      <button class="link-btn" type="button" id="scanBarStop">Stop</button>
     </div>
-
-    <details class="insp-more" id="inspMore">
-      <summary>Details</summary>
-      <div class="group" id="inspFacts"></div>
-    </details>
-
-    <form class="insp-section" id="searchForm">
-      <label class="section-label" for="searchInput">Search by title</label>
-      <div class="search-row">
-        <div class="search">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-          <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
-        </div>
-        <select id="searchKind" aria-label="Search for">
-          <option value="movie">Movie</option>
-          <option value="episode">TV</option>
-        </select>
-      </div>
-    </form>
-
-    <button class="link-btn danger" type="button" id="removeBtn">Remove from list</button>
-  </aside>
+    <span class="tb-spacer"></span>
+    <span class="status" id="statusText"></span>
+    <button class="link-btn quiet" type="button" id="clearBtn" title="Take every file off this list (nothing on your disk changes)" hidden>Clear List</button>
+    <button class="pill" type="button" id="undoBar" title="Put the last rename back (Ctrl+Z)" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Undo</span>
+    </button>
+    <button class="pill pill-send" type="button" id="sendBtn" title="Send your renamed files to your Plex server">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span id="sendBtnText">Send<span class="lbl"> to Plex</span></span><span class="badge" id="sendCount" hidden>0</span>
+    </button>
+    <button class="pill pill-primary rename-btn" type="button" id="renameBtn" title="Rename (Ctrl+Enter)" disabled>Rename</button>
+  </footer>
+  </div>
 </div>
 
 <div class="drag-overlay" id="dragOverlay" aria-hidden="true"><div>Drop to add</div></div>
@@ -259,8 +232,8 @@
     </div>
     <div class="group">
 <div class="row">
-        <span>Files</span>
-        <div class="segmented small" role="group" aria-label="Files" id="modeSeg">
+        <span>Your files</span>
+        <div class="segmented small" role="group" aria-label="What happens to your files" id="modeSeg">
           <button type="button" data-mode="move" aria-pressed="true">Move</button>
           <button type="button" data-mode="copy" aria-pressed="false">Copy</button>
           <button type="button" data-mode="link" aria-pressed="false">Hard Link</button>
@@ -268,7 +241,7 @@
       </div>
       <p class="row-help" id="modeHelp"></p>
 <div class="row">
-        <span>Library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
+        <span>Your Plex library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
         <button class="pill" type="button" id="pickLib">Choose…</button>
       </div>
       <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
@@ -304,7 +277,13 @@
       </button>
     </div>
     <p class="row-help flush">Both follow Windows light or dark mode.</p>
-    <span class="section-label">TMDB key (for movies)</span>
+    <div class="group">
+      <label class="row">
+        <span>Show posters and title cards<br><small class="muted">Off: no pictures are downloaded at all</small></span>
+        <input type="checkbox" class="switch" id="optPosters">
+      </label>
+    </div>
+    <span class="section-label">Movies: your free TMDB key</span>
     <div class="group">
       <div class="row stack">
         <label for="keyInput">API Key or API Read Access Token</label>
@@ -323,7 +302,7 @@
     <span class="section-label">TV shows</span>
     <div class="group">
       <div class="row stack">
-        <label for="optOrder">Episode order — use the same one as your Plex</label>
+        <label for="optOrder">Episode order: pick the one your Plex uses</label>
         <select id="optOrder" class="text">
           <option value="tmdb">The Movie Database (Plex’s default)</option>
           <option value="tvdb">TheTVDB (Aired)</option>
@@ -332,7 +311,7 @@
         <span class="row-help" id="orderHelp">Plex uses The Movie Database unless you change it in Plex: open the show → Edit → Advanced → Episode ordering.</span>
       </div>
       <div class="row stack">
-        <label for="tvdbInput">TheTVDB API key (for TheTVDB orders)</label>
+        <label for="tvdbInput">TheTVDB key (only for TheTVDB’s orders)</label>
         <div class="key-row">
           <input id="tvdbInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From thetvdb.com → Dashboard → API Keys">
           <button class="pill" type="button" id="testTvdb">Test</button>
@@ -349,7 +328,7 @@
         <input type="checkbox" class="switch" id="optShowIds">
       </label>
     </div>
-    <span class="section-label">Naming</span>
+    <span class="section-label">File names</span>
     <div class="group">
       <label class="row">
         <span>Add TMDB ID to movie names<br><small class="muted">Charade (1963) {tmdb-4808}.mkv — helps Plex never mismatch</small></span>
@@ -358,10 +337,6 @@
       <label class="row">
         <span>Add quality to file names<br><small class="muted">Charade (1963) - 1080p BluRay.mkv — Plex ignores it, you can see it</small></span>
         <input type="checkbox" class="switch" id="optQuality">
-      </label>
-      <label class="row">
-        <span>Show posters<br><small class="muted">Off: no images are downloaded at all</small></span>
-        <input type="checkbox" class="switch" id="optPosters">
       </label>
       <label class="row">
         <span>Add year to show names<br><small class="muted">Doctor Who (2005) — useful for remakes</small></span>

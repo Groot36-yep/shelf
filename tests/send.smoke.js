@@ -66,7 +66,7 @@ async function until(fn, ms, what) {
     // Before setup: the button is there, and leads to setup.
     assert.ok(await visible('#sendBtn'), 'Send to Plex is always in the toolbar');
     assert.strictEqual(await win.textContent('#serverName'), 'Not set up');
-    await win.click('text=Choose Folder…');
+    await win.click('#chooseFolder');
     await until(() => win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((i) => i.status !== 'pending' && i.status !== 'matching')), 15000, 'matching');
     await win.click('#sendBtn');
     await until(() => win.evaluate(() => document.getElementById('serverSheet').open), 5000, 'setup to open');
@@ -142,7 +142,7 @@ async function until(fn, ms, what) {
     assert.deepStrictEqual(remoteNames.map((n) => n.replace(/ \{.*\}/, '')), ['The Office - S01E01 - Pilot.mkv', 'The Office - S01E02 - Diversity Day.mkv']);
     const localSeason = path.join(library, 'TV Shows', fs.readdirSync(path.join(library, 'TV Shows'))[0], 'Season 01');
     for (const n of remoteNames) assert.strictEqual(sha(path.join(season, n)), sha(path.join(localSeason, n)), n + ' arrived identical');
-    assert.strictEqual(await win.evaluate(() => document.querySelectorAll('.tag-plex').length), 2, 'rows say On Plex');
+    assert.strictEqual(await win.evaluate(() => [...document.querySelectorAll('.known.done')].filter((n) => n.textContent === 'On Plex').length), 2, 'rows say On Plex');
     assert.strictEqual(await win.evaluate(() => document.getElementById('sendCount').hidden), true, 'nothing left to send');
 
     // 4. Everything in the library: all there already.

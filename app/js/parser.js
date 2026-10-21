@@ -957,7 +957,7 @@
   // A video much longer than what it was matched to, with no title card to back the match, is worth a
   // look: a half-hour file holding "one 11-minute cartoon", or a 45-minute file holding one 22-minute
   // episode, more likely holds another episode too, or is a different one altogether. (Only when the
-  // video's length is known, after Check Lengths or Auto Mode, and the list gives every episode's length.)
+  // video's length is known, after Check Lengths or Read Title Cards, and the list gives every episode's length.)
   function lengthDoubt(r, ctx) {
     var mins = ctx.file && ctx.file.minutes, es = r && r.entries;
     if (!r || !r.sure || !mins || r.how === 'card' || !es || !es.length || es.some(function (e) { return !e.runtime; })) return r;
@@ -1033,12 +1033,20 @@
     if (file.cards && file.cards.length) {
       var exp = expected();
       var pool = (list || []).filter(function (e) { return e.number != null; });
-      var near = seasonList.filter(function (e) { return exp.some(function (x) { return Math.abs(x.number - e.number) <= 6; }); });
       var best = {};
       // Title cards you marked yourself each count on their own, and a reading near one (within two
       // minutes: two cartoons' cards are ~11 minutes apart) gives way to it.
       var marks = file.cards.filter(function (c) { return c.mark; });
       var cardsIn = file.cards.filter(function (c) { return c.mark || !marks.some(function (m) { return c.t != null && Math.abs(c.t - m.t) < 120; }); });
+      // A weaker reading is enough for an episode near where this file points: its number read either way
+      // (the cartoon, or the half-hour), and the cartoons next to a card read clearly or marked in the same
+      // video. (Reading the video allowed the same, so a card it stopped at is never thrown away here.)
+      var anchors = exp.concat(noNumber ? [] : seasonList.filter(function (e) { return e.number === (parsed.episode || 1); }));
+      cardsIn.forEach(function (c) {
+        var a0 = c.mark ? c.mark : (matchCardText(c.texts, pool, null, ctx.show || parsed.title) || {}).entry;
+        if (a0) anchors.push(a0);
+      });
+      var near = seasonList.filter(function (e) { return anchors.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
       cardsIn.forEach(function (c, ci) {
         // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
         var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
@@ -1071,7 +1079,7 @@
         // Only a later cartoon's card was read, and nothing listed aired with it: something comes before it in the
         // file (a first cartoon whose card couldn't be read), so it can't be the whole file.
         if (found.length === 1 && best[0] == null && !marks.length && (file.parts || 1) > 1 && !(g && g.length > 1)) {
-          return out(found, 'card', false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Check Episodes to add it, or pick it in the side panel.');
+          return out(found, 'card', false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Check Episodes to add it, or pick it in the file’s details.');
         }
         if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
           // Only trust that guess if the file's own number points at the same half-hour.

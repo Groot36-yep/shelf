@@ -53,7 +53,7 @@ function fakeEpisode(file, secs, cards) {
   await win.route('**/*', handle);
   await win.waitForLoadState();
 
-  await win.click('text=Choose Folder…');
+  await win.click('#chooseFolder');
   const settled = () => win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)));
   for (let i = 0; i < 60 && !(await settled()); i++) await sleep(100);
   await sleep(300);

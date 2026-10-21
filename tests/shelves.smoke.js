@@ -32,35 +32,35 @@ const F = require('./fixtures/cartoons.json');
     return route.continue();
   });
   await win.waitForLoadState();
-  await win.click('text=Choose Folder…');
+  await win.click('#chooseFolder');
   for (let i = 0; i < 80; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await sleep(300);
 
   const heads = await win.$$eval('.shelf-head h3', (x) => x.map((n) => n.textContent));
   assert.deepStrictEqual(heads, ['SpongeBob SquarePants', 'Movies'], 'one shelf per show, movies last');
-  const codes = await win.$$eval('.shelf:first-child .ep-code', (x) => x.map((n) => n.textContent));
+  const codes = await win.$$eval('.shelf:first-child .r-code', (x) => x.map((n) => n.textContent));
   assert.deepStrictEqual(codes, ['S01E06', 'S01E07', 'S01E09'], 'episodes in order');
-  assert.ok(await win.isVisible('#autoMode'), 'Auto Mode is in the toolbar whenever there are TV videos');
+  assert.ok(await win.isVisible('#autoMode'), 'Read Title Cards is in the top bar whenever there are TV videos');
   assert.strictEqual(await win.$$eval('.shelf-head button.pill', (x) => x.length), 0, 'no second copy of it on the shelves');
   assert.ok(await win.isVisible('.shelf:first-child .shelf-ask'), 'the cartoon / half-hour question is asked once, on the shelf');
-  const reasons = await win.$$eval('.sub.reason', (x) => x.map((n) => n.textContent));
+  const reasons = await win.$$eval('.r-file.reason', (x) => x.map((n) => n.textContent));
   assert.ok(reasons.some((r) => /TMDB key/.test(r)), 'the movie says why: ' + JSON.stringify(reasons));
-  assert.match(await win.textContent('#subtitle'), /4 files/);
+  assert.strictEqual(await win.textContent('#allCount'), '4');
 
-  // Next to Check walks through the files that need a look, in the order shown.
-  const sel = () => win.evaluate(() => { const r = document.querySelector('.row-item.is-selected'); return r && r.querySelector('.orig').textContent; });
+  // N walks through the files that need a look, in the order shown.
+  const sel = () => win.evaluate(() => { const r = document.querySelector('.row-item.is-selected'); return r && r.dataset.id; });
   await win.keyboard.press('n'); const a = await sel();
   await win.keyboard.press('n'); const b = await sel();
-  assert.ok(a && b && a !== b, 'Next to Check moves on: ' + a + ' → ' + b);
+  assert.ok(a && b && a !== b, 'N moves on: ' + a + ' → ' + b);
 
   // Answer the shelf's question once: the whole show is settled.
   await win.click('.shelf:first-child .shelf-ask button:has-text("One cartoon")'); await sleep(500);
   const st = await win.evaluate(() => window.Shelf.items().filter((i) => i.kind === 'episode').map((i) => i.episode && i.episode.number));
   assert.deepStrictEqual(st.sort(), [6, 7, 9]);
-  assert.match(await win.textContent('#renameBtn'), /^Rename 3 Files…$/, 'the button says how many');
-  assert.match(await win.textContent('.shelf:first-child .shelf-chips'), /3 ready/);
+  assert.match(await win.textContent('#renameBtn'), /^Rename 3$/, 'the button says how many');
+  assert.match(await win.textContent('.shelf:first-child .shelf-meta'), /all ready/);
 
-  // Auto Mode asks first (and here we say no); while it waits, Shelf says what it's doing.
+  // Read Title Cards asks first (and here we say no); while it waits, Shelf says what it's doing.
   await win.click('#autoMode'); await sleep(400);
   assert.deepStrictEqual(await app.evaluate(() => global.__prompts), ['Read the title cards of 3 videos?']);
   assert.ok(await win.isHidden('#activity'), 'nothing left “working” after saying no');

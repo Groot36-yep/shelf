@@ -43,8 +43,8 @@ function fake(file, vf, af) {
   const pick = (n) => win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, n);
   const item = (n) => win.evaluate((n) => { const v = window.Shelf.items().find((i) => i.name === n); return { split: v.split && v.split.pieces.map((p) => [Math.round(p.start), Math.round(p.end), p.entry.number]), ep: v.episode && [v.episode.number, v.episode.end || null, v.episode.how], block: !!v.epBlock }; }, n);
 
-  await win.click('.side-item[data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
-  await win.click('text=Choose Folder…');
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
+  await win.click('#chooseFolder');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await pick('SpongeBob.S01E05.mp4'); await sleep(200);
   await win.click('#autoMode');
