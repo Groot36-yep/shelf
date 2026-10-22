@@ -91,6 +91,7 @@
     var row = $('renameSendRow');
     if (row && st) row.hidden = !st.set;
     if ($('fixLibBtn') && st) $('fixLibBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
+    if ($('spaceBtn') && st) $('spaceBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
     if ($('dupesBtn') && st) $('dupesBtn').hidden = !(st.set && st.hasLogin && (st.tv || (st.plex.libraries || []).some(function (l) { return l.kind === 'tv'; })));
   }
 
@@ -524,11 +525,14 @@
 
   // ---------- Fix My Plex Library: files already on your server ----------
   var fixing = false;
-  function checkLibrary() {
+  // all: true / false to say whether files that already look right are listed too (else the server settings say).
+  function checkLibrary(all) {
     if (fixing || !shelf()) return;
     if (!st || !st.set || !st.hasLogin) { openServer(); return; }
     fixing = true;
-    var all = $('svFixAll') && $('svFixAll').checked;
+    if (typeof all !== 'boolean') all = !!($('svFixAll') && $('svFixAll').checked);
+    if ($('svFixAll')) $('svFixAll').checked = all;
+    var again = null; // you flipped "Include files that already look right": look again
     if ($('serverSheet').open) $('serverSheet').close();
     $('fixLibBtn').disabled = true;
     // Always say what's happening, with numbers that move, and a Stop (it keeps what it found so far).
@@ -551,32 +555,42 @@
       }
       var oddly = r.files.filter(function (f) { return !f.named; }).length;
       if (oddly) bits.push(oddly + ' not named the Plex way');
-      if (!r.files.length) { toast(r.stopped ? 'Stopped. Nothing to fix in the ' + n(r.total) + ' files checked so far.' : 'Checked ' + n(r.total) + ' files on your server. Everything looks right' + (s.plex ? '' : ' (connect Plex to also see what it couldn’t match)') + '.'); return; }
-      var said = (r.stopped ? 'Stopped after ' : 'Checked ') + n(r.total) + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '.';
+      if (!r.files.length && (all || r.stopped)) { toast(r.stopped ? 'Stopped. Nothing to fix in the ' + n(r.total) + ' files checked so far.' : 'Checked ' + n(r.total) + ' files on your server: none are TV shows or movies Shelf can rename.'); return; }
+      var said = !r.files.length ? 'Checked ' + n(r.total) + ' files on your server: everything looks right' + (s.plex ? '' : ' (connect Plex to also see what it couldn’t match)') + '.'
+        : all ? 'Checked ' + n(r.total) + ' files on your server, listing them all' + (bits.length ? ' (' + bits.join(', ') + ')' : '') + '.'
+        : (r.stopped ? 'Stopped after ' : 'Checked ') + n(r.total) + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '.';
       var add = function (files) {
         shelf().addFiles(files.map(function (f) { return { name: f.name, relPath: f.relPath, size: f.size, remote: f.remote, plex: f.plex }; }));
         toast(said + ' Check the list, then Rename fixes them on the server.');
       };
-      // Found files in more than one show: you pick which to fix now.
-      var groups = fixGroups(r.files);
-      if (groups.length < 2) add(r.files);
-      else return pickFixes(groups, said).then(function (files) { if (files && files.length) add(files); });
+      // You pick which shows (and seasons) to fix now, and whether files that already look right are listed too.
+      return pickFixes(fixGroups(r.files), said, all).then(function (res) {
+        if (res === 'all' || res === 'problems') again = res;
+        else if (res && res.length) add(res);
+      });
     }, function (e) {
       finish();
       var w = why(e);
       toast(w.text || 'Couldn’t look through your Plex library.');
       if (/^(NO_LOGIN|NO_SERVER|HOST_|AUTH)/.test(w.code)) openServer();
-    }).then(function () { fixing = false; $('fixLibBtn').disabled = false; });
+    }).then(function () { fixing = false; $('fixLibBtn').disabled = false; if (again) checkLibrary(again === 'all'); });
   }
-  // The files found, by show (the show's folder on the server), and one group for movies.
+  // The files found, by show (the show's folder on the server) and, within a show, by season; one group for movies.
   function fixGroups(files) {
     var map = {}, order = [];
+    var seasonOf = function (f, segs) {
+      var m = segs.length > 3 && /^(?:season|series|staffel|saison|temporada)\s*0*(\d+)$/i.exec(segs[2]);
+      if (m) return +m[1];
+      if (segs.length > 3 && /^specials?$/i.test(segs[2])) return 0;
+      var p = window.ShelfParser && window.ShelfParser.parseFilename(f.name);
+      return p && p.kind === 'episode' && p.season != null ? p.season : null;
+    };
     files.forEach(function (f) {
       var segs = String(f.relPath || '').split('/'), movie = segs[0] === 'Movies';
       var key = movie ? 'movies' : segs.length > 2 ? 'tv:' + segs[1] : 'tv:';
       if (!map[key]) {
         var name = movie ? 'Movies' : segs.length > 2 ? segs[1].replace(/\s*[{\[](?:tmdb|tvdb|imdb)-[^}\]]*[}\]]/gi, '').trim() || segs[1] : 'TV files not in a show’s folder';
-        map[key] = { key: key, name: name, movie: movie, files: [], unmatched: 0, missing: 0, odd: 0 };
+        map[key] = { key: key, name: name, movie: movie, files: [], unmatched: 0, missing: 0, odd: 0, seasons: {} };
         order.push(key);
       }
       var g = map[key];
@@ -584,47 +598,84 @@
       if (f.plex === 'unmatched') g.unmatched++;
       else if (f.plex === 'missing') g.missing++;
       else if (f.plex && !f.named) g.odd++;
+      var sn = movie ? null : seasonOf(f, segs), sk = sn == null ? 'other' : 's' + sn;
+      if (!g.seasons[sk]) g.seasons[sk] = { key: sk, n: sn, name: sn == null ? (movie ? 'Movies' : 'Other files') : sn === 0 ? 'Specials' : 'Season ' + sn, files: [] };
+      g.seasons[sk].files.push(f);
     });
-    return order.map(function (k) { return map[k]; }).sort(function (a, b) { return (a.movie - b.movie) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }); });
+    return order.map(function (k) {
+      var g = map[k];
+      g.seasons = Object.keys(g.seasons).map(function (x) { return g.seasons[x]; }).sort(function (a, b) { return (a.n == null) - (b.n == null) || a.n - b.n; });
+      return g;
+    }).sort(function (a, b) { return (a.movie - b.movie) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }); });
   }
-  // Which of them to fix (all ticked to start with). Resolves with the files picked, or null.
-  function pickFixes(groups, said) {
+  // Which of them to fix (all ticked to start with): a show at a time, or season by season (open a show to see
+  // its seasons). Resolves with the files picked, or null.
+  function pickFixes(groups, said, all) {
     var d = $('fixPickSheet'), list = $('fpList'), find = $('fpFind');
-    var picked = {};
-    groups.forEach(function (g) { picked[g.key] = true; });
+    $('fpTitle').textContent = groups.length ? 'Which shows should Shelf fix?' : 'Nothing needs fixing';
+    var picked = {}, sk = function (g, s) { return g.key + '|' + s.key; };
+    groups.forEach(function (g) { g.seasons.forEach(function (s) { picked[sk(g, s)] = true; }); });
     var plural = function (k, one, many) { return Number(k).toLocaleString() + ' ' + (k === 1 ? one : many); };
-    var count = function () { return groups.reduce(function (t, g) { return t + (picked[g.key] ? g.files.length : 0); }, 0); };
+    var count = function () { return groups.reduce(function (t, g) { return t + g.seasons.reduce(function (u, s) { return u + (picked[sk(g, s)] ? s.files.length : 0); }, 0); }, 0); };
     var sync = function () {
       var c = count();
       $('fpGo').disabled = !c;
       $('fpGo').textContent = c ? 'Add ' + plural(c, 'File', 'Files') : 'Add to the List';
+      shows.forEach(function (x) { x.paint(); });
     };
-    var shows = groups.filter(function (g) { return !g.movie; }).length;
-    $('fpLead').textContent = said + ' They’re in ' + plural(shows, 'show', 'shows') + (groups.some(function (g) { return g.movie; }) ? ' and your movies' : '') + '. Pick the ones to fix now; the rest stay as they are.';
-    var rows = groups.map(function (g) {
+    var nShows = groups.filter(function (g) { return !g.movie; }).length;
+    $('fpLead').textContent = !groups.length ? said + ' To rename some files again anyway (to redo a show, say), include the files that already look right.'
+      : said + ' They’re in ' + plural(nShows, 'show', 'shows') + (groups.some(function (g) { return g.movie; }) ? ' and your movies' : '') + '. Pick the ones to fix now (open a show to pick its seasons); the rest stay as they are.';
+    var shows = groups.map(function (g) {
       var why = [g.unmatched ? g.unmatched + ' Plex couldn’t match' : '', g.missing ? g.missing + ' Plex hasn’t added' : '', g.odd ? g.odd + ' not named the Plex way' : ''].filter(Boolean).join(' · ');
+      var many = g.seasons.length > 1;
       var box = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Fix ' + g.name });
-      box.checked = true;
-      box.addEventListener('change', function () { picked[g.key] = box.checked; sync(); });
-      return el('label', { class: 'row fp-row', 'data-name': g.name.toLowerCase() }, [
-        el('span', { class: 'fp-text' }, [el('b', { text: g.name }), el('small', { class: 'muted', text: plural(g.files.length, 'file', 'files') + (why ? ' · ' + why : '') })]),
-        box
-      ]);
+      box.addEventListener('change', function () { g.seasons.forEach(function (s) { picked[sk(g, s)] = box.checked; }); sync(); });
+      var seasonBoxes = [];
+      var seasonList = many ? el('div', { class: 'fp-seasons', hidden: 'hidden', role: 'group', 'aria-label': 'Seasons of ' + g.name }, g.seasons.map(function (s) {
+        var sb = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Fix ' + g.name + ', ' + s.name });
+        sb.addEventListener('change', function () { picked[sk(g, s)] = sb.checked; sync(); });
+        seasonBoxes.push({ s: s, box: sb });
+        return el('label', { class: 'row fp-season', 'data-season': s.name }, [el('span', { class: 'fp-text' }, [el('b', { text: s.name }), el('small', { class: 'muted', text: plural(s.files.length, 'file', 'files') })]), sb]);
+      })) : null;
+      var open = el('button', { type: 'button', class: 'fp-open', 'aria-expanded': 'false', title: 'Pick its seasons', 'aria-label': 'Show the seasons of ' + g.name, onclick: function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var on = seasonList.hidden; seasonList.hidden = !on; open.setAttribute('aria-expanded', on ? 'true' : 'false'); wrap.classList.toggle('is-open', on);
+      } }, ['›']);
+      var sub = el('small', { class: 'muted' });
+      var row = el('label', { class: 'row fp-row' }, [many ? open : el('span', { class: 'fp-open-space' }), el('span', { class: 'fp-text' }, [el('b', { text: g.name }), sub]), box]);
+      var wrap = el('div', { class: 'fp-show', 'data-name': g.name.toLowerCase() }, [row, seasonList]);
+      var paint = function () {
+        var on = g.seasons.filter(function (s) { return picked[sk(g, s)]; });
+        box.checked = on.length > 0; box.indeterminate = on.length > 0 && on.length < g.seasons.length;
+        row.classList.toggle('partial', box.indeterminate);
+        seasonBoxes.forEach(function (x) { x.box.checked = !!picked[sk(g, x.s)]; });
+        var nFiles = on.reduce(function (t, s) { return t + s.files.length; }, 0);
+        sub.textContent = (box.indeterminate ? plural(nFiles, 'file', 'files') + ' of ' + g.files.length + ' (' + on.length + ' of ' + g.seasons.length + ' seasons)' : plural(g.files.length, 'file', 'files') + (many ? ' in ' + g.seasons.length + ' seasons' : '')) + (why ? ' · ' + why : '');
+      };
+      return { g: g, wrap: wrap, paint: paint };
     });
-    list.replaceChildren.apply(list, rows);
+    list.replaceChildren.apply(list, shows.map(function (x) { return x.wrap; }));
     var setAll = function (on) {
-      rows.forEach(function (row, i) { if (row.hidden) return; picked[groups[i].key] = on; row.querySelector('input').checked = on; });
+      shows.forEach(function (x) { if (x.wrap.hidden) return; x.g.seasons.forEach(function (s) { picked[sk(x.g, s)] = on; }); });
       sync();
     };
+    $('fpAll').hidden = $('fpNone').hidden = !groups.length;
     $('fpAll').onclick = function () { setAll(true); };
     $('fpNone').onclick = function () { setAll(false); };
     $('fpFindBox').hidden = groups.length < 9;
     find.value = '';
-    find.oninput = function () { var q = find.value.trim().toLowerCase(); rows.forEach(function (row) { row.hidden = !!q && row.dataset.name.indexOf(q) < 0; }); };
+    find.oninput = function () { var q = find.value.trim().toLowerCase(); shows.forEach(function (x) { x.wrap.hidden = !!q && x.wrap.dataset.name.indexOf(q) < 0; }); };
     sync();
+    var inc = $('fpIncludeAll');
+    inc.checked = !!all;
     return new Promise(function (resolve) {
       var done = false;
-      $('fpGo').onclick = function () { done = true; d.close(); resolve(groups.filter(function (g) { return picked[g.key]; }).reduce(function (a, g) { return a.concat(g.files); }, [])); };
+      inc.onchange = function () { done = true; d.close(); resolve(inc.checked ? 'all' : 'problems'); };
+      $('fpGo').onclick = function () {
+        done = true; d.close();
+        resolve(groups.reduce(function (a, g) { return g.seasons.reduce(function (b, s) { return picked[sk(g, s)] ? b.concat(s.files) : b; }, a); }, []));
+      };
       d.addEventListener('close', function once() { d.removeEventListener('close', once); if (!done) resolve(null); });
       d.showModal();
     });
@@ -654,7 +705,7 @@
     }).then(function () { fixing = false; });
   }
   function epRange(season, eps) { var c = function (x) { return (x < 10 ? '0' : '') + x; }; return 'S' + c(season) + 'E' + c(eps[0]) + (eps.length > 1 ? '–E' + c(eps[eps.length - 1]) : ''); }
-  function mb(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1e6)) + ' MB'; }
+  function mb(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? Math.round(b / 1e6) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB'; }
   function pickDupes(groups, all) {
     var d = $('dupesSheet'), list = $('dpList'), keep = {};
     var pref = groups.reduce(function (t, g) { return t + g.files.filter(function (f) { return f.eps.length > 1; }).length; }, 0) * 2 >= groups.length ? 'together' : 'separate';
@@ -718,6 +769,74 @@
     });
   }
   on('dupesBtn', 'click', findDupes);
+
+  // ---------- Free Up Space: delete what Shelf set aside on your server ----------
+  function freeSpace() {
+    if (fixing || !shelf()) return;
+    if (!st || !st.set || !st.hasLogin) { openServer(); return; }
+    fixing = true;
+    var n = function (x) { return Number(x).toLocaleString(); };
+    var job = shelf().busy('Connecting to ' + st.host + '…', false, function () { native.plexLibraryStop(); job.set('Stopping…'); });
+    var unlisten = native.onFixProgress ? native.onFixProgress(function (p) { if (p.stage === 'walk') job.set('Looking for set-aside files: ' + n(p.folders) + ' folders…'); }) : null;
+    native.plexSpareList().then(function (r) {
+      if (unlisten) unlisten(); job.done();
+      if (!r.files.length) { toast(r.stopped ? 'Stopped.' : 'Nothing to free up: Shelf hasn’t set any files aside on your server.'); return; }
+      return pickSpace(r.files);
+    }, function (e) { if (unlisten) unlisten(); job.done(); toast(why(e).text || 'Couldn’t look through your server.'); })
+      .then(function () { fixing = false; });
+  }
+  function pickSpace(files) {
+    var d = $('spaceSheet'), list = $('spList'), del = {};
+    files.forEach(function (f) { del[f.path] = true; });
+    var total = function (fs) { return fs.reduce(function (t, f) { return t + (f.size || 0); }, 0); };
+    var plain = function (p) { return p.split('/').pop().replace(/\.shelf-(original|duplicate)$/, ''); };
+    var where = function (p) { return p.split('/').slice(0, -1).slice(-2).join(' / '); };
+    $('spLead').textContent = files.length + (files.length === 1 ? ' file Shelf set aside takes ' : ' files Shelf set aside take ') + mb(total(files)) + ' on your server. Plex doesn’t show them; they were kept only so Undo could bring them back.';
+    var sync = function () {
+      var picked = files.filter(function (f) { return del[f.path]; });
+      $('spGo').disabled = !picked.length;
+      $('spGo').textContent = picked.length ? 'Delete ' + picked.length + (picked.length === 1 ? ' File' : ' Files') + ' (' + mb(total(picked)) + ')' : 'Delete';
+    };
+    var section = function (kind, title, note) {
+      var fs = files.filter(function (f) { return f.kind === kind; });
+      if (!fs.length) return null;
+      return el('div', { class: 'dp-group' }, [
+        el('div', { class: 'dp-head' }, [el('b', { text: title }), el('span', { class: 'sp-size', text: fs.length + ' · ' + mb(total(fs)) })]),
+        el('p', { class: 'row-help flush sp-note', text: note }),
+        el('div', { class: 'group' }, fs.map(function (f) {
+          var box = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Delete ' + plain(f.path) });
+          box.checked = true;
+          box.addEventListener('change', function () { del[f.path] = box.checked; sync(); });
+          return el('label', { class: 'row dp-file' }, [
+            el('span', { class: 'dp-text' }, [el('span', { class: 'dp-name', text: plain(f.path), title: f.path }), el('small', { class: 'muted', text: where(f.path) + ' · ' + mb(f.size || 0) })]),
+            box
+          ]);
+        }))
+      ]);
+    };
+    list.replaceChildren.apply(list, [
+      section('original', 'Originals of split videos', 'Each was split into one file per episode, and the pieces were checked when they arrived.'),
+      section('duplicate', 'Duplicate episodes', 'Another copy of each of these episodes is still in your library.')
+    ].filter(Boolean));
+    sync();
+    return new Promise(function (resolve) {
+      $('spGo').onclick = function () {
+        var paths = files.filter(function (f) { return del[f.path]; }).map(function (f) { return f.path; });
+        d.close();
+        var job = shelf().busy('Deleting ' + paths.length + ' files on your server…');
+        native.plexSpareDelete(paths).then(function (res) {
+          job.done();
+          var ok = res.results.filter(function (x) { return x.ok; }), bad = res.results.filter(function (x) { return x.error; });
+          var freed = files.filter(function (f) { return ok.some(function (x) { return x.path === f.path; }); });
+          if (shelf().checkUndo) shelf().checkUndo();
+          toast('Deleted ' + ok.length + ' file' + (ok.length === 1 ? '' : 's') + ', freeing ' + mb(total(freed)) + ' on your server' + (bad.length ? '. ' + bad.length + ' couldn’t be deleted (' + bad[0].error + ')' : '') + '.');
+        }, function (e) { job.done(); toast(why(e).text || 'Couldn’t delete them.'); }).then(resolve);
+      };
+      d.addEventListener('close', function once() { d.removeEventListener('close', once); resolve(); });
+      d.showModal();
+    });
+  }
+  on('spaceBtn', 'click', freeSpace);
   on('svFixLib', 'click', checkLibrary);
   on('fixLibBtn', 'click', checkLibrary);
 

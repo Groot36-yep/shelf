@@ -94,7 +94,8 @@ async function plexFiles(s, token, lib, progress, stopped) {
 // library this is many times faster than one folder after another. Files come out sorted by path, the same
 // order every time. progress() after every folder; stopped() ends it early.
 const WALK_PARALLEL = 8;
-async function walk(s, root, onFile, stats, progress, stopped) {
+async function walk(s, root, onFile, stats, progress, stopped, want) {
+  want = want || ((name) => WANTED.has(posix.extname(name).slice(1).toLowerCase()));
   const queue = [{ dir: root, depth: 0 }];
   const found = [];
   let active = 0;
@@ -113,7 +114,7 @@ async function walk(s, root, onFile, stats, progress, stopped) {
             if (e.dir) { if (depth < 6) queue.push({ dir: full, depth: depth + 1 }); continue; }
             // A linked file can't be renamed safely (only the link would move): left alone.
             if (!e.file || e.link) continue;
-            if (!WANTED.has(posix.extname(e.name).slice(1).toLowerCase())) continue;
+            if (!want(e.name)) continue;
             if (stats.files >= MAX_FILES) { stats.truncated = true; break; }
             stats.files++;
             found.push({ path: full, size: e.size });
@@ -338,6 +339,51 @@ function setup(ctx, api) {
     });
     if (done.length) log('Plex library: set aside ' + done.length + ' duplicate file(s) on the server');
     return { results, rescanned: results.rescanned || 0 };
+  });
+
+  // ---- Free Up Space: the files Shelf set aside (originals of videos split on the server, duplicate episodes) ----
+  // Only ever the ones this walk found, and only once you've confirmed; then they're gone for good.
+  const SPARE = /\.shelf-(original|duplicate)$/;
+  const spare = new Set();
+  handle('shelf:plexSpareList', async () => {
+    stopScan = false;
+    const stopped = () => stopScan;
+    const c = cfg();
+    if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
+    const roots = [...new Set(libraries().reduce((a, l) => a.concat(l.folders.map((f) => S.cleanRoot(f))), []).filter(Boolean))];
+    const stats = { files: 0, unreadable: 0, truncated: false }, out = [];
+    tell({ stage: 'connect' }, true);
+    await withSession(async (s) => {
+      for (const root of roots) {
+        if (stopped()) break;
+        await walk(s, root, (f) => out.push({ path: f.path, size: f.size, kind: SPARE.exec(f.path)[1] }), stats,
+          () => tell({ stage: 'walk', lib: '', index: 0, of: 1, folders: stats.folders || 0, files: stats.files }), stopped, (name) => SPARE.test(name));
+      }
+    });
+    spare.clear();
+    out.forEach((f) => spare.add(f.path));
+    return { files: out, stopped: stopped(), unreadable: stats.unreadable };
+  });
+  handle('shelf:plexSpareDelete', async (paths) => {
+    const list = Array.isArray(paths) ? [...new Set(paths.map(String))].filter((p) => spare.has(p) && SPARE.test(p)).slice(0, 20000) : [];
+    const results = [], gone = new Set();
+    if (!list.length) return { results };
+    await withSession(async (s) => {
+      for (const p of list) {
+        const r = { path: p };
+        results.push(r);
+        try { await s.unlink(p); r.ok = true; gone.add(p); spare.delete(p); } catch (e) { r.error = S.friendly(e, (cfg() || {}).host || '').message; }
+      }
+    });
+    // Undo can't bring these back any more: those changes leave its list.
+    const j = await readJournal();
+    if (j && j.done) {
+      const left = j.done.filter((d) => !gone.has(d.to) && !(d.kept && gone.has(d.kept)));
+      if (!left.length) await fsp.rm(journalFile(), { force: true });
+      else if (left.length !== j.done.length) await writeJournal(Object.assign({}, j, { done: left }));
+    }
+    if (gone.size) log('Plex library: deleted ' + gone.size + ' set-aside file(s) on the server');
+    return { results };
   });
 
   handle('shelf:plexLibraryCanUndo', async () => { const j = await readJournal(); return !!(j && j.done && j.done.length); });

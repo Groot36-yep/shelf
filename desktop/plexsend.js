@@ -423,14 +423,16 @@ function setup(ctx) {
               } catch (e) {
                 const err = S.friendly(e, host());
                 if (err.code === 'STOPPED') { r.error = 'Stopped'; break; }
-                const retry = (err.code === 'LOST' || err.code === 'UNREACHABLE') && attempt < 4 && !stopping;
+                // A dropped connection, the server rebooting, Wi-Fi coming back: tries again for about two minutes.
+                const WAIT = [2, 5, 10, 20, 30, 60];
+                const retry = (err.code === 'LOST' || err.code === 'UNREACHABLE') && attempt < WAIT.length && !stopping;
                 if (session) { session.close(); session = null; }
                 if (!retry) { r.error = err.message; r.code = err.code; if (/^(HOST_|AUTH|NO_LOGIN|NO_SERVER)/.test(err.code)) { stopping = true; message = err.message; code = err.code; } break; }
                 attempt++;
                 bytesDone -= fileBytes; fileBytes = 0;
-                phase = 'retry'; message = 'Connection dropped. Trying again in ' + [2, 5, 10, 20][attempt - 1] + ' seconds…';
+                phase = 'retry'; message = 'Connection dropped. Trying again in ' + WAIT[attempt - 1] + ' seconds (' + attempt + ' of ' + WAIT.length + ')…';
                 emit({ kind: 'progress' });
-                await new Promise((ok) => setTimeout(ok, [2, 5, 10, 20][attempt - 1] * 1000));
+                await new Promise((ok) => setTimeout(ok, WAIT[attempt - 1] * 1000));
                 message = '';
               }
             }

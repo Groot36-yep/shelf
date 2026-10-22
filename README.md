@@ -101,16 +101,22 @@ under the title, so it never just looks frozen.
 
 **Check Episodes…** opens the video, after a prompt, in a window built for checking:
 
-- A player with frame-by-frame stepping (hold to repeat), ½×–2× speed, J/K/L and
-  "Play Around Cut".
+- A big picture that takes all the room the controls leave, with clear controls: one second back,
+  one frame back (hold to repeat), play, one frame forward, one second forward, ½×–2× speed, and J/K/L.
+  **Shortcuts** (or `?`) lists every key.
 - One timeline, like a video editor: drag to scrub (preview pictures follow instantly), hover to
   skim, pinch or Ctrl + scroll to zoom down to 6 seconds. Split points move only when you drag
-  their own handle (they snap to the black gap) or use **Set Cut Here**.
+  their own handle (they snap to the black gap) or use the cut bar.
 - Every title card Shelf read is one click away (a row under the timeline, and a **Jump to**
   button over the video).
 - **One File** keeps one name (listing every episode in it, if they're in a row), or **Split Into
   Files** gives each episode its own file. Shelf suggests each cut at the black, silent moment
-  before the next episode. You move a cut only with **Set Cut Here** (or add and remove cuts).
+  before the next episode.
+- In split view, the **cut bar** shows the last frame before the cut and the first frame after it, side
+  by side, so you can check a cut at a glance without playing it. Pick a cut with ‹ ›, **Nudge** it to
+  the clean cutting point before or after (`,` `.`), **Preview Cut** (4 s either side), **Move Cut to
+  Playhead** (`C`), **Add Cut** or delete it. A part much shorter or longer than its episode should be
+  says so.
 - Formats the built-in player can't show (like HEVC) switch to a frame preview that scrubs
   instantly.
 
@@ -143,16 +149,19 @@ working while it sends.
   fingerprint of each file on both ends, while the next file is already sending.
 - **Never overwrites.** Files already on the server are skipped. If a *different* file has the same
   name, Shelf asks: **Skip Them** or **Replace Them**.
-- **Picks up where it stopped.** Stop at any time, or lose the connection. Shelf retries by itself,
-  and the next send continues from where it was.
+- **Picks up where it stopped.** Stop at any time, or lose the connection. Shelf retries by itself
+  (6 times over about 2 minutes), and the next send continues from where it was, backing up a little
+  to be sure nothing is missing. A connection that stops moving without closing is noticed within a
+  minute and retried, instead of waiting forever.
 - **Plex finds them right away.** With **Tell Plex about new files**, Shelf asks Plex to look at
   just the new folders (through the same encrypted connection).
 - **Free up space on this PC** (off by default): each file goes to the Recycle Bin, but only once
   it's on the server and its fingerprint matched.
 - **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
 - **Fix My Plex Library…** (in the ⚙ menu) finds files already on your server that Plex couldn't match,
-  hasn't added, or that aren't named the Plex way. When they're in more than one show, you pick which
-  shows to fix. They're renamed right there on the server, and **Read Title Cards** and **Check
+  hasn't added, or that aren't named the Plex way. You pick which shows to fix, and can open a show to
+  pick just some of its seasons. **Include files that already look right** lists every file, so you can
+  redo episodes you fixed before. They're renamed right there on the server, and **Read Title Cards** and **Check
   Episodes…** work on them too, reading only the parts they need over SSH (nothing is downloaded or
   saved). A file holding episodes that aren't next to each other can be **split** there too: it's read
   over SSH once, cut on this PC (no re-encoding), and the pieces are sent back and checked. The original
@@ -162,6 +171,9 @@ working while it sends.
   **Two-Part Files** or **One File per Episode** (or pick file by file); Shelf keeps one copy of each and
   sets the others aside (renamed to `….shelf-duplicate`, which Plex ignores; nothing is deleted), then
   Plex rescans. **Undo** puts them back.
+- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos and
+  duplicate episodes) with their sizes, and deletes the ones you pick, after you confirm. Deleted files can't
+  be put back.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 

@@ -172,6 +172,23 @@ function fakeSingle(file) {
   await win.click('#edCutHere'); await sleep(1200);
   s = await ed();
   assert.ok(Math.abs(s.cuts[0] - cut0) < 0.5, 'cut back at the gap');
+  const cutBack = s.cuts[0];
+
+  // The cut bar: the frames either side of the cut, nudging to the next clean cutting point and back, shortcuts.
+  const seamOk = () => win.evaluate(() => [...document.querySelectorAll('#edSeam img')].filter((i) => i.complete && i.naturalWidth > 0).length);
+  for (let i = 0; i < 40; i++) { await sleep(150); if (await seamOk() === 2) break; }
+  assert.strictEqual(await seamOk(), 2, 'shows the last frame before the cut and the first after it');
+  assert.match(await win.textContent('#edSeam'), /Part 1 ends.*Part 2 starts/);
+  await win.click('#edNudgeOn'); await sleep(1200);
+  s = await ed();
+  assert.ok(s.cuts[0] > cutBack + 0.02 && s.cuts[0] < cutBack + 20, 'nudged later, to the next clean cutting point: ' + cutBack + ' → ' + s.cuts[0]);
+  await win.click('#edNudgeBack'); await sleep(1200);
+  s = await ed();
+  assert.ok(Math.abs(s.cuts[0] - cutBack) < 0.01, 'and back: ' + s.cuts[0]);
+  await win.keyboard.press('?'); await sleep(150);
+  assert.ok(await win.isVisible('#edKeys'), 'the shortcuts card opens with ?');
+  await win.keyboard.press('Escape'); await sleep(150);
+  assert.ok(await win.isHidden('#edKeys') && await win.isVisible('#editorSheet'), 'Esc closes the card, not the window');
 
   // One file vs split (#2.4): one file can't hold E10 + E13 → explained, can't save.
   await win.click('#edMode button[data-mode=one]'); await sleep(200);
@@ -187,7 +204,18 @@ function fakeSingle(file) {
   await win.fill('#ebSearch', 'pickles'); await win.keyboard.press('Enter'); await sleep(200);
   assert.deepStrictEqual((await ed()).parts, [10, 13]);
   if (process.env.EVAL) console.log('EVAL:', JSON.stringify(await win.evaluate(process.env.EVAL)));
-  if (SHOT) { await win.click('#edZoomOut'); await sleep(900); await win.screenshot({ path: path.join(SHOT, 'editor-split.png') }); }
+  if (SHOT) {
+    await win.click('#edZoomOut'); await sleep(900); await win.screenshot({ path: path.join(SHOT, 'editor-split.png') });
+    // The Living Room look, and a smaller window.
+    const was = await win.evaluate(() => document.documentElement.dataset.theme);
+    await win.evaluate(() => { document.documentElement.dataset.theme = 'seventies'; }); await sleep(400);
+    await win.screenshot({ path: path.join(SHOT, 'editor-split-seventies.png') });
+    await win.evaluate((t) => { document.documentElement.dataset.theme = t || ''; }, was);
+    const size = win.viewportSize() || await win.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    await win.setViewportSize({ width: 1100, height: 720 }); await sleep(900);
+    await win.screenshot({ path: path.join(SHOT, 'editor-split-small.png') });
+    await win.setViewportSize(size); await sleep(500);
+  }
 
   // Save → rename → two files; undo
   await win.click('#edSave'); await sleep(400);

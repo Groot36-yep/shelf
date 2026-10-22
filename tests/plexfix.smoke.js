@@ -17,7 +17,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Shine'], [4, 'Waiting']];
 
 (async () => {
-  const srv = await fake.start();
+  const srv = await fake.start({ extra: { '/srv/disk1/TV/Spongebob/Season 4/SpongeBob.SquarePants.S04E01.mkv': 1500 } }); // a second season, left out in the picker
   const shots = process.env.SHOTS;
   const shot = async (win, name) => { if (shots) await win.screenshot({ path: path.join(shots, name + '.png') }); };
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
@@ -71,15 +71,34 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
   await win.click('#menuBtn'); await win.click('#fixLibBtn');
   // Files in more than one show: you pick which to fix (all ticked to start with).
   await win.waitForSelector('#fixPickSheet[open]', { timeout: 15000 });
-  const groups = await win.$$eval('#fpList .fp-row', (rows) => rows.map((r) => r.querySelector('b').textContent + ': ' + r.querySelector('small').textContent));
+  const showsIn = () => win.$$eval('#fpList .fp-row', (rows) => rows.map((r) => r.querySelector('b').textContent + ': ' + r.querySelector('small').textContent));
+  const groups = await showsIn();
   assert.deepStrictEqual(groups.map((g) => g.split(':')[0]), ['Spongebob', 'Movies'], JSON.stringify(groups));
+  assert.match(groups[0], /3 files in 2 seasons/, groups[0]);
+  assert.strictEqual(await win.textContent('#fpGo'), 'Add 4 Files');
+  // Files that already look right can be listed too (to redo a show): the check runs again with them.
+  assert.strictEqual(await win.isChecked('#fpIncludeAll'), false);
+  const reopened = async () => { await sleep(300); await win.waitForSelector('#fixPickSheet[open]', { timeout: 15000 }); await sleep(200); return (await showsIn()).map((g) => g.split(':')[0]); };
+  await win.click('#fpIncludeAll');
+  const withAll = await reopened();
+  assert.ok(withAll.includes('Good Show') && (await win.isChecked('#fpIncludeAll')), 'files that look right are listed too: ' + JSON.stringify(withAll));
+  await win.click('#fpIncludeAll');
+  assert.deepStrictEqual(await reopened(), ['Spongebob', 'Movies'], 'and not again once it’s off');
+  console.log('  ✓ “Include files that already look right” lists them too: ' + withAll.join(', '));
+  await win.click('#fpList .fp-show:last-child .fp-row input'); // not the movies…
   assert.strictEqual(await win.textContent('#fpGo'), 'Add 3 Files');
-  await win.click('#fpList .fp-row:last-child input'); // not the movies…
-  assert.strictEqual(await win.textContent('#fpGo'), 'Add 2 Files');
   await win.click('#fpNone');
   assert.ok(await win.isDisabled('#fpGo'), 'nothing picked: nothing to add');
   await win.click('#fpAll'); // …all of them after all
+  assert.strictEqual(await win.textContent('#fpGo'), 'Add 4 Files');
+  // A show's seasons, one by one: not season 4 this time.
+  await win.click('#fpList .fp-show:first-child .fp-open');
+  const seasons = await win.$$eval('#fpList .fp-show:first-child .fp-season', (rows) => rows.map((r) => r.querySelector('b').textContent + ': ' + r.querySelector('small').textContent));
+  assert.deepStrictEqual(seasons, ['Season 4: 1 file', 'Season 5: 2 files'], JSON.stringify(seasons));
+  await win.click('#fpList .fp-show:first-child .fp-season:first-child input');
   assert.strictEqual(await win.textContent('#fpGo'), 'Add 3 Files');
+  assert.match(await win.textContent('#fpList .fp-show:first-child .fp-row small'), /2 files of 3 \(1 of 2 seasons\)/);
+  console.log('  ✓ Seasons: ' + seasons.join(', ') + '; Season 4 left out');
   await shot(win, '2a-pick-shows');
   await win.click('#fpGo');
   console.log('  ✓ Pick which shows to fix: ' + groups.join(' | '));
