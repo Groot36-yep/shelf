@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.2.2)
 - **Split files on your Plex server**: a file whose episodes aren't next to each other (or any file holding more
   than one) can be split right there. Rename reads it over SSH once, cuts it on this PC without re-encoding, sends
   each piece to its season folder and checks it; the original is kept on the server as "….shelf-original", which
