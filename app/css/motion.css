@@ -35,7 +35,7 @@
 .row-item.just-done { overflow: hidden; }
 .row-item.just-done::after {
   content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(52, 199, 89, 0.22) 45%, transparent 90%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--green) 22%, transparent) 45%, transparent 90%);
   transform: translateX(-100%);
 }
 

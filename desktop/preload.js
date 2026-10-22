@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('shelfNative', {
   readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
+  approveSplit: (paths) => ipcRenderer.invoke('shelf:approveSplit', paths),
   cancelCards: () => ipcRenderer.invoke('shelf:cancelCards'),
   onCardProgress: (fn) => {
     const listener = (e, p) => fn({

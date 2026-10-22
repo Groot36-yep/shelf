@@ -356,6 +356,14 @@ if (gotLock) app.whenReady().then(() => {
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' } }) : new Response('', { status: 404 });
     }
     if (u.host !== 'v') return new Response('Not found', { status: 404 });
+    const remote = remoteOpen.get(tok);
+    if (remote) { // from your server, through its reader (which answers byte ranges the same way)
+      const range = request.headers.get('range');
+      const r = await fetch(file, { headers: range ? { range } : {} });
+      const headers = { 'Content-Type': MIME[remote.ext] || 'application/octet-stream', 'Accept-Ranges': 'bytes' };
+      ['content-length', 'content-range'].forEach((k) => { const v = r.headers.get(k); if (v) headers[k] = v; });
+      return new Response(r.body, { status: r.status, headers });
+    }
     const size = (await fs.promises.stat(file)).size;
     let start = 0, end = size - 1, status = 200;
     const m = /bytes=(\d*)-(\d*)/.exec(request.headers.get('range') || '');
@@ -550,6 +558,20 @@ if (gotLock) app.whenReady().then(() => {
     }
     return { cuts: out, secs: await probe.duration(f) };
   });
+  // Split All: one question for every video, instead of one each.
+  handle('shelf:approveSplit', async (paths) => {
+    const files = pickedVideos(Array.isArray(paths) ? paths.slice(0, 2000) : []);
+    const ask = files.filter((f) => !lookApproved.has(f) && !approvedMedia.has(f));
+    if (!ask.length) return files.length > 0;
+    const yes = await askFirst(ask, {
+      kind: 'split', ok: 'Find Splits', title: n(ask, 'Find where to split this video?', 'Find where to split these # videos?'),
+      lead: 'Shelf looks for the black, silent moment between the episodes in each one.',
+      points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your originals are always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
+    });
+    if (!yes) return false;
+    ask.forEach((f) => lookApproved.add(f));
+    return true;
+  });
   let cardCancel = false;
   handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
   // jobs: [{ path, titles: [episode titles of that show] }]. A video on your Plex server (listed by Fix My
@@ -569,7 +591,8 @@ if (gotLock) app.whenReady().then(() => {
     const runtimesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.runtimes) ? j.runtimes.slice(0, 3000).map((m) => Math.max(0, Math.min(600, Number(m) || 0))) : []]));
     const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
     const showFor = new Map(jobs.map((j) => [j.key, String(j.show || '').slice(0, 200)]));
-    const files = pickedVideos([...titlesFor.keys()].filter((k) => !onServer.has(k))).concat([...onServer]).slice(0, 2000);
+    const okHere = new Set(pickedVideos([...titlesFor.keys()].filter((k) => !onServer.has(k))));
+    const files = [...titlesFor.keys()].filter((k) => onServer.has(k) || okHere.has(k)).slice(0, 2000); // in the order asked (the list's order)
     if (!files.length) return {};
     const someOnServer = files.some((f) => onServer.has(f));
     const where = someOnServer
@@ -669,7 +692,38 @@ if (gotLock) app.whenReady().then(() => {
   // ---- Split window ----
   // also: other videos you'll step through with "Save & Next" — asked about together, once.
   const approvedMedia = new Set();
+  // A video on your Plex server that Fix My Plex Library listed: played and pictured straight from the server
+  // through the reader title cards use (over your SSH connection, into memory only; nothing is saved or
+  // installed). The connection is held only while the window is open.
+  const remoteOpen = new Map(); // token → { ext, release() }
+  const onServerVideo = (p) => typeof p === 'string' && plexFix.isListed(p) && P.VIDEO_EXT.includes(path.posix.extname(p).slice(1).toLowerCase());
+  async function openRemote(p, also) {
+    if (!approvedMedia.has(p)) {
+      const batch = [p].concat(Array.isArray(also) ? also.filter(onServerVideo).slice(0, 500) : []);
+      const yes = await askFirst(batch, {
+        kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Check Episodes?', 'Open these # videos in Check Episodes?'),
+        lead: 'Shelf plays the video from your Plex server in its own window, so you can see which episodes it holds and mark their title cards.',
+        points: [{ icon: 'lock', text: 'Played over your SSH connection, only the parts you watch' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }, { icon: 'keep', text: 'Nothing changes until you click Rename Now' }]
+      });
+      if (!yes) return null;
+      batch.forEach((f) => approvedMedia.add(f));
+    }
+    let release = null;
+    const src = await new Promise((resolve, reject) => {
+      plexSend.withSession((s) => new Promise((done) => {
+        require('./remoteread').open(s.sftp).then((proxy) => proxy.add(p).then((one) => {
+          release = () => { Promise.resolve(one.done()).catch(() => {}).then(() => proxy.close()).catch(() => {}).then(done); };
+          resolve(one);
+        }, (e) => { proxy.close().catch(() => {}); done(); reject(e); }), (e) => { done(); reject(e); });
+      })).catch(reject);
+    }).catch((e) => { throw new Error(require('./server').friendly(e, (plexSend.cfg() || {}).host || '').message); });
+    const token = crypto.randomBytes(16).toString('hex');
+    mediaTokens.set(token, src.url);
+    remoteOpen.set(token, { ext: path.posix.extname(p).slice(1).toLowerCase(), release });
+    return { token, secs: await probe.duration(p, src.fh), fps: await frameRate(src.url), remote: true };
+  }
   handle('shelf:openSplit', async (p, also) => {
+    if (onServerVideo(p)) return openRemote(p, also);
     const files = pickedVideos([p]);
     if (!files.length) throw new Error('Not a video you picked');
     if (approvedMedia.has(files[0])) {
@@ -697,7 +751,13 @@ if (gotLock) app.whenReady().then(() => {
     const jpg = await frameLane(null, () => mediaTokens.has(String(token)) ? frameJpeg(f, Math.max(0, Number(t) || 0), Math.min(640, Math.max(96, Math.round((Number(w) || 320) / 2) * 2)), String(token)) : Promise.resolve(Buffer.alloc(0)));
     return jpg && jpg.length ? new Uint8Array(jpg) : null;
   });
-  handle('shelf:closeSplit', async (token, endBatch) => { mediaTokens.delete(String(token)); stopJobs(String(token)); if (endBatch !== false) approvedMedia.clear(); return true; });
+  handle('shelf:closeSplit', async (token, endBatch) => {
+    const tok = String(token), remote = remoteOpen.get(tok);
+    mediaTokens.delete(tok); stopJobs(tok);
+    if (remote) { remoteOpen.delete(tok); remote.release(); } // lets go of the server connection
+    if (endBatch !== false) approvedMedia.clear();
+    return true;
+  });
   // Suggested cuts. hints: [{ card: seconds } | { est: seconds }], one per cut.
   handle('shelf:splitSuggest', async (token, hints) => {
     const file = mediaTokens.get(String(token));

@@ -752,7 +752,11 @@
         }))
       ]);
     }
-    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta]), ask]);
+    // Split All: every file of this show that holds more than one episode gets one file per episode.
+    var toSplit = tv ? sh.items.filter(function (i) { return !i.linkTo && splittable(i); }) : [];
+    var splitBtn = toSplit.length > 1 ? el('button', { type: 'button', class: 'link-btn shelf-split', text: 'Split All (' + toSplit.length + ')', disabled: scanning ? 'disabled' : null,
+      title: 'Give every episode in these ' + toSplit.length + ' files its own file. Shelf finds the gaps; nothing is cut until Rename Now.', onclick: function () { splitAll(toSplit); } }) : null;
+    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta, splitBtn]), ask]);
   }
   function setNumbering(c, mode) { numbering[showIdKey(c)] = mode; work('Working out the episodes…', function () { return resolveShow(c); }).then(render); }
 
@@ -934,7 +938,7 @@
         return el('button', { type: 'button', class: 'answer' + (a.link ? ' link' : keyed === 1 && !a.link ? ' primary' : ''), title: a.title || (key ? 'Press ' + key : ''), onclick: function () { a.run(); } },
           [el('span', { text: a.label })].concat(key && keyed <= 9 ? [el('kbd', { text: key })] : []));
       });
-      if (v.fullPath && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Open the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Check Episodes…' }), el('kbd', { text: 'E' })]));
+      if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Open the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Check Episodes…' }), el('kbd', { text: 'E' })]));
       actions.replaceChildren.apply(actions, btns);
       box.classList.toggle('is-wide', btns.length > 3);
     };
@@ -1087,10 +1091,13 @@
       var badge = $('inspEpBadge');
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
       badge.className = 'ep-badge ' + (iss ? 'warn' : /^✓|^✂/.test(why) ? 'ok' : 'maybe');
-      $('checkEps').hidden = !src0.fullPath || !src0.parsed.isVideo;
+      $('checkEps').hidden = !canLook(src0) || !src0.parsed.isVideo;
       $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Check Episodes…';
       $('checkEps').disabled = scanning;
       $('clearSplit').hidden = !src0.split;
+      var canSplit = splittable(item);
+      $('splitRow').hidden = !canSplit;
+      if (canSplit) { $('splitNow').textContent = 'Split into ' + rowsEp.length + ' Files'; $('splitNow').disabled = scanning; }
       // Deep Scan: always there for a TV video (you decide when it's worth it).
       $('deepScan').hidden = !canDeep(item);
       $('deepScan').disabled = scanning || item.status === 'done';
@@ -1202,6 +1209,7 @@
     var tvVids = tvVideos();
     $('autoMode').hidden = !tvVids.length;
     $('autoMode').disabled = scanning;
+    $('autoMode').querySelector('.lbl').textContent = scanning ? 'Reading…' : 'Read Title Cards';
     $('autoMode').title = scanning ? 'Shelf is reading title cards right now' : 'Look at the title card inside each of your ' + tvVids.length + ' TV video' + (tvVids.length === 1 ? '' : 's') + ' to see which episodes it really holds. Shelf asks first.';
     $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
     $('allCount').textContent = items.length.toLocaleString();
@@ -1641,6 +1649,14 @@
     $('scanBarText').textContent = text;
     $('scanBarFill').style.width = Math.round(Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
   }
+  // While Shelf reads, the list follows the file it's on (unless you're scrolling it yourself).
+  var lastUserScroll = 0;
+  ['wheel', 'touchmove', 'mousedown', 'keydown'].forEach(function (ev) { $('list').addEventListener(ev, function () { lastUserScroll = Date.now(); }, { passive: true }); });
+  function followRow(id) {
+    if (Date.now() - lastUserScroll < 5000) return;
+    var r = document.querySelector('.row-item[data-id="' + id + '"]');
+    if (r) r.scrollIntoView({ block: 'nearest', behavior: calm.matches ? 'auto' : 'smooth' });
+  }
   function itemByPath(p) { return items.filter(function (i) { return i.fullPath ? i.fullPath === p : i.remote === p; })[0] || null; }
 
   // The live reader: a small card that shows the frame Shelf is reading and the titles it finds.
@@ -1732,6 +1748,10 @@
   on('autoMode', 'click', autoMode);
   function readCardsOf(files, deepNext) {
     if (!files.length) return;
+    // Top to bottom, in the order you see them (the rest of the list after, in its order).
+    var seenOrder = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []);
+    var rank = function (i) { var k = seenOrder.indexOf(i); return k < 0 ? 1e9 : k; };
+    files = files.slice().sort(function (a, b) { return rank(a) - rank(b); });
     // The shows these videos belong to (each is worked out again as its videos are read).
     var shows = [], seenShow = {};
     files.forEach(function (i) { var c0 = current(i); if (c0 && !seenShow[showIdKey(c0)]) { seenShow[showIdKey(c0)] = 1; shows.push(c0); } });
@@ -1744,13 +1764,13 @@
       var it = p.path ? itemByPath(p.path) : null;
       if (p.kind === 'queue') { p.paths.forEach(function (fp) { var q = itemByPath(fp); if (q) { q.scan = 'queued'; q.scanFrac = 0; } }); reader.start(p.total, deepNext); }
       if (p.kind === 'start' && it) { it.scan = 'reading'; it.scanFrac = 0; }
-      if (p.kind === 'start') reader.file(p.file || (it && it.name) || '', p.index, p.total);
+      if (p.kind === 'start') { reader.file(p.file || (it && it.name) || '', p.index, p.total); if (it) setTimeout(function () { followRow(it.id); }, 160); }
       if (p.kind === 'step' && it) it.scanFrac = p.frac;
       if (p.kind === 'peek') { reader.peek(p); return; }
       if (p.kind === 'found') { titlesFound++; reader.found(p); return; }
       if (p.kind === 'start' || p.kind === 'step') {
         reader.progress((p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
-        setScanStatus((deepNext ? 'Deep Scan' : 'Reading title cards') + ': video ' + (p.index + 1) + ' of ' + p.total + '…');
+        setScanStatus((deepNext ? 'Deep scan' : 'Reading') + ' ' + (p.index + 1) + ' of ' + p.total + '…');
       }
       if (p.kind === 'file' && it) {
         var r = p.result || {};
@@ -1883,7 +1903,7 @@
     if (k === 'e') {
       var ask = drawerOpen ? itemById(selectedId) : itemById(needsShownId) || itemById(selectedId);
       var av = ask && (linkedVideo(ask) || ask);
-      if (av && av.fullPath && av.parsed.isVideo && av.kind === 'episode' && !scanning) { e.preventDefault(); select(ask.id); openEditor(ask); }
+      if (av && canLook(av) && av.parsed.isVideo && av.kind === 'episode' && !scanning) { e.preventDefault(); select(ask.id); openEditor(ask); }
       return;
     }
     if (e.key === 'Enter' && selectedId && (document.activeElement === document.body || document.activeElement === $('list'))) { e.preventDefault(); openDrawer(); return; }
@@ -2066,7 +2086,7 @@
     var id = showIdKey(c);
     return items.filter(function (i) {
       var cc = current(i);
-      return i.kind === 'episode' && !i.linkTo && i.fullPath && i.parsed.isVideo && cc && showIdKey(cc) === id && i.status !== 'done';
+      return i.kind === 'episode' && !i.linkTo && canLook(i) && i.parsed.isVideo && cc && showIdKey(cc) === id && i.status !== 'done';
     }).sort(function (a, b) {
       var sa = a.parsed.season != null ? a.parsed.season : 1, sb = b.parsed.season != null ? b.parsed.season : 1;
       return sa - sb || (a.parsed.episode || 0) - (b.parsed.episode || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -2101,7 +2121,7 @@
     var v = linkedVideo(item) || item, ep = v.episode;
     if (!ep || v.split || item.status === 'done' || item.kind !== 'episode') return null;
     var names = function (es) { return es.map(function (e) { return epCode(e) + ' “' + e.name + '”'; }); };
-    var look = v.fullPath ? [{ label: 'Check Episodes…', title: 'Open the video to see for yourself', run: function () { openEditor(item); } }] : [];
+    var look = canLook(v) ? [{ label: 'Check Episodes…', title: 'Open the video to see for yourself', run: function () { openEditor(item); } }] : [];
     if (ep.needsSplit) {
       var es = ep.entries || [];
       return { kind: 'apart', title: 'This file holds ' + es.length + ' separate episodes',
@@ -2116,7 +2136,7 @@
         actions: [
           { label: 'One Episode', run: function () { setCount(item, 'one'); } },
           { label: 'Two Episodes', title: 'Add the episode that comes after it (change it if it’s a different one)', run: function () { setCount(item, 'more'); } }
-        ].concat(v.fullPath ? [{ label: 'Find It in the Video…', link: true, title: 'Find the second title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
+        ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the second title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
     }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
   }
@@ -2264,8 +2284,31 @@
       });
     });
   }
+  // A video on this PC that holds more than one episode and isn't split yet (files on your server can't be).
+  function splittable(item) {
+    var v = linkedVideo(item) || item;
+    return !!(v.fullPath && v.parsed.isVideo && v.kind === 'episode' && !v.split && item.status !== 'done' && current(v) &&
+      episodeRows(v, item).length > 1 && !(v.episode && v.episode.needsSplit)); // (that one already offers to split)
+  }
+  // Split All: every such video of a show, one file per episode. Asks once, then finds each gap.
+  function splitAll(list) {
+    if (scanning || !list.length) return;
+    native.approveSplit(list.map(function (v) { return v.fullPath; })).then(function (yes) {
+      if (!yes) { toast('Cancelled. Nothing was split.'); return; }
+      var job = busy('Finding where to split: 1 of ' + list.length + '…'), done = 0, pieces = 0;
+      return list.reduce(function (p, v, k) {
+        return p.then(function () {
+          job.set('Finding where to split: ' + (k + 1) + ' of ' + list.length + '…');
+          return autoSplit(v, episodeRows(v), true).then(function (ok) { if (ok && v.split) { done++; pieces += v.split.pieces.length; } }, function () {});
+        });
+      }, Promise.resolve()).then(function () {
+        job.done(); render();
+        toast(done ? 'Will split ' + done + (done === 1 ? ' file' : ' files') + ' into ' + pieces + ' episodes when you rename. Check any of them with Edit Split…' : 'Nothing was split.');
+      });
+    });
+  }
   // Split a video into one file per part, finding the gaps between them (no window needed).
-  function autoSplit(v, parts) {
+  function autoSplit(v, parts, quiet) {
     var c = current(v);
     var secs0 = (v.minutes || 22) * 60;
     var hints = parts.slice(1).map(function (e, k) {
@@ -2281,7 +2324,7 @@
       }) };
       v.manualEp = null;
       var g0 = res.cuts[0];
-      toast('Will split into ' + parts.length + ' files' + (g0 ? ' at ' + fmtClock(g0.at) + (g0.why === 'black + silence' ? ' (a black, silent moment)' : '') : '') + '. Check it any time with Edit Split…');
+      if (!quiet) toast('Will split into ' + parts.length + ' files' + (g0 ? ' at ' + fmtClock(g0.at) + (g0.why === 'black + silence' ? ' (a black, silent moment)' : '') : '') + '. Check it any time with Edit Split…');
       return c ? resolveShow(c).then(function () { render(); return true; }) : true;
     });
   }
@@ -2289,13 +2332,13 @@
   function openEditor(item, lookFor) {
     var v = linkedVideo(item) || item;
     var c = current(v);
-    if (!c || !v.fullPath) return;
+    if (!c || !canLook(v)) return;
     var btn = $('checkEps'); btn.disabled = true;
     var job = busy('Opening the video…');
     var run = showRun(v), at = run.indexOf(v), nextItem = at >= 0 ? run[at + 1] : null;
-    var also = at >= 0 ? run.slice(at + 1).map(function (i) { return i.fullPath; }) : [];
+    var also = at >= 0 ? run.slice(at + 1).map(function (i) { return i.fullPath || i.remote; }) : [];
     listFor(c).then(function (list) {
-      return native.openSplit(v.fullPath, also).then(function (r) {
+      return native.openSplit(v.fullPath || v.remote, also).then(function (r) {
         if (!r) { toast('Cancelled. The video wasn’t opened.'); return; }
         var wantSplit = v.wantSplit; v.wantSplit = false;
         var how = v.episode ? v.episode.how : 'number';
@@ -2305,7 +2348,7 @@
         // Fill in runtimes from the list (used to estimate where episodes change).
         entries.forEach(function (e) { var f = list.filter(function (x) { return x.season === e.season && x.number === e.number; })[0]; if (f) { e.runtime = e.runtime || f.runtime; e.name = e.name || f.name; } });
         ShelfEditor.open({
-          native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list,
+          native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, noSplit: !!r.remote,
           entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
@@ -2335,6 +2378,16 @@
       .then(function () { btn.disabled = false; job.done(); });
   }
   on('checkEps', 'click', function () { var item = itemById(selectedId); if (item) openEditor(item); });
+  on('splitNow', 'click', function () {
+    var item = itemById(selectedId); if (!item) return;
+    var v = linkedVideo(item) || item;
+    work('Finding where to split…', function () { return autoSplit(v, episodeRows(v, item)); });
+  });
+  on('splitByHand', 'click', function () {
+    var item = itemById(selectedId); if (!item) return;
+    (linkedVideo(item) || item).wantSplit = true;
+    openEditor(item);
+  });
   on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { v.split = null; render(); } });
   document.querySelectorAll('#epCount button').forEach(function (b) {
     b.addEventListener('click', function () { var item = itemById(selectedId); if (item && b.getAttribute('aria-pressed') !== 'true') setCount(item, b.dataset.count); });
