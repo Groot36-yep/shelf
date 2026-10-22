@@ -704,6 +704,27 @@
       <button type="button" data-mode="split" aria-pressed="false" title="Cut it into one file per episode">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="7.5" height="12" rx="2"/><rect x="13.5" y="6" width="7.5" height="12" rx="2"/></svg>Split Into Files</button>
     </div>
+    <div class="ed-help">
+      <button class="ed-btn icon ed-keys-btn" type="button" id="edKeysBtn" aria-expanded="false" aria-controls="edKeys" title="Keyboard shortcuts  (?)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h1M9.5 10h1M13 10h1M16.5 10h1M7.5 14h9"/></svg><span>Shortcuts</span></button>
+      <div class="ed-keys" id="edKeys" hidden role="dialog" aria-label="Keyboard shortcuts">
+        <b>Keyboard shortcuts</b>
+        <dl>
+          <dt><kbd>Space</kbd></dt><dd>Play / pause</dd>
+          <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>One frame back / forward (hold to repeat)</dd>
+          <dt><kbd>⇧</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>One second</dd>
+          <dt><kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>Five seconds</dd>
+          <dt><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></dt><dd>Back 5 s · pause · play (faster)</dd>
+          <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Previous / next title card</dd>
+          <dt><kbd>M</kbd></dt><dd>Mark the title card on screen</dd>
+          <dt><kbd>C</kbd></dt><dd>Move the selected cut to the playhead</dd>
+          <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Nudge the cut to the clean cutting point before / after</dd>
+          <dt><kbd>P</kbd></dt><dd>Preview the cut (4 s either side)</dd>
+          <dt><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></dt><dd>Zoom in / out / whole video</dd>
+        </dl>
+        <span>Scroll on the timeline to move along it; Ctrl + scroll (or pinch) to zoom.</span>
+      </div>
+    </div>
   </header>
   <div class="ed-body">
     <section class="ed-left">
@@ -728,9 +749,11 @@
       <div class="ed-transport" role="toolbar" aria-label="Playback">
         <div class="ed-time" aria-live="off"><b id="edClock">0:00.0</b><span id="edTotal">/ 0:00</span></div>
         <div class="ed-controls">
-          <button class="ed-btn icon round" type="button" data-step="-frame" title="Back one frame  (←, hold to repeat · Shift+← 1 s · Alt+← 5 s)" aria-label="Back one frame"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6.5v11l-8-5.5z"/><rect x="6" y="6.5" width="2.2" height="11" rx="1"/></svg></button>
+          <button class="ed-btn step" type="button" data-step="-1" title="Back one second  (Shift+←)" aria-label="Back one second"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7l-5 5 5 5M18 7l-5 5 5 5"/></svg><span>1 s</span></button>
+          <button class="ed-btn step" type="button" data-step="-frame" title="Back one frame  (←, hold to repeat)" aria-label="Back one frame"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg><span>Frame</span></button>
           <button class="ed-play" type="button" id="edPlay" aria-pressed="false" aria-label="Play" title="Play / Pause  (Space or K)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
-          <button class="ed-btn icon round" type="button" data-step="frame" title="Forward one frame  (→, hold to repeat · Shift+→ 1 s · Alt+→ 5 s)" aria-label="Forward one frame"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.5v11l8-5.5z"/><rect x="15.8" y="6.5" width="2.2" height="11" rx="1"/></svg></button>
+          <button class="ed-btn step" type="button" data-step="frame" title="Forward one frame  (→, hold to repeat)" aria-label="Forward one frame"><span>Frame</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5L15 12l-5.5 5.5"/></svg></button>
+          <button class="ed-btn step" type="button" data-step="1" title="Forward one second  (Shift+→)" aria-label="Forward one second"><span>1 s</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7l5 5-5 5M13 7l5 5-5 5"/></svg></button>
         </div>
         <div class="segmented small ed-speed" role="group" aria-label="Speed" id="edSpeed">
           <button type="button" data-rate="0.5" aria-pressed="false" title="Half speed">½×</button>
@@ -757,45 +780,58 @@
       </div>
       <div class="ed-under">
         <div class="ed-zoom" role="group" aria-label="Timeline zoom">
-          <button class="ed-btn icon small" type="button" id="edZoomOut" title="Zoom out  (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
-          <input type="range" id="edZoomSlider" min="0" max="5" step="1" value="0" aria-label="Zoom">
-          <button class="ed-btn icon small" type="button" id="edZoomIn" title="Zoom in  (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
-          <span id="edZoomLabel" class="ed-zoom-label">Whole video</span>
-          <button class="ed-btn small" type="button" id="edZoomFit" title="Show the whole video  (0)">Fit</button>
+          <button class="ed-btn icon small" type="button" id="edZoomOut" title="Zoom out  (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M8 10.5h5M15 15l5 5"/></svg></button>
+          <span id="edZoomLabel" class="ed-zoom-label" aria-live="polite">Whole video</span>
+          <button class="ed-btn icon small" type="button" id="edZoomIn" title="Zoom in  (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M8 10.5h5M10.5 8v5M15 15l5 5"/></svg></button>
+          <button class="ed-btn small" type="button" id="edZoomFit" title="Show the whole video  (0)">Show All</button>
         </div>
-        <button class="ed-btn" type="button" id="edAround" title="Plays from 4 s before to 4 s after the selected cut (or the playhead)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span> Play Around Cut</span></button>
+        <!-- Every title card Shelf read (or you marked), always one click away. -->
+        <div class="ed-cards" id="edCards">
+          <span class="ed-cards-k">Title cards</span>
+          <div class="ed-cards-list" id="edCardList"></div>
+          <span class="ed-cards-none" id="edCardsNone">None read yet. Find one in the video, then mark it.</span>
+        </div>
+        <button class="ed-btn outline ed-mark" type="button" id="edMarkCard" data-opens-browser="1" title="The title card is on screen right now: say which episode it is  (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5h10v15l-5-3.6-5 3.6z"/></svg><span>Mark Title Card Here</span></button>
       </div>
-      <!-- Every title card Shelf read (or you marked), always one click away. -->
-      <div class="ed-cards" id="edCards">
-        <span class="ed-cards-k">Title cards</span>
-        <div class="ed-cards-list" id="edCardList"></div>
-        <span class="ed-cards-none" id="edCardsNone">None read. Find one in the video, then mark it.</span>
-        <button class="ed-btn small ed-mark" type="button" id="edMarkCard" data-opens-browser="1" title="The title card is on screen right now: say which episode it is  (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5h10v15l-5-3.6-5 3.6z"/></svg><span>Mark Title Card Here</span></button>
-      </div>
+      <!-- Split view: the selected cut, what's either side of it, and everything you can do with it. -->
       <div class="ed-cuttools" id="edCutTools" hidden>
-        <span class="ed-cut-label" id="edCutLabel"></span>
-        <button class="ed-btn primary" type="button" id="edCutHere" title="Move the selected cut to the playhead  (C)"></button>
-        <button class="ed-btn" type="button" id="edAddCut" title="Add another cut at the playhead (for a third part)">+ Add Cut</button>
-        <button class="ed-btn" type="button" id="edRemoveCut" title="Remove the selected cut">Remove Cut</button>
+        <div class="ed-cutpick" role="group" aria-label="Which cut">
+          <button class="ed-btn icon small" type="button" id="edPrevCut" title="Select the cut before" aria-label="Select the cut before"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg></button>
+          <span class="ed-cut-label" id="edCutLabel"></span>
+          <button class="ed-btn icon small" type="button" id="edNextCut" title="Select the next cut" aria-label="Select the next cut"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5L15 12l-5.5 5.5"/></svg></button>
+        </div>
+        <div class="ed-seam" id="edSeam" aria-label="Either side of the cut"></div>
+        <div class="ed-cutbtns">
+          <div class="ed-nudge" role="group" aria-label="Nudge the cut">
+            <button class="ed-btn icon small" type="button" id="edNudgeBack" title="Nudge the cut earlier, to the clean cutting point before it  (,)" aria-label="Nudge the cut earlier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg></button>
+            <span>Nudge</span>
+            <button class="ed-btn icon small" type="button" id="edNudgeOn" title="Nudge the cut later, to the clean cutting point after it  (.)" aria-label="Nudge the cut later"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5L15 12l-5.5 5.5"/></svg></button>
+          </div>
+          <button class="ed-btn" type="button" id="edAround" title="Plays from 4 s before the cut to 4 s after  (P)"><svg class="solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><span> Preview Cut</span></button>
+          <button class="ed-btn primary" type="button" id="edCutHere" title="Move the selected cut to the playhead  (C)"></button>
+          <button class="ed-btn" type="button" id="edAddCut" title="Add another cut at the playhead (for a third part)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg><span>Add Cut</span></button>
+          <button class="ed-btn icon danger" type="button" id="edRemoveCut" title="Delete the selected cut (the parts either side become one)" aria-label="Delete the selected cut"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg></button>
+        </div>
       </div>
       <p class="ed-info" id="edInfo" role="status" aria-live="polite"></p>
     </section>
     <aside class="ed-right">
-      <h3 class="ed-panel-title" id="edPanelTitle">Episodes in this file</h3>
-      <div id="edPanel" class="ed-panel"></div>
-      <p class="ed-warn" id="edWarn" hidden></p>
-      <div class="ed-get">
-        <h3 class="ed-panel-title">You’ll get</h3>
-        <div id="edNames" class="ed-names"></div>
+      <div class="ed-side">
+        <h3 class="ed-panel-title" id="edPanelTitle">Episodes in this file</h3>
+        <div id="edPanel" class="ed-panel"></div>
+        <p class="ed-warn" id="edWarn" hidden></p>
+        <div class="ed-get">
+          <h3 class="ed-panel-title">You’ll get</h3>
+          <div id="edNames" class="ed-names"></div>
+        </div>
       </div>
+      <footer class="sheet-actions ed-actions">
+        <button class="pill" type="button" id="edCancel">Cancel</button>
+        <button class="pill" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next</button>
+        <button class="pill pill-primary" type="button" id="edSave">Use This Name</button>
+      </footer>
     </aside>
   </div>
-  <footer class="sheet-actions ed-actions">
-    <span class="ed-keys"><kbd>Space</kbd> play <kbd>←</kbd><kbd>→</kbd> frame <kbd>⇧</kbd> 1 s <kbd>[</kbd><kbd>]</kbd> title cards <kbd>M</kbd> mark card <kbd>C</kbd> cut <kbd>+</kbd><kbd>−</kbd> zoom</span>
-    <button class="pill" type="button" id="edCancel">Cancel</button>
-    <button class="pill" type="button" id="edSaveNext" hidden title="Save, then open the next file of this show">Save &amp; Next</button>
-    <button class="pill pill-primary" type="button" id="edSave">Use This Name</button>
-  </footer>
 </dialog>
 
 

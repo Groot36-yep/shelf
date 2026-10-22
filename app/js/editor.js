@@ -3,7 +3,7 @@
  * and (only if you choose) split it into one file per episode. Plus the episode browser.
  *
  * The timeline playhead is a true scrubber: dragging anywhere moves the playhead, never a cut.
- * Cuts only change with the "Set Cut Here" / "Add Cut" buttons (or their keys).
+ * Cuts only change with the cut bar's buttons (or their keys), or by dragging a cut's own handle.
  */
 (function (root) {
   'use strict';
@@ -230,6 +230,7 @@
   function close(keepBatch) {
     if (!st) return;
     cancelAnimationFrame(rafId); clearTimeout(frameTimer); clearTimeout(assistTimer); clearTimeout(stripTimer); clearTimeout(marksTimer);
+    cancelAnimationFrame(soonRaf); soonRaf = 0; soonMoving = null; $('edKeys').hidden = true;
     var o = st.o, token = st.token, marks = st.pendingMarks;
     st = null; ebClose();
     video.pause();
@@ -371,8 +372,9 @@
     if (!st) return;
     var t = st.t, txt = fmt(t);
     if (lastHead.clock !== txt) { $('edClock').textContent = txt; lastHead.clock = txt; }
+    // (Slid along rather than placed: moving it never makes the page lay itself out again.)
     var v = st.view, pct = (t - v.a) / (v.b - v.a) * 100, head = $('edHead');
-    head.style.left = pct + '%'; head.hidden = pct < 0 || pct > 100;
+    head.style.transform = 'translateX(' + pct + '%)'; head.hidden = pct < 0 || pct > 100;
 
     // Which part / episode you're in: chip on the picture, highlighted in the lane and the panel.
     var i = partAt(t), split = st.mode === 'split', part = split ? st.parts[i] : null;
@@ -413,8 +415,7 @@
     var c = center != null ? center : st.t;
     var a = clamp(c - span / 2, 0, Math.max(0, st.secs - span));
     $('edZoomLabel').textContent = st.zoom === 0 ? 'Whole video' : (span >= 60 ? Math.round(span / 60) + ' min' : Math.round(span) + ' sec') + ' view';
-    $('edZoomOut').disabled = st.zoom === 0; $('edZoomIn').disabled = st.zoom === ZOOMS.length - 1;
-    var sl = $('edZoomSlider'); sl.value = st.zoom; sl.style.setProperty('--fill-pct', (st.zoom / (ZOOMS.length - 1) * 100) + '%');
+    $('edZoomOut').disabled = $('edZoomFit').disabled = st.zoom === 0; $('edZoomIn').disabled = st.zoom === ZOOMS.length - 1;
     animateView({ a: a, b: a + span }, instant);
   }
   // Glide the visible stretch to its new place (zooming feels continuous, not a jump).
@@ -439,8 +440,15 @@
     var v = st.view, span = v.b - v.a;
     if (t < v.a || t > v.b) {
       var a = clamp(follow ? t - span * 0.1 : t - span / 2, 0, Math.max(0, st.secs - span));
-      if (follow) { st.view = { a: a, b: a + span }; drawTimeline(); } else animateView({ a: a, b: a + span });
+      if (follow) { st.view = { a: a, b: a + span }; soon(); } else animateView({ a: a, b: a + span });
     }
+  }
+  // Mouse wheels and drags can ask for a redraw many times between two frames on screen: draw once, on the next.
+  var soonRaf = 0, soonMoving = null;
+  function soon(moving) {
+    soonMoving = soonMoving === null ? !!moving : soonMoving && !!moving;
+    if (soonRaf) return;
+    soonRaf = requestAnimationFrame(function () { var m = soonMoving; soonRaf = 0; soonMoving = null; drawTimeline(m); });
   }
   // Put a strip picture where its stretch of video is, in the current view.
   function placeStrip(img, s0) {
@@ -453,16 +461,19 @@
   function drawTimeline(moving) {
     if (!st) return;
     var v = st.view, span = v.b - v.a, X = function (t) { return (t - v.a) / span * 100; };
-    // Ruler: labelled ticks, with small ones in between.
-    var ticks = $('edTicks'), tk = [];
-    var steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
-    var step = steps.filter(function (s2) { return span / s2 <= 10; })[0] || 600;
-    var minor = step / (step >= 60 ? 4 : step >= 10 ? 5 : step >= 2 ? 4 : 5);
-    for (var m = Math.ceil(v.a / minor) * minor; m <= v.b; m += minor) {
-      var major = Math.abs(m / step - Math.round(m / step)) < 1e-6;
-      tk.push(el('span', { class: 'ed-tick' + (major ? '' : ' minor'), style: 'left:' + X(m) + '%' }, major ? [el('i', { text: fmt(m, step < 1 ? undefined : false) })] : null));
+    // Ruler: labelled ticks, with small ones in between (only redrawn when the view moved).
+    var ticks = $('edTicks'), tkKey = v.a.toFixed(3) + ':' + v.b.toFixed(3);
+    if (ticks.dataset.view !== tkKey) {
+      ticks.dataset.view = tkKey;
+      var tk = [], steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+      var step = steps.filter(function (s2) { return span / s2 <= 10; })[0] || 600;
+      var minor = step / (step >= 60 ? 4 : step >= 10 ? 5 : step >= 2 ? 4 : 5);
+      for (var m = Math.ceil(v.a / minor) * minor; m <= v.b; m += minor) {
+        var major = Math.abs(m / step - Math.round(m / step)) < 1e-6;
+        tk.push(el('span', { class: 'ed-tick' + (major ? '' : ' minor'), style: 'left:' + X(m) + '%' }, major ? [el('i', { text: fmt(m, step < 1 ? undefined : false) })] : null));
+      }
+      ticks.replaceChildren.apply(ticks, tk);
     }
-    ticks.replaceChildren.apply(ticks, tk);
     // The episode lane, and the parts on the overview.
     var b = bounds(), split = st.mode === 'split', lane = [], ov = [], cur = partAt(st.t);
     for (var i = 0; i < b.length - 1; i++) {
@@ -554,7 +565,7 @@
     drawAll();
     if (first && m === 'one') info('Scrub or play to check which episode this is. Holds more than one? Use + Add Another Episode, or Split Into Files to give each its own file.');
     if (!first) info(m === 'split'
-      ? 'Split mode: each part becomes its own file. Move the playhead to where a part starts and click Set Cut Here.'
+      ? 'Split view: each part becomes its own file. Move the playhead to where a part starts, then Move Cut to Playhead.'
       : 'One file: it keeps one name, listing the episodes in it.');
   }
   function next(e) {
@@ -588,9 +599,9 @@
         why.push('Cut ' + (i + 1) + ' at ' + fmt(g.at) + ' (' + wh + ')');
       });
       st.cuts.sort(function (a, b) { return a - b; });
-      info('Shelf’s suggestion: ' + why.join('; ') + '. Check it: Play Around Cut, or move the playhead and Set Cut Here.');
+      info('Shelf’s suggestion: ' + why.join('; ') + '. Check the frames either side of it below, or Preview Cut.');
       return around(st.cuts[0]);
-    }).catch(function (e) { if (st) info('Couldn’t find a gap (' + e.message + '). Move the playhead to where the next episode starts and click Set Cut Here.'); })
+    }).catch(function (e) { if (st) info('Couldn’t find a gap (' + e.message + '). Move the playhead to where the next episode starts, then Move Cut to Playhead.'); })
       .then(function () { if (!st) return; $('edBusy').hidden = true; drawAll(); seek(st.cuts[st.sel] - 3); });
   }
   function around(t) {
@@ -609,7 +620,7 @@
     var t = st.t, i = st.sel;
     if (!st.cuts.length) { addCut(); return; }
     var lo = (i ? st.cuts[i - 1] : 0) + minPart(), hi = (i < st.cuts.length - 1 ? st.cuts[i + 1] : st.secs) - minPart();
-    if (t < lo || t > hi) { info('Cut ' + (i + 1) + ' has to stay between ' + fmt(lo) + ' and ' + fmt(hi) + '. Select another cut on the timeline, or move the playhead.'); return; }
+    if (t < lo || t > hi) { info('Cut ' + (i + 1) + ' has to stay between ' + fmt(lo) + ' and ' + fmt(hi) + '. Pick another cut with ‹ ›, or move the playhead.'); return; }
     snapAndSet(i, t);
   }
   function snapAndSet(i, t) {
@@ -644,8 +655,35 @@
     st.parts.splice(i + 1, 1);
     st.sel = clamp(i - 1, 0, Math.max(0, st.cuts.length - 1));
     if (!st.cuts.length) { setMode('one'); return; }
-    info('Cut removed: those two parts are one now.');
+    info('Cut deleted: those two parts are one now.');
     drawAll();
+  }
+  // Pick which cut the cut bar works on, and go to it.
+  function selectCut(dir) {
+    if (!st || st.mode !== 'split' || st.cuts.length < 2) return;
+    st.sel = (st.sel + dir + st.cuts.length) % st.cuts.length;
+    if (st.playable) video.pause();
+    drawAll(); keepInView(st.cuts[st.sel]); seek(st.cuts[st.sel]); flash();
+    info('Cut ' + (st.sel + 1) + ' of ' + st.cuts.length + ', at ' + fmt(st.cuts[st.sel]) + '.');
+  }
+  // Move the cut to the clean cutting point (keyframe) just before or after it: the finest a lossless cut can move.
+  function nudgeCut(dir) {
+    if (!st || st.mode !== 'split' || !st.cuts.length) return;
+    var i = st.sel, c = st.cuts[i];
+    var lo = (i ? st.cuts[i - 1] : 0) + minPart(), hi = (i < st.cuts.length - 1 ? st.cuts[i + 1] : st.secs) - minPart();
+    around(c + dir * 10).then(function () {
+      if (!st || st.cuts[i] !== c) return;
+      var k = st.keys.filter(function (x) { return dir < 0 ? x < c - 0.02 : x > c + 0.02; }).sort(function (a, b) { return dir < 0 ? b - a : a - b; })[0];
+      if (k == null || k < lo || k > hi) { info('There’s no other clean cutting point close by ' + (dir < 0 ? 'before' : 'after') + ' cut ' + (i + 1) + '.'); return; }
+      st.cuts[i] = k; st.justSet = i;
+      info('Cut ' + (i + 1) + ' moved to ' + fmt(k) + ', the clean cutting point ' + (dir < 0 ? 'before' : 'after') + ' (' + Math.abs(k - c).toFixed(1) + ' s ' + (dir < 0 ? 'earlier' : 'later') + ').');
+      drawAll(); seek(k);
+    });
+  }
+  function previewCut() {
+    if (!st) return;
+    var c = st.mode === 'split' && st.cuts.length ? st.cuts[st.sel] : st.t;
+    if (st.playable) play(c - 4, c + 4); else seek(c);
   }
 
   // ---- Title cards ----
@@ -746,27 +784,49 @@
     }));
     lastHead.card = null;
   }
+  // The cut bar (split view): which cut, the last frame before it and the first after it (so a cut can be
+  // checked at a glance, without playing it), and what can be done with it.
+  function drawCutBar() {
+    var split = st.mode === 'split', n = st.cuts.length, i = st.sel, c = st.cuts[i];
+    $('edCutTools').hidden = !split;
+    if (!split) return;
+    $('edCutLabel').replaceChildren.apply($('edCutLabel'), n ? ['Cut ' + (i + 1) + (n > 1 ? ' of ' + n : ''), el('small', { text: fmt(c) })] : ['No cut yet']);
+    $('edPrevCut').disabled = $('edNextCut').disabled = n < 2;
+    $('edNudgeBack').disabled = $('edNudgeOn').disabled = $('edRemoveCut').disabled = $('edAround').disabled = !n;
+    if (!st.playable) $('edAround').disabled = true;
+    $('edCutHere').replaceChildren(scissors(), document.createTextNode(n ? (n > 1 ? 'Move Cut ' + (i + 1) : 'Move Cut') + ' to Playhead' : 'Cut Here'));
+    $('edCutHere').title = n ? 'Move cut ' + (i + 1) + ' to the playhead  (C)' : 'Cut the video at the playhead  (C)';
+    var seam = $('edSeam');
+    if (!n) { seam.replaceChildren(); return; }
+    var go = function (t) { return function () { if (st.playable) video.pause(); keepInView(t); seek(t); flash(); }; };
+    var before = Math.max(0, c - 1 / st.fps), after = Math.min(st.secs - 0.04, c + 0.02);
+    seam.replaceChildren(
+      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': i % 2, title: 'The last frame of part ' + (i + 1) + ' (' + fmt(before) + '). Click to go there.', onclick: go(before) },
+        [frameImg(before, 208, 'Last frame of part ' + (i + 1)), el('span', { text: 'Part ' + (i + 1) + ' ends' })]),
+      el('i', { 'aria-hidden': 'true' }),
+      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': (i + 1) % 2, title: 'The first frame of part ' + (i + 2) + ' (' + fmt(after) + '). Click to go there.', onclick: go(after) },
+        [frameImg(after, 208, 'First frame of part ' + (i + 2)), el('span', { text: 'Part ' + (i + 2) + ' starts' })])
+    );
+  }
   function drawPanel() {
     if (!st) return;
     drawCards();
     var box = $('edPanel'); box.textContent = '';
     var split = st.mode === 'split';
-    $('edPanelTitle').textContent = split ? 'Parts — each becomes its own file' : 'Episodes in this file';
-    $('edCutTools').hidden = !split;
-    $('edCutLabel').textContent = st.cuts.length ? 'Cut ' + (st.sel + 1) + (st.cuts.length > 1 ? ' of ' + st.cuts.length : '') + ' · at ' + fmt(st.cuts[st.sel]) : 'No cut yet';
-    $('edCutHere').replaceChildren(scissors(), document.createTextNode(st.cuts.length ? ' Set Cut ' + (st.sel + 1) + ' Here' : ' Cut Here'));
-    $('edRemoveCut').disabled = !st.cuts.length;
+    $('edPanelTitle').replaceChildren.apply($('edPanelTitle'), split ? ['Parts', el('small', { text: 'Each part becomes its own file.' })] : ['Episodes in this file']);
+    drawCutBar();
     $('edPrevCard').disabled = $('edNextCard').disabled = $('edCardJump').disabled = !st.cards.length;
-    $('edAround').lastChild.textContent = split && st.cuts.length ? ' Play Around Cut' : ' Play Around Playhead';
     var b = bounds();
     var items = split ? st.parts.map(function (p, i) { return { entry: p.entry, i: i, a: b[i], z: b[i + 1] }; }) : st.oneEntries.map(function (e, i) { return { entry: e, i: i }; });
     items.forEach(function (it) {
       var e = it.entry, card = e && st.cards.filter(function (c) { return c.key === keyOf(e); })[0];
-      var head = el('div', { class: 'ed-part-head' }, [
-        el('span', { class: 'ed-dot', 'data-part': it.i % 2, text: String(it.i + 1) }),
-        split ? el('span', { class: 'ed-range', text: fmt(it.a) + ' – ' + fmt(it.z) + '  (' + fmt(it.z - it.a, false) + ')' }) : el('span', { class: 'ed-range', text: st.oneEntries.length > 1 ? 'Episode ' + (it.i + 1) + ' in this file' : 'This file' }),
-        split ? el('button', { type: 'button', class: 'ed-mini', title: 'Go to where this part starts', text: 'Go to start', onclick: function () { if (st.playable) video.pause(); keepInView(it.a); seek(it.a + (it.a ? 0.05 : 0)); flash(); } }) : null
-      ]);
+      var dot = el('span', { class: 'ed-dot', 'data-part': it.i % 2, text: String(it.i + 1) });
+      var head = el('div', { class: 'ed-part-head' }, split ? [
+        el('button', { type: 'button', class: 'ed-part-go', title: 'Go to where part ' + (it.i + 1) + ' starts (' + fmt(it.a) + ')',
+          onclick: function () { if (st.playable) video.pause(); keepInView(it.a); seek(it.a + (it.a ? 0.05 : 0)); flash(); } },
+        [dot, el('b', { text: 'Part ' + (it.i + 1) }), el('span', { class: 'ed-go', text: 'Go to start' })]),
+        el('span', { class: 'ed-range', title: fmt(it.a) + ' – ' + fmt(it.z), text: fmt(it.z - it.a, false) + ' long' })
+      ] : [dot, el('b', { class: 'ed-part-k', text: st.oneEntries.length > 1 ? 'Episode ' + (it.i + 1) + ' in this file' : 'This file' })]);
       var epBox = e
         ? el('div', { class: 'ed-ep' + (st.newKey === keyOf(e) ? ' is-new' : '') }, [el('span', { class: 'ed-code', text: code(e) }), el('span', { class: 'ed-name', text: e.name || '(no title)' })])
         : el('div', { class: 'ed-ep is-empty' }, [el('span', { class: 'ed-name', text: 'Choose which episode this is' })]);
@@ -786,6 +846,13 @@
         });
       });
       var row = [head, el('div', { class: 'ed-ep-row' }, [epBox, change])];
+      // A part far shorter or longer than its share of the video (by the episodes' running times; listings
+      // often give a whole half hour, so only the shares are compared) is worth a second look at its cuts.
+      if (split && e && e.runtime && st.cuts.length && st.parts.every(function (p) { return p.entry && p.entry.runtime; })) {
+        var all = st.parts.reduce(function (n, p) { return n + p.entry.runtime; }, 0), share = st.secs * e.runtime / all, len = it.z - it.a;
+        if (Math.abs(len - share) > Math.max(120, share * 0.35))
+          row.push(el('p', { class: 'ed-len', text: 'This part is ' + fmt(len, false) + ' long; for “' + e.name + '” about ' + fmt(share, false) + ' would be expected. Check the cut' + (st.cuts.length > 1 && it.i && it.i < st.cuts.length ? 's' : '') + ' next to it.' }));
+      }
       if (!split && st.oneEntries.length > 1) row[0].appendChild(el('button', { type: 'button', class: 'ed-mini', title: 'Remove this episode from the name', text: 'Remove', onclick: function () { st.oneEntries.splice(it.i, 1); drawAll(); } }));
       // How we know, and the frame Shelf read, so you can check it.
       if (card) {
@@ -884,7 +951,7 @@
       if (drag.mode === 'cut') {
         var k = drag.k, lo = (k ? st.cuts[k - 1] : 0) + minPart(), hi = (k < st.cuts.length - 1 ? st.cuts[k + 1] : st.secs) - minPart();
         t = clamp(snapCut(t), lo, hi);
-        st.cuts[k] = t; drawTimeline(true);
+        st.cuts[k] = t; soon(true);
       }
       seek(t, true);
     }
@@ -923,15 +990,15 @@
       }
       // Skimming: a preview of the frame under the mouse, without moving anything.
       var t = tAt(ev), f = fracAt(ev), hov = $('edHover'), peek = $('edPeek');
-      hov.style.left = (f * 100) + '%';
+      hov.style.transform = 'translateX(' + (f * 100) + '%)';
       if (proxy($('edPeekImg'), t)) {
-        var w = tl.clientWidth, pw = 168;
+        var w = tl.clientWidth, pw = 176;
         peek.style.left = clamp(f * w - pw / 2, 0, Math.max(0, w - pw)) + 'px';
         $('edPeekTime').textContent = fmt(t);
         peek.classList.add('on');
       }
     });
-    tl.addEventListener('pointerleave', function () { if (!drag) { $('edHover').style.left = '-100px'; $('edPeek').classList.remove('on'); } });
+    tl.addEventListener('pointerleave', function () { if (!drag) { $('edHover').style.transform = ''; $('edPeek').classList.remove('on'); } });
     function endDrag() {
       if (!drag || !st) { drag = null; return; }
       var d = drag; drag = null; st.dragging = false;
@@ -969,7 +1036,7 @@
       }
       var span2 = st.view.b - st.view.a, d = (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) / 800 * span2;
       var a = clamp(st.view.a + d, 0, Math.max(0, st.secs - span2));
-      if (a !== st.view.a) { st.view = { a: a, b: a + span2 }; drawTimeline(); }
+      if (a !== st.view.a) { st.view = { a: a, b: a + span2 }; soon(); }
     }, { passive: false });
     // Buttons
     $('edPlay').addEventListener('click', function () { if (!st || !st.playable) return; if (video.paused) { st.stopAt = null; video.play(); } else video.pause(); });
@@ -988,13 +1055,15 @@
     $('edPrevCard').addEventListener('click', function () { jumpCard(-1); });
     $('edNextCard').addEventListener('click', function () { jumpCard(1); });
     $('edCardJump').addEventListener('click', function () { if (st && st.cards.length) goCard(cardTarget().c); });
-    $('edZoomSlider').addEventListener('input', function () { if (st) setZoom(Number(this.value)); });
-    $('edZoomSlider').addEventListener('pointerup', function () { this.blur(); }); // so Space and arrows go back to the video
-    $('edAround').addEventListener('click', function () {
-      if (!st) return;
-      var c = st.mode === 'split' && st.cuts.length ? st.cuts[st.sel] : st.t;
-      if (st.playable) play(c - 4, c + 4); else seek(c);
-    });
+    $('edAround').addEventListener('click', previewCut);
+    $('edPrevCut').addEventListener('click', function () { selectCut(-1); });
+    $('edNextCut').addEventListener('click', function () { selectCut(1); });
+    $('edNudgeBack').addEventListener('click', function () { nudgeCut(-1); });
+    $('edNudgeOn').addEventListener('click', function () { nudgeCut(1); });
+    // Keyboard shortcuts: a small card, instead of a row of keys taking room all the time.
+    var keysOpen = function (on) { $('edKeys').hidden = !on; $('edKeysBtn').setAttribute('aria-expanded', on ? 'true' : 'false'); };
+    $('edKeysBtn').addEventListener('click', function () { keysOpen($('edKeys').hidden); });
+    document.addEventListener('mousedown', function (ev) { if (!$('edKeys').hidden && !ev.target.closest('.ed-help')) keysOpen(false); }, true);
     $('edZoomIn').addEventListener('click', function () { if (st) setZoom(st.zoom + 1); });
     $('edZoomOut').addEventListener('click', function () { if (st) setZoom(st.zoom - 1); });
     $('edZoomFit').addEventListener('click', function () { if (st) setZoom(0); });
@@ -1006,7 +1075,7 @@
     $('edCancel').addEventListener('click', close);
     $('edSave').addEventListener('click', function () { save(false); });
     $('edSaveNext').addEventListener('click', function () { save(true); });
-    $('editorSheet').addEventListener('cancel', function (ev) { ev.preventDefault(); if ($('epBrowser').hidden) close(); else ebClose(); });
+    $('editorSheet').addEventListener('cancel', function (ev) { ev.preventDefault(); if (!$('edKeys').hidden) keysOpen(false); else if ($('epBrowser').hidden) close(); else ebClose(); });
     // Every button: a short pressed glow.
     $('editorSheet').addEventListener('pointerdown', function (ev) { var b = ev.target.closest('button'); if (b && !b.disabled) hit(b); });
     // Keys
@@ -1027,6 +1096,9 @@
       else if (k === ']') { press('edNextCard'); jumpCard(1); }
       else if (k === 'm' || k === 'M') { press('edMarkCard'); markCard(); }
       else if (k === 'c' || k === 'C') { if (st.mode === 'split') { press('edCutHere'); setCutHere(); } }
+      else if (k === ',' || k === '.') { if (st.mode === 'split' && st.cuts.length) { press(k === ',' ? 'edNudgeBack' : 'edNudgeOn'); nudgeCut(k === ',' ? -1 : 1); } }
+      else if (k === 'p' || k === 'P') { if (st.mode === 'split' && st.cuts.length) { press('edAround'); previewCut(); } }
+      else if (k === '?') { press('edKeysBtn'); keysOpen($('edKeys').hidden); }
       else if (k === '+' || k === '=') { press('edZoomIn'); setZoom(st.zoom + 1); }
       else if (k === '-' || k === '_') { press('edZoomOut'); setZoom(st.zoom - 1); }
       else if (k === '0') { press('edZoomFit'); setZoom(0); }

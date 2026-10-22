@@ -3,6 +3,18 @@
 Where things stand, and what's left to do. Newest first.
 
 ## Next release (not released yet)
+- **Check Episodes, redesigned**: the picture takes all the room the controls leave (Save and Cancel moved
+  beside the parts), the controls say what they do (1 s · Frame · Play · Frame · 1 s, Show All), and the
+  row of keys became a **Shortcuts** card (`?`). Split view has a **cut bar**: the last frame before the cut
+  and the first after it side by side, ‹ › to pick a cut, **Nudge** to the clean cutting point before or after
+  (`,` `.`), **Preview Cut** (`P`), **Move Cut to Playhead**, **Add Cut** and delete. A part much shorter or
+  longer than its share of the video says so. Snappier too: the timeline redraws once per frame, and the
+  playhead slides instead of making the window lay itself out again.
+- **Fix My Plex Library: pick seasons**, not just shows (open a show to see its seasons), and **Include files
+  that already look right** to redo episodes fixed before (they weren't listed any more).
+- **Sending to your server is sturdier**: a dropped connection is noticed at once (before, the send could
+  hang instead of retrying), a connection that stops moving is given up on after a minute and retried, retries
+  go on for about 2 minutes (6 tries), and picking up again backs up past anything that may not have arrived.
 - **Free Up Space on Server…** (⚙ menu): finds the files Shelf set aside on your server (originals of videos split
   there, duplicate episodes), shows each with its size and the total, and deletes the ones you pick once you
   confirm. Undo forgets those changes, as they can't be put back any more.
