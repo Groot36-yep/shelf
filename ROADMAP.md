@@ -2,6 +2,11 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Free Up Space on Server…** (⚙ menu): finds the files Shelf set aside on your server (originals of videos split
+  there, duplicate episodes), shows each with its size and the total, and deletes the ones you pick once you
+  confirm. Undo forgets those changes, as they can't be put back any more.
+
 ## Done (2.2.2)
 - **Split files on your Plex server**: a file whose episodes aren't next to each other (or any file holding more
   than one) can be split right there. Rename reads it over SSH once, cuts it on this PC without re-encoding, sends

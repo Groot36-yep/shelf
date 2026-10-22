@@ -162,6 +162,9 @@ working while it sends.
   **Two-Part Files** or **One File per Episode** (or pick file by file); Shelf keeps one copy of each and
   sets the others aside (renamed to `….shelf-duplicate`, which Plex ignores; nothing is deleted), then
   Plex rescans. **Undo** puts them back.
+- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos and
+  duplicate episodes) with their sizes, and deletes the ones you pick, after you confirm. Deleted files can't
+  be put back.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 

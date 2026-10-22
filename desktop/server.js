@@ -232,7 +232,10 @@ class Session {
     const dir = posix.dirname(remote), part = posix.join(dir, '.' + posix.basename(remote) + '.shelf-part');
     await this.mkdirp(dir);
     const old = await this.stat(part);
-    let offset = old && old.isFile() && old.size <= size ? old.size : 0;
+    // Picking up where a send stopped: up to a window of pieces were still on their way then, and a later one may
+    // have arrived while an earlier one didn't (a gap the size wouldn't show). So it backs up past all of them.
+    const t = this.tune || {}, chunk = t.chunk || 128 * 1024, back = (t.inFlight || 24) * chunk + chunk;
+    let offset = old && old.isFile() && old.size <= size ? Math.max(0, Math.floor((old.size - back) / chunk) * chunk) : 0;
     const hash = crypto.createHash('sha256');
     const fh = await fsp.open(local, 'r');
     let handle = null;
@@ -277,12 +280,18 @@ class Session {
   }
   // Many writes in flight at once (the network is never waiting on the disk or the other way round).
   _pump(fh, handle, offset, size, hash, o) {
-    const CHUNK = 128 * 1024, READ = 4 * 1024 * 1024, MAX_IN_FLIGHT = 24;
+    const t = this.tune || {}; // (for measuring other settings)
+    const CHUNK = t.chunk || 128 * 1024, READ = 4 * 1024 * 1024, MAX_IN_FLIGHT = t.inFlight || 24;
     const sftp = this.sftp;
     return new Promise((resolve, reject) => {
       let pos = offset, inFlight = 0, failed = false, reading = false, buf = null, bufPos = 0, bufEnd = 0;
-      const done = () => { if (!failed && pos >= size && inFlight === 0) resolve(); };
-      const fail = (e) => { if (!failed) { failed = true; reject(e); } };
+      // A connection that stops moving (nothing written for a minute, though it never closed) is given up on, so
+      // the send reconnects and picks up again instead of waiting forever.
+      let moved = Date.now();
+      const stall = this.stallMs || 60000;
+      const watch = setInterval(() => { if (inFlight && Date.now() - moved > stall) fail(problem('LOST', 'The connection stopped moving.')); }, Math.min(5000, stall / 3));
+      const done = () => { if (!failed && pos >= size && inFlight === 0) { clearInterval(watch); resolve(); } };
+      const fail = (e) => { if (!failed) { failed = true; clearInterval(watch); reject(e); } };
       const fill = () => {
         if (reading || failed) return;
         reading = true;
@@ -305,7 +314,7 @@ class Session {
           const at = pos, slice = buf, from = bufPos;
           pos += len; bufPos += len; inFlight++;
           sftp.write(handle, slice, from, len, at, (err) => {
-            inFlight--;
+            inFlight--; moved = Date.now();
             if (err) return fail(err);
             if (o.onBytes) o.onBytes(len);
             if (pos < size) pump(); else done();
@@ -313,7 +322,7 @@ class Session {
         }
         done();
       };
-      if (size === offset) return resolve();
+      if (size === offset) { clearInterval(watch); return resolve(); }
       pump();
     });
   }

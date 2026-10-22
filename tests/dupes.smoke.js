@@ -83,6 +83,35 @@ const COPY_B = '/srv/disk1/TV/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeB
   for (let i = 0; i < 60 && !srv.files.has(TOGETHER); i++) await sleep(200);
   assert.ok(srv.files.has(TOGETHER) && srv.files.has(COPY_A) && ![...srv.files.keys()].some((k) => k.endsWith('.shelf-duplicate')), 'Undo put them back');
   console.log('  ✓ Undo put them back');
+
+  // Set them aside again (two-part files this time), then Free Up Space deletes them for good, after asking.
+  await win.click('#menuBtn'); await win.click('#dupesBtn');
+  await win.waitForSelector('#dupesSheet[open]', { timeout: 20000 }); await sleep(400);
+  await win.click('#dpGo');
+  const aside = [ONE + '.shelf-duplicate', ONE_SUB + '.shelf-duplicate', TWO + '.shelf-duplicate', COPY_A + '.shelf-duplicate'];
+  for (let i = 0; i < 80 && !aside.every((f) => srv.files.has(f)); i++) await sleep(200);
+  assert.ok(aside.every((f) => srv.files.has(f)), 'set aside: ' + [...srv.files.keys()].filter((k) => /shelf-/.test(k)).join(' | '));
+  srv.files.set('/srv/disk1/TV/Spongebob/Season 4/SpongeBob.SquarePants.4x34.mkv.shelf-original', 500e6); // as after a split there
+  srv.dirs.add('/srv/disk1/TV/Spongebob/Season 4');
+  await sleep(1500);
+  await win.click('#menuBtn'); await win.click('#spaceBtn');
+  await win.waitForSelector('#spaceSheet[open]', { timeout: 20000 }); await sleep(400);
+  const rows = await win.$$eval('#spList .dp-file .dp-name', (x) => x.map((n) => n.textContent));
+  assert.strictEqual(rows.length, 5, JSON.stringify(rows));
+  assert.ok(rows.includes('SpongeBob.SquarePants.4x34.mkv') && rows.includes('SpongeBob.SquarePants.S02E01.Something.Smells.en.srt'), JSON.stringify(rows));
+  assert.match(await win.textContent('#spGo'), /^Delete 5 Files \(1\.5 GB\)$/);
+  assert.match(await win.textContent('#spWarn'), /can’t be put back/);
+  if (shots) await win.screenshot({ path: path.join(shots, 'free-space.png') });
+  await win.click('#spList .dp-file:last-child input'); // keep one for now
+  assert.match(await win.textContent('#spGo'), /^Delete 4 Files/);
+  await win.click('#spGo');
+  for (let i = 0; i < 60 && [...srv.files.keys()].filter((k) => /\.shelf-(original|duplicate)$/.test(k)).length > 1; i++) await sleep(200);
+  const left = [...srv.files.keys()].filter((k) => /\.shelf-(original|duplicate)$/.test(k));
+  assert.strictEqual(left.length, 1, 'deleted the four picked, kept the one unticked: ' + left.join(' | '));
+  assert.ok(srv.files.has(TOGETHER) && srv.files.has(COPY_B), 'the copies in the library are untouched');
+  await sleep(800);
+  assert.ok(await win.isHidden('#undoBar'), 'Undo can’t bring deleted files back, so it isn’t offered for them');
+  console.log('  ✓ Free Up Space on Server: listed 5 set-aside files (1.5 GB), deleted the 4 picked, Undo cleared');
   assert.deepStrictEqual(errors, []);
   await app.close();
   srv.close();

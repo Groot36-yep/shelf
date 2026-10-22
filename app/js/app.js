@@ -2504,5 +2504,7 @@
     lastOnServer = true; $('undoBar').hidden = false;
     render();
   }
-  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged };
+  // After set-aside files were deleted, Undo may have nothing left to undo.
+  function checkUndo() { canUndoAny().then(function (yes) { $('undoBar').hidden = !yes; render(); }); }
+  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged, checkUndo: checkUndo };
 })();

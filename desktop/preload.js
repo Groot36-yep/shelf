@@ -112,6 +112,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
   })) } : {})) : []),
   plexLibraryStop: () => ipcRenderer.invoke('shelf:plexLibraryStop'),
   plexSetAside: (paths) => ipcRenderer.invoke('shelf:plexSetAside', Array.isArray(paths) ? paths.map(String) : []),
+  plexSpareList: () => ipcRenderer.invoke('shelf:plexSpareList'),
+  plexSpareDelete: (paths) => ipcRenderer.invoke('shelf:plexSpareDelete', Array.isArray(paths) ? paths.map(String) : []),
   // What Fix My Plex Library is doing right now: { stage: 'connect' | 'plex' | 'walk' | 'done', … numbers }.
   onFixProgress: (fn) => {
     const listener = (e, m) => fn({

@@ -319,6 +319,21 @@ kbd { font-family: var(--ui); }
 .shelf-meta b { color: var(--orange-text); font-weight: 650; }
 .shelf-split { flex: none; padding: 0 2px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .insp-split { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+/* Fix My Plex Library: shows, and their seasons */
+.fp-inc { margin: 0 0 6px; padding: 8px 12px; border-radius: 10px; background: var(--fill); }
+.fix-pick .fp-list { padding: 0; }
+.fp-show + .fp-show { border-top: 1px solid var(--sep); }
+.fp-row { gap: 8px; }
+.fp-open, .fp-open-space { flex: none; width: 22px; height: 22px; }
+.fp-open { border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 17px; line-height: 1; cursor: default; transition: transform 0.2s, background 0.15s; }
+.fp-open:hover { background: var(--fill); color: var(--text); }
+.fp-show.is-open .fp-open { transform: rotate(90deg); }
+.fp-row .fp-text { flex: 1; }
+.fp-seasons { border-top: 1px solid var(--sep); background: var(--fill); }
+.fp-seasons .row { padding-left: 44px; min-height: 40px; }
+.fp-seasons .row + .row { border-top: 1px solid var(--sep); }
+.fp-row.partial .switch { background: color-mix(in srgb, var(--green) 50%, var(--fill-strong)); }
+.fp-row.partial .switch::after { transform: translateX(8px); }
 /* Duplicate episodes */
 .dupes { width: min(620px, calc(100vw - 32px)); }
 .dp-pref { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; font-size: 13px; color: var(--text-2); }
@@ -330,6 +345,10 @@ kbd { font-family: var(--ui); }
 .dp-file.aside .dp-name { color: var(--text-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
 .dp-warn { margin: 6px 2px 0; font-size: 12.5px; font-weight: 600; color: var(--red-text); }
 .dp-group.lost .group { box-shadow: 0 0 0 1.5px var(--red-text); }
+.sv-art.danger { background: linear-gradient(160deg, var(--orange), var(--red-text)); color: #fff; }
+.sp-size { font: 600 12px var(--ui) !important; color: var(--text-2) !important; }
+.sp-note { margin: -2px 2px 6px; }
+.row-help.sp-warn { color: var(--red-text); font-weight: 600; }
 .shelf-ask { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; font-size: 12.5px; color: var(--text-2); }
 .shelf-ask.unsure > span { color: var(--orange-text); font-weight: 600; }
 .stage.one-show .shelf-head { padding-top: 22px; padding-bottom: 14px; }
