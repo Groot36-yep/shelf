@@ -61,6 +61,7 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
   await win.evaluate(() => window.ShelfSend.refresh());
   await win.waitForSelector('#fixLibBtn:not([hidden])', { state: 'attached', timeout: 5000 });
   await win.click('#menuBtn'); await win.click('#fixLibBtn');
+  await win.waitForSelector('#fixPickSheet[open]', { timeout: 15000 }).then(() => win.click('#fpGo'), () => {}); // which shows: all
   const sb = () => win.evaluate(() => window.Shelf.items().find((i) => /S05E03.*\.mkv$/.test(i.name)) || null);
   for (let i = 0; i < 80; i++) { const it = await sb(); if (it && !['pending', 'matching'].includes(it.status)) break; await sleep(250); }
   const listed = await sb();
@@ -101,6 +102,28 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
   const listening = await app.evaluate(() => process._getActiveHandles().filter((h) => h && h.constructor && h.constructor.name === 'Server' && h.address && h.address() && h.address().address === '127.0.0.1').map((h) => h.address().port));
   assert.deepStrictEqual(listening, [], 'no 127.0.0.1 server left open: ' + listening.join(','));
   console.log('  ✓ The 127.0.0.1 reader was closed after the scan');
+
+  // Check Episodes plays it straight from the server (asks first; no splitting, as it's renamed there), and
+  // lets go of the server when it's closed.
+  await win.evaluate(() => { const x = window.Shelf.items().find((i) => /S05E03.*\.mkv$/.test(i.name)); document.querySelector('[data-id="' + x.id + '"]').click(); });
+  await sleep(400);
+  await win.click('#checkEps');
+  await win.waitForSelector('#editorSheet[open]', { timeout: 30000 });
+  for (let i = 0; i < 80 && !(await win.evaluate(() => document.getElementById('edVideo').videoWidth > 0 || !document.getElementById('edFrame').hidden)); i++) await sleep(250);
+  const ed = await win.evaluate(() => ({ w: document.getElementById('edVideo').videoWidth, frame: !document.getElementById('edFrame').hidden, modeHidden: document.getElementById('edMode').hidden, file: document.getElementById('edFile').textContent, total: document.getElementById('edTotal').textContent }));
+  assert.ok(ed.w > 0 || ed.frame, 'the video shows in Check Episodes: ' + JSON.stringify(ed));
+  assert.ok(ed.modeHidden && /Plex server/.test(ed.file), 'no split for a video on the server: ' + JSON.stringify(ed));
+  const asked = await app.evaluate(() => global.__prompts.slice(-1).map((p) => ({ title: p.title, points: p.points.map((x) => x.text) }))[0]);
+  assert.ok(/Check Episodes/.test(asked.title) && asked.points.some((t) => /SSH/.test(t)), JSON.stringify(asked));
+  const strip = await win.evaluate(() => { const i = document.getElementById('edStripBase'); return new Promise((res) => { const ok = () => res(i.naturalWidth); if (i.complete && i.naturalWidth) ok(); else { i.onload = ok; i.onerror = () => res(0); setTimeout(() => res(i.naturalWidth), 30000); } }); });
+  assert.ok(strip > 0, 'the timeline pictures come from the server too');
+  if (process.env.SHOTS) await win.screenshot({ path: path.join(process.env.SHOTS, 'check-episodes-remote.png') });
+  console.log('  ✓ Check Episodes plays the video from the server (' + (ed.w ? ed.w + ' px video' : 'frame preview') + ', ' + ed.total.replace('/ ', '') + ', timeline pictures ' + strip + ' px wide), with no split option');
+  await win.keyboard.press('Escape'); await sleep(1500);
+  const after = await app.evaluate(() => process._getActiveHandles().filter((h) => h && h.constructor && h.constructor.name === 'Server' && h.address && h.address() && h.address().address === '127.0.0.1').map((h) => h.address().port));
+  assert.deepStrictEqual(after, [], 'Check Episodes let go of the server reader');
+  assert.strictEqual(srv.reads.opens, srv.reads.closes, 'every file opened on the server was closed (Check Episodes too)');
+  console.log('  ✓ Closing Check Episodes closed the reader and the file on the server');
 
   // The same file read on this PC, for comparison.
   const local = await app.evaluate(async (x, a) => {

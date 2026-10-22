@@ -114,6 +114,10 @@ under the title, so it never just looks frozen.
 - Formats the built-in player can't show (like HEVC) switch to a frame preview that scrubs
   instantly.
 
+You don't have to open the video to split: a file's details offer **Split into N Files** (Shelf finds the gaps) and
+**Split by Hand…**, and **Split All** on a show's heading splits every file of that show that holds more than one
+episode, after asking once.
+
 Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your original is
 kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
 
@@ -146,6 +150,11 @@ working while it sends.
 - **Free up space on this PC** (off by default): each file goes to the Recycle Bin, but only once
   it's on the server and its fingerprint matched.
 - **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
+- **Fix My Plex Library…** (in the ⚙ menu) finds files already on your server that Plex couldn't match,
+  hasn't added, or that aren't named the Plex way. When they're in more than one show, you pick which
+  shows to fix. They're renamed right there on the server, and **Read Title Cards** and **Check
+  Episodes…** work on them too, reading only the parts they need over SSH (nothing is downloaded or
+  saved). Files on the server can't be split.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 

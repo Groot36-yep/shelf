@@ -2,6 +2,24 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Fix My Plex Library: pick which shows to fix.** When the check finds files in more than one show, a window lists
+  each show (and your movies) with how many files need a look and why; untick the ones to leave alone.
+- **Check Episodes for files on your Plex server**: the video plays, scrubs and shows its timeline pictures straight
+  from the server over SSH (only the parts you watch; nothing is saved). Mark title cards and pick episodes as usual;
+  splitting stays for files on this PC.
+- **Split files whenever you like**: a file holding two or more episodes offers **Split into N Files** (Shelf finds the
+  black, silent gap between them) and **Split by Hand…** (Check Episodes, ready for you to place the cuts). A show's
+  heading has **Split All**, which splits every such file of the show after one question. Nothing is cut until
+  Rename Now, and **Don't Split** undoes it.
+- **Title cards are read top to bottom**, in the order the list shows them, and the list follows the file being read
+  (unless you're scrolling it yourself). The reading card sits in the corner with room under the list, and beside a
+  file's details when they're open, so it never covers anything.
+- **Fixed: "Title cards" sat on top of the episode number** in rows read from title cards.
+- **Polish**: Check Episodes, the reading card, the episode picker and the details' cards use the same warm colours
+  as the rest of Shelf (no leftover blue); a shorter status in the top bar while reading ("Reading 3 of 19…"); a
+  file scrolled to by the keyboard never hides under its show's heading.
+
 ## Done (2.2.0)
 - **A calmer, clearer window.** One top bar (Find, All / Needs you, Read Title Cards, your Plex server, and a ⚙ menu
   for Settings, updates, privacy and about); your shows down the left; one line per file saying the episode, what

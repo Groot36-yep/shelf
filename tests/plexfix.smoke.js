@@ -69,6 +69,20 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
   await win.evaluate(() => window.ShelfSend.refresh());
   await win.waitForSelector('#fixLibBtn:not([hidden])', { state: 'attached', timeout: 5000 });
   await win.click('#menuBtn'); await win.click('#fixLibBtn');
+  // Files in more than one show: you pick which to fix (all ticked to start with).
+  await win.waitForSelector('#fixPickSheet[open]', { timeout: 15000 });
+  const groups = await win.$$eval('#fpList .fp-row', (rows) => rows.map((r) => r.querySelector('b').textContent + ': ' + r.querySelector('small').textContent));
+  assert.deepStrictEqual(groups.map((g) => g.split(':')[0]), ['Spongebob', 'Movies'], JSON.stringify(groups));
+  assert.strictEqual(await win.textContent('#fpGo'), 'Add 3 Files');
+  await win.click('#fpList .fp-row:last-child input'); // not the movies…
+  assert.strictEqual(await win.textContent('#fpGo'), 'Add 2 Files');
+  await win.click('#fpNone');
+  assert.ok(await win.isDisabled('#fpGo'), 'nothing picked: nothing to add');
+  await win.click('#fpAll'); // …all of them after all
+  assert.strictEqual(await win.textContent('#fpGo'), 'Add 3 Files');
+  await shot(win, '2a-pick-shows');
+  await win.click('#fpGo');
+  console.log('  ✓ Pick which shows to fix: ' + groups.join(' | '));
   for (let i = 0; i < 60; i++) {
     if (await win.evaluate(() => window.Shelf.items().length === 3 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
     await sleep(250);
