@@ -47,7 +47,7 @@ function server(behaviour) {
           if (buf.length < off + data.length) { const b = Buffer.alloc(off + data.length); buf.copy(b); buf = b; }
           data.copy(buf, off); files.set(p, buf);
           sftp.status(id, STATUS_CODE.OK);
-          if (act === 'drop') setImmediate(() => client.end());
+          if (act === 'drop') setImmediate(() => client._sock.destroy()); // (as a cable pulled out: no goodbye)
         });
         sftp.on('FSTAT', (id, h) => st(id, handles.get(h.toString('hex'))));
         sftp.on('CLOSE', (id, h) => { handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
@@ -70,11 +70,11 @@ const connect = (s) => S.connect({ host: '127.0.0.1', port: s.port, username: 'm
   fs.writeFileSync(local, crypto.randomBytes(12 << 20));
   const want = fs.readFileSync(local);
 
-  // 1. Piece 3 (offset 256 KB) is lost; after 20 more pieces arrive, the connection drops.
+  // 1. A piece several MB in is lost; a few more arrive after it, then the connection drops.
   let lostAt = -1;
   const s1 = await server((n, off) => {
-    if (n === 3) { lostAt = off; return 'lose'; }
-    if (n === 24) return 'drop';
+    if (n === 200) { lostAt = off; return 'lose'; }
+    if (n === 230) return 'drop';
     return 'ok';
   });
   let a = await connect(s1);
@@ -82,7 +82,7 @@ const connect = (s) => S.connect({ host: '127.0.0.1', port: s.port, username: 'm
   a.close();
   const partPath = '/tv/Show/Season 01/.Show - S01E01.mkv.shelf-part';
   const part = s1.files.get(partPath);
-  assert.ok(part && part.length > lostAt + (1 << 20), 'the part file looks further along than it is (' + (part && part.length) + ' bytes, gap at ' + lostAt + ')');
+  assert.ok(part && part.length > lostAt + (64 << 10), 'the part file looks further along than it is (' + (part && part.length) + ' bytes, gap at ' + lostAt + ')');
   assert.ok(part.subarray(lostAt, lostAt + 1024).equals(Buffer.alloc(1024)), 'and has a gap');
   ok('a dropped send leaves a part file with a gap in it (' + (part.length >> 10) + ' KB long, nothing at ' + (lostAt >> 10) + ' KB)');
   // Sent again: picks up, backing up past the gap.
@@ -92,7 +92,7 @@ const connect = (s) => S.connect({ host: '127.0.0.1', port: s.port, username: 'm
   a.close();
   const got = s1.files.get('/tv/Show/Season 01/Show - S01E01.mkv');
   assert.ok(got && got.equals(want), 'the file on the server is exactly the one on this PC');
-  assert.ok(r.resumed <= lostAt, 'picked up from ' + r.resumed + ', before the gap at ' + lostAt);
+  assert.ok(r.resumed > 0 && r.resumed <= lostAt, 'picked up from ' + r.resumed + ', before the gap at ' + lostAt + ' (and not from the start)');
   ok('sent again, it picks up before the gap (from ' + (r.resumed >> 10) + ' KB) and the copy is byte-for-byte right');
   s1.close();
 

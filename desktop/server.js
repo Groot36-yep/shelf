@@ -122,19 +122,22 @@ const p = (fn) => new Promise((resolve, reject) => fn((err, v) => (err ? reject(
 class Session {
   constructor(conn, sftp, host, opts) {
     this.conn = conn; this.sftp = sftp; this.host = host; this.opts = opts; this.closed = false;
-    conn.on('close', () => { this.closed = true; });
-    conn.on('end', () => { this.closed = true; });
+    const gone = () => { this.closed = true; };
+    conn.on('close', gone); conn.on('end', gone); sftp.on('end', gone); sftp.on('close', gone);
   }
+  // ssh2 quietly drops a request made after the connection closed and never answers it (a send would wait
+  // forever instead of being tried again), so once it's gone every request fails at once.
+  p(fn) { return this.closed ? Promise.reject(problem('LOST', 'The connection to the server dropped.')) : p(fn); }
   close() { this.closed = true; try { this.conn.end(); } catch (e) {} }
-  stat(f) { return p((cb) => this.sftp.stat(f, cb)).catch((e) => { if (e.code === 2) return null; throw e; }); }
-  realpath(f) { return p((cb) => this.sftp.realpath(f, cb)); }
+  stat(f) { return this.p((cb) => this.sftp.stat(f, cb)).catch((e) => { if (e.code === 2) return null; throw e; }); }
+  realpath(f) { return this.p((cb) => this.sftp.realpath(f, cb)); }
   home() { return this.realpath('.'); }
   /**
    * What's in a folder: [{ name, dir, file, size, link }]. Shortcuts (symlinks) are followed, so a
    * drive linked into /mnt or /media shows up as the folder it points to.
    */
   async entries(dir) {
-    const list = await p((cb) => this.sftp.readdir(dir, cb));
+    const list = await this.p((cb) => this.sftp.readdir(dir, cb));
     const out = [];
     let links = 0;
     for (const e of list) {
@@ -166,21 +169,21 @@ class Session {
       const st = await this.stat(cur);
       if (st && st.isDirectory()) continue;
       if (st) throw problem('FOLDER', '“' + cur + '” on the server is a file, not a folder.');
-      await p((cb) => this.sftp.mkdir(cur, cb)).catch(async (e) => { const again = await this.stat(cur); if (!again || !again.isDirectory()) throw e; });
+      await this.p((cb) => this.sftp.mkdir(cur, cb)).catch(async (e) => { const again = await this.stat(cur); if (!again || !again.isDirectory()) throw e; });
     }
     this.dirs.add(dir);
   }
   /** Free space in bytes (null if the server doesn't say). */
   async free(dir) {
-    try { const v = await p((cb) => this.sftp.ext_openssh_statvfs(dir, cb)); const n = Number(v.f_bavail) * Number(v.f_frsize || v.f_bsize); return Number.isFinite(n) ? n : null; } catch (e) { return null; }
+    try { const v = await this.p((cb) => this.sftp.ext_openssh_statvfs(dir, cb)); const n = Number(v.f_bavail) * Number(v.f_frsize || v.f_bsize); return Number.isFinite(n) ? n : null; } catch (e) { return null; }
   }
   /** Can your account save files in this folder? (A tiny hidden file is made and removed.) */
   async writable(dir) {
     const probe = posix.join(dir, '.shelf-check-' + crypto.randomBytes(4).toString('hex'));
     try {
-      const h = await p((cb) => this.sftp.open(probe, 'wx', cb));
-      await p((cb) => this.sftp.close(h, cb));
-      await p((cb) => this.sftp.unlink(probe, cb)).catch(() => {});
+      const h = await this.p((cb) => this.sftp.open(probe, 'wx', cb));
+      await this.p((cb) => this.sftp.close(h, cb));
+      await this.p((cb) => this.sftp.unlink(probe, cb)).catch(() => {});
       return true;
     } catch (e) { return false; }
   }
@@ -207,16 +210,16 @@ class Session {
     } catch (e) { return null; }
   }
   async rename(from, to, replace) {
-    if (replace) return p((cb) => this.sftp.ext_openssh_rename(from, to, cb)).catch(() => p((cb) => this.sftp.rename(from, to, cb)));
+    if (replace) return this.p((cb) => this.sftp.ext_openssh_rename(from, to, cb)).catch(() => this.p((cb) => this.sftp.rename(from, to, cb)));
     // Never over an existing file (SFTP's plain rename refuses if the name is taken).
     if (await this.stat(to)) throw problem('CONFLICT', 'A file with this name is already on the server.');
-    return p((cb) => this.sftp.rename(from, to, cb));
+    return this.p((cb) => this.sftp.rename(from, to, cb));
   }
-  unlink(f) { return p((cb) => this.sftp.unlink(f, cb)); }
+  unlink(f) { return this.p((cb) => this.sftp.unlink(f, cb)); }
   async readSmall(f, max) {
     const st = await this.stat(f);
     if (!st || !st.isFile() || st.size > (max || 1 << 20)) return null;
-    return p((cb) => this.sftp.readFile(f, cb));
+    return this.p((cb) => this.sftp.readFile(f, cb));
   }
 
   /**
@@ -250,11 +253,11 @@ class Session {
         }
         if (o.onBytes) o.onBytes(offset, true);
       }
-      handle = await p((cb) => this.sftp.open(part, offset ? 'r+' : 'w', cb));
+      handle = await this.p((cb) => this.sftp.open(part, offset ? 'r+' : 'w', cb));
       await this._pump(fh, handle, offset, size, hash, o);
     } finally {
       await fh.close().catch(() => {});
-      if (handle) await p((cb) => this.sftp.close(handle, cb)).catch(() => {});
+      if (handle) await this.p((cb) => this.sftp.close(handle, cb)).catch(() => {});
     }
     const mine = hash.digest('hex');
     const finish = () => this._finish(part, remote, size, mine, o).then((checked) => ({ checked, resumed: offset }));
@@ -427,16 +430,16 @@ async function installKey(s, pub) {
   const home = await s.home();
   const dir = posix.join(home, '.ssh'), file = posix.join(dir, 'authorized_keys');
   if (!(await s.stat(dir))) {
-    await p((cb) => s.sftp.mkdir(dir, { mode: 0o700 }, cb));
-    await p((cb) => s.sftp.chmod(dir, 0o700, cb)).catch(() => {});
+    await s.p((cb) => s.sftp.mkdir(dir, { mode: 0o700 }, cb));
+    await s.p((cb) => s.sftp.chmod(dir, 0o700, cb)).catch(() => {});
   }
   const old = await s.stat(file);
   const text = old ? ((await s.readSmall(file, 1 << 20)) || Buffer.alloc(0)).toString('utf8') : '';
   if (text.split('\n').some((l) => blobOf(l) === blobOf(pub))) return false;
   const add = (text && !text.endsWith('\n') ? '\n' : '') + pub + '\n';
-  const h = await p((cb) => s.sftp.open(file, 'a', { mode: 0o600 }, cb));
-  try { await p((cb) => s.sftp.write(h, Buffer.from(add), 0, Buffer.byteLength(add), old ? old.size : 0, cb)); } finally { await p((cb) => s.sftp.close(h, cb)).catch(() => {}); }
-  if (!old) await p((cb) => s.sftp.chmod(file, 0o600, cb)).catch(() => {});
+  const h = await s.p((cb) => s.sftp.open(file, 'a', { mode: 0o600 }, cb));
+  try { await s.p((cb) => s.sftp.write(h, Buffer.from(add), 0, Buffer.byteLength(add), old ? old.size : 0, cb)); } finally { await s.p((cb) => s.sftp.close(h, cb)).catch(() => {}); }
+  if (!old) await s.p((cb) => s.sftp.chmod(file, 0o600, cb)).catch(() => {});
   return true;
 }
 /** Takes Shelf's key back off the server. */
@@ -449,9 +452,9 @@ async function removeKey(s, pub) {
   const kept = lines.filter((l) => !blobOf(pub) || blobOf(l) !== blobOf(pub));
   if (kept.length === lines.length) return false;
   const tmp = file + '.shelf-tmp';
-  await p((cb) => s.sftp.writeFile(tmp, kept.join('\n'), { mode: st.mode & 0o777 }, cb));
-  await p((cb) => s.sftp.chmod(tmp, st.mode & 0o777, cb)).catch(() => {});
-  await p((cb) => s.sftp.ext_openssh_rename(tmp, file, cb));
+  await s.p((cb) => s.sftp.writeFile(tmp, kept.join('\n'), { mode: st.mode & 0o777 }, cb));
+  await s.p((cb) => s.sftp.chmod(tmp, st.mode & 0o777, cb)).catch(() => {});
+  await s.p((cb) => s.sftp.ext_openssh_rename(tmp, file, cb));
   return true;
 }
 
