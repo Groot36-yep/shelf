@@ -105,10 +105,13 @@ contextBridge.exposeInMainWorld('shelfNative', {
   sendStop: () => ipcRenderer.invoke('shelf:sendStop'),
   // Fix My Plex Library: the files already on your server (renamed there, nothing is copied).
   plexLibraryScan: (only) => ipcRenderer.invoke('shelf:plexLibraryScan', only === 'all' ? 'all' : 'problems'),
-  plexLibraryFix: (ops) => ipcRenderer.invoke('shelf:plexLibraryFix', Array.isArray(ops) ? ops.map((o) => ({
+  plexLibraryFix: (ops) => ipcRenderer.invoke('shelf:plexLibraryFix', Array.isArray(ops) ? ops.map((o) => Object.assign({
     remote: String((o && o.remote) || ''), folder: Array.isArray(o && o.folder) ? o.folder.map(String) : [], file: String((o && o.file) || '')
-  })) : []),
+  }, Array.isArray(o && o.split) ? { split: o.split.slice(0, 6).map((p) => ({ // a video split on the server: its pieces
+    start: Number(p && p.start), end: Number(p && p.end), folder: Array.isArray(p && p.folder) ? p.folder.map(String) : [], file: String((p && p.file) || '')
+  })) } : {})) : []),
   plexLibraryStop: () => ipcRenderer.invoke('shelf:plexLibraryStop'),
+  plexSetAside: (paths) => ipcRenderer.invoke('shelf:plexSetAside', Array.isArray(paths) ? paths.map(String) : []),
   // What Fix My Plex Library is doing right now: { stage: 'connect' | 'plex' | 'walk' | 'done', … numbers }.
   onFixProgress: (fn) => {
     const listener = (e, m) => fn({

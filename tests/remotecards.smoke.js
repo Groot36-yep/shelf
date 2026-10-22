@@ -103,8 +103,7 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
   assert.deepStrictEqual(listening, [], 'no 127.0.0.1 server left open: ' + listening.join(','));
   console.log('  ✓ The 127.0.0.1 reader was closed after the scan');
 
-  // Check Episodes plays it straight from the server (asks first; no splitting, as it's renamed there), and
-  // lets go of the server when it's closed.
+  // Check Episodes plays it straight from the server (asks first), and lets go of the server when it's closed.
   await win.evaluate(() => { const x = window.Shelf.items().find((i) => /S05E03.*\.mkv$/.test(i.name)); document.querySelector('[data-id="' + x.id + '"]').click(); });
   await sleep(400);
   await win.click('#checkEps');
@@ -112,18 +111,51 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
   for (let i = 0; i < 80 && !(await win.evaluate(() => document.getElementById('edVideo').videoWidth > 0 || !document.getElementById('edFrame').hidden)); i++) await sleep(250);
   const ed = await win.evaluate(() => ({ w: document.getElementById('edVideo').videoWidth, frame: !document.getElementById('edFrame').hidden, modeHidden: document.getElementById('edMode').hidden, file: document.getElementById('edFile').textContent, total: document.getElementById('edTotal').textContent }));
   assert.ok(ed.w > 0 || ed.frame, 'the video shows in Check Episodes: ' + JSON.stringify(ed));
-  assert.ok(ed.modeHidden && /Plex server/.test(ed.file), 'no split for a video on the server: ' + JSON.stringify(ed));
+  assert.ok(!ed.modeHidden && /Plex server/.test(ed.file), 'it says the video is on the server, and can be split: ' + JSON.stringify(ed));
   const asked = await app.evaluate(() => global.__prompts.slice(-1).map((p) => ({ title: p.title, points: p.points.map((x) => x.text) }))[0]);
   assert.ok(/Check Episodes/.test(asked.title) && asked.points.some((t) => /SSH/.test(t)), JSON.stringify(asked));
   const strip = await win.evaluate(() => { const i = document.getElementById('edStripBase'); return new Promise((res) => { const ok = () => res(i.naturalWidth); if (i.complete && i.naturalWidth) ok(); else { i.onload = ok; i.onerror = () => res(0); setTimeout(() => res(i.naturalWidth), 30000); } }); });
   assert.ok(strip > 0, 'the timeline pictures come from the server too');
   if (process.env.SHOTS) await win.screenshot({ path: path.join(process.env.SHOTS, 'check-episodes-remote.png') });
-  console.log('  ✓ Check Episodes plays the video from the server (' + (ed.w ? ed.w + ' px video' : 'frame preview') + ', ' + ed.total.replace('/ ', '') + ', timeline pictures ' + strip + ' px wide), with no split option');
+  console.log('  ✓ Check Episodes plays the video from the server (' + (ed.w ? ed.w + ' px video' : 'frame preview') + ', ' + ed.total.replace('/ ', '') + ', timeline pictures ' + strip + ' px wide)');
   await win.keyboard.press('Escape'); await sleep(1500);
   const after = await app.evaluate(() => process._getActiveHandles().filter((h) => h && h.constructor && h.constructor.name === 'Server' && h.address && h.address() && h.address().address === '127.0.0.1').map((h) => h.address().port));
   assert.deepStrictEqual(after, [], 'Check Episodes let go of the server reader');
   assert.strictEqual(srv.reads.opens, srv.reads.closes, 'every file opened on the server was closed (Check Episodes too)');
   console.log('  ✓ Closing Check Episodes closed the reader and the file on the server');
+
+  // Its two episodes aren't next to each other: the Needs-you card offers to split it (no pile of guesses), and
+  // Rename splits it on the server, keeping the original under a name Plex ignores. Undo puts it back.
+  const card = await win.evaluate(() => ({ q: (document.querySelector('#needs .needs-q') || {}).textContent, answers: [...document.querySelectorAll('#needs .answer')].map((b) => b.textContent) }));
+  assert.ok(/2 separate episodes/.test(card.q), JSON.stringify(card));
+  assert.ok(/^Split into 2 Files/.test(card.answers[0]), JSON.stringify(card));
+  assert.strictEqual(card.answers.filter((a) => /Check Episodes/.test(a)).length, 1, 'Check Episodes once: ' + JSON.stringify(card.answers));
+  assert.ok(card.answers.length <= 3, 'just the answers that make sense: ' + JSON.stringify(card.answers));
+  await win.click('#needs .answer.primary');
+  for (let i = 0; i < 160 && !(await sb()).split; i++) await sleep(250);
+  const cut = (await sb()).split;
+  assert.ok(cut && cut.pieces.length === 2, 'split planned: ' + JSON.stringify(cut));
+  const cutAt = cut.pieces[1].start;
+  console.log('  ✓ Needs you: “' + card.q + '” → ' + card.answers.join(' | ') + '; Split into 2 Files found the gap at ' + cutAt.toFixed(1) + ' s');
+  await win.click('#renameBtn'); await sleep(500);
+  assert.match(await win.textContent('#renameSummary'), /will be split there/);
+  const sizeBefore = srv.files.get(REMOTE), writesBefore = srv.writes.bytes;
+  await win.click('#renameNow');
+  const piecesOn = () => [...srv.files.keys()].filter((k) => /Season 05\/SpongeBob SquarePants - S05E(01|30) - .*\.mkv$/.test(k));
+  for (let i = 0; i < 480 && !(piecesOn().length === 2 && srv.files.has(REMOTE + '.shelf-original')); i++) await sleep(250);
+  const made = piecesOn();
+  if (made.length !== 2) { const x = await sb(); console.log('ITEM', x.status, x.error, await win.textContent('#toast').catch(() => '')); }
+  assert.strictEqual(made.length, 2, [...srv.files.keys()].join(' | '));
+  assert.ok(srv.files.has(REMOTE + '.shelf-original') && !srv.files.has(REMOTE), 'the original is kept, under a name Plex ignores');
+  const total = made.reduce((t, k) => t + srv.files.get(k), 0);
+  assert.ok(Math.abs(total - sizeBefore) < sizeBefore * 0.05, 'the pieces add up to the original: ' + total + ' vs ' + sizeBefore);
+  assert.ok(srv.writes.bytes - writesBefore >= total, 'both pieces were sent');
+  for (let i = 0; i < 40 && (await sb()) && (await sb()).status !== 'done'; i++) await sleep(250);
+  console.log('  ✓ Split on the server: ' + made.map((k) => k.split('/').pop() + ' (' + (srv.files.get(k) / 1e6).toFixed(0) + ' MB)').join(' + ') + '; original kept as ' + REMOTE.split('/').pop() + '.shelf-original');
+  await win.click('#undoBar');
+  for (let i = 0; i < 80 && !srv.files.has(REMOTE); i++) await sleep(250);
+  assert.ok(srv.files.has(REMOTE) && !srv.files.has(REMOTE + '.shelf-original') && piecesOn().length === 0, 'Undo: the original is back, the pieces are gone');
+  console.log('  ✓ Undo put the original back and removed the pieces');
 
   // The same file read on this PC, for comparison.
   const local = await app.evaluate(async (x, a) => {

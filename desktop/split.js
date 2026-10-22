@@ -147,4 +147,32 @@ async function writePiece(file, start, end, dest) {
   return got;
 }
 
-module.exports = { planCuts, writePiece, cutBefore, cutNear, quietAndKeys };
+/**
+ * Several pieces of `input` in one pass, into `dir` (for a video on your server, `input` is its address on the
+ * reader in remoteread.js, so it crosses the network once). secs: its length. pieces: [{ start, end }].
+ * Returns the files, in the pieces' order. Each is checked for length, as in writePiece.
+ */
+async function writePieces(input, secs, pieces, dir, ext) {
+  const fmt = FORMAT[ext] || ext;
+  const bounds = [];
+  pieces.forEach((p) => { if (p.start > 0.05) bounds.push(p.start); if (!secs || p.end < secs - 0.05) bounds.push(p.end); });
+  const times = [...new Set(bounds.map((t) => +t.toFixed(3)))].sort((a, b) => a - b);
+  const args = ['-loglevel', 'error', '-y', '-i', input,
+    '-map', '0:v?', '-map', '0:a?', '-map', '0:s?'].concat(fmt === 'matroska' ? ['-map', '0:t?'] : [], [
+    '-c', 'copy', '-map_metadata', '0', '-map_chapters', '-1',
+    '-f', 'segment', '-segment_format', fmt, '-reset_timestamps', '1']);
+  if (times.length) args.push('-segment_times', times.map((t) => Math.max(0, t - 0.02).toFixed(3)).join(','));
+  args.push(path.join(dir, 'part%d.' + ext));
+  await ffmpeg(args, 3600000);
+  const out = [];
+  for (const p of pieces) {
+    const file = path.join(dir, 'part' + times.filter((t) => t <= p.start + 0.01).length + '.' + ext);
+    const got = await probe.duration(file);
+    const len = p.end - p.start;
+    if (!got || Math.abs(got - len) > Math.max(3, len * 0.02)) throw new Error('A piece came out the wrong length (' + Math.round(got || 0) + ' s instead of ' + Math.round(len) + ' s)');
+    out.push(file);
+  }
+  return out;
+}
+
+module.exports = { planCuts, writePiece, writePieces, cutBefore, cutNear, quietAndKeys };

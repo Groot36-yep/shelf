@@ -52,6 +52,7 @@
   <div class="menu" id="mainMenu" role="menu" aria-label="Settings and more" hidden>
     <button type="button" role="menuitem" data-open="settings"><span>Settings</span><kbd>Ctrl+,</kbd></button>
     <button type="button" role="menuitem" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there"><span>Fix My Plex Library…</span></button>
+    <button type="button" role="menuitem" id="dupesBtn" hidden title="Find episodes that are in more than one file on your Plex server (one file and separate files, or two copies), and keep one of each"><span>Find Duplicate Episodes…</span></button>
     <button type="button" role="menuitem" id="updatesNav" title="Check for a newer version of Shelf (only when you click)"><span>Check for Updates</span><span class="update-dot" id="updateDot" hidden></span></button>
     <span class="menu-sep" role="separator"></span>
     <button type="button" role="menuitem" data-open="privacy"><span>Privacy</span></button>
@@ -607,6 +608,32 @@
     <div class="sheet-actions">
       <button class="pill" type="submit" value="cancel">Cancel</button>
       <button class="pill pill-primary" type="button" id="fpGo">Add to the List</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Duplicate episodes on your server: which copy of each stays. -->
+<dialog class="sheet dupes" id="dupesSheet" aria-labelledby="dpTitle">
+  <form method="dialog">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="11" height="14" rx="2"/><path d="M8.5 3h10a2 2 0 0 1 2 2v12"/></svg></span>
+      <div>
+        <h2 id="dpTitle">Duplicate episodes</h2>
+        <p id="dpLead"></p>
+      </div>
+    </div>
+    <div class="dp-pref">
+      <span>Keep</span>
+      <div class="segmented small" role="group" aria-label="Which copies to keep" id="dpPref">
+        <button type="button" data-pref="together" aria-pressed="true">Two-Part Files</button>
+        <button type="button" data-pref="separate" aria-pressed="false">One File per Episode</button>
+      </div>
+    </div>
+    <div class="dp-list" id="dpList"></div>
+    <p class="row-help flush" id="dpHelp">The others are set aside on the server, not deleted: renamed to “….shelf-duplicate”, which Plex ignores. Undo puts them back.</p>
+    <div class="sheet-actions">
+      <button class="pill" type="submit" value="cancel">Cancel</button>
+      <button class="pill pill-primary" type="button" id="dpGo">Set Aside</button>
     </div>
   </form>
 </dialog>

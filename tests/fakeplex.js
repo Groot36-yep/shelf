@@ -24,9 +24,14 @@ async function start(opts) {
     ['/srv/disk1/TV/Good Show/Season 01/Good Show - S01E01 - Pilot.mkv', 2000],
     ['/srv/disk1/Movies/new stuff/Charade.1963.1080p.BluRay.mkv', 3000]
   ]);
+  // opts.extra: { 'server path': size }: more files (and their folders).
+  for (const [p, size] of Object.entries(opts.extra || {})) {
+    files.set(p, size);
+    for (let d = posix.dirname(p); d && d !== '/' && !dirs.has(d); d = posix.dirname(d)) dirs.add(d);
+  }
   // opts.real: { 'server path': 'file on this PC' }: that file's real bytes are served (for reading title cards).
   for (const [p, local] of Object.entries(opts.real || {})) files.set(p, fs.statSync(local).size);
-  const reads = { opens: 0, closes: 0, count: 0, bytes: 0 }, fds = {};
+  const reads = { opens: 0, closes: 0, count: 0, bytes: 0 }, writes = { bytes: 0 }, fds = {};
   let netFree = 0;
   // Follow links in any part of a path (like the real server does).
   function real(p) {
@@ -152,12 +157,21 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
       });
       sftp.on('CLOSE', (id, h) => { const st = handles.get(h.toString('hex')); if (st && st.read) reads.closes++; handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
       sftp.on('REMOVE', (id, p) => { files.delete(real(p)); sftp.status(id, STATUS_CODE.OK); });
+      // Writing (a file sent to the server): only its size is kept.
+      sftp.on('WRITE', (id, h, offset, data) => {
+        const st = handles.get(h.toString('hex'));
+        if (!st || st.read) return sftp.status(id, STATUS_CODE.FAILURE);
+        const f = real(st.file);
+        files.set(f, Math.max(files.get(f) || 0, offset + data.length));
+        writes.bytes += data.length;
+        sftp.status(id, STATUS_CODE.OK);
+      });
     });
   }));
 });
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
+return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, writes, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
 }
 
 module.exports = { start };

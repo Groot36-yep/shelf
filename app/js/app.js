@@ -902,8 +902,8 @@
     }
     var iss = v.kind === 'episode' && c ? issueFor(item) : null;
     if (iss) {
-      var acts = iss.actions.map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
-      return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: true };
+      var acts = iss.actions.filter(function (a) { return !/^Check Episodes/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
+      return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: iss.kind === 'check' };
     }
     var label = rowParts(item).code ? rowParts(item).code + ' ' + rowParts(item).name : name;
     return { title: 'Is this ' + label + '?', text: 'Shelf isn’t sure. ' + (item.kind === 'movie' ? 'If it’s right, say so; if not, search for the right one.' : 'Check the episode, and change it if it’s wrong.'),
@@ -968,7 +968,7 @@
     if (q.picks && current(v) && !v.split) {
       listFor(current(v)).then(function (eps) {
         if (needsShownId !== item.id) return;
-        var picks = quickPicks(v, episodeRows(v, item), eps).slice(0, Math.max(0, 5 - answers.length));
+        var picks = quickPicks(v, episodeRows(v, item), eps).slice(0, Math.max(0, 4 - answers.filter(function (a) { return !a.link; }).length));
         picks.forEach(function (p) { answers.splice(answers.length - (answers.length && answers[answers.length - 1].link ? 1 : 0), 0, { label: p.label, run: function () { usePickEntries(item, p); } }); });
         if (picks.length) paint();
       }, function () {});
@@ -1196,7 +1196,9 @@
     $('findBox').hidden = !has;
     $('addBtn').hidden = !has;
     $('clearBtn').hidden = !has;
-    $('actionbar').hidden = !has;
+    // With an empty list the bar stays only to offer Undo (after a change on your server, say).
+    $('actionbar').hidden = !has && $('undoBar').hidden;
+    $('actionbar').classList.toggle('only-undo', !has);
     var ready = items.filter(isReady).length;
     var review = items.filter(needsReview).length;
     var rb = $('renameBtn');
@@ -1337,7 +1339,11 @@
       })();
     syncMode();
     var onServer = r.filter(function (i) { return i.remote; }).length, local = r.length - onServer;
-    if (onServer) $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there (nothing is copied), then Plex rescans.';
+    if (onServer) {
+      var cutThere = r.filter(function (i) { return i.remote && i.split; }).length;
+      $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there, then Plex rescans.' +
+        (cutThere ? ' ' + cutThere + ' of them will be split there: each is read over SSH, cut on this PC (no re-encoding), and its pieces sent back and checked. The originals are kept on the server.' : ' Nothing is copied.');
+    }
     native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('renameNow').disabled = !r.length || (!lib && local > 0); });
     canUndoAny().then(function (yes) { $('undoNow').hidden = !yes; });
     $('renameNow').textContent = 'Rename ' + r.length + ' Now';
@@ -1417,20 +1423,31 @@
     // Files on your Plex server: renamed there in one go, then Plex rescans.
     function renameOnServer(list) {
       var byRemote = {};
-      var ops = list.map(function (i) { byRemote[i.remote] = i; var p = plexFor(i); return { remote: i.remote, folder: p.folder, file: p.file }; });
+      var ofSplit = function (i) { var lv = i.parsed.isSubtitle && linkedVideo(i); return !!(lv && lv.split); };
+      var subsLeft = list.filter(ofSplit).length; // subtitles of a video split on the server stay as they are
+      list = list.filter(function (i) { return !ofSplit(i); });
+      var ops = list.map(function (i) {
+        byRemote[i.remote] = i;
+        if (splitOf(i)) {
+          var names = pieceNames(i);
+          return { remote: i.remote, split: splitOf(i).pieces.map(function (pc, k) { return { start: pc.start, end: pc.end, folder: names[k].folder, file: names[k].file }; }) };
+        }
+        var p = plexFor(i); return { remote: i.remote, folder: p.folder, file: p.file };
+      });
       return native.plexLibraryFix(ops).then(function (res) {
         var ok = 0, skipped = 0, failed = 0;
         res.results.forEach(function (r) {
           var item = byRemote[r.remote];
           if (!item) return;
-          if (r.ok && r.to) { ok++; item.status = 'done'; item.error = ''; item.origRemote = item.remote; item.remote = r.to; item.newPath = r.to; }
+          if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.origRemote = item.remote; item.remote = r.to; item.newPath = r.to; item.error = 'Split into ' + r.pieces.length + ' files on your server. The original is kept there as “' + r.kept.split('/').pop() + '” (Plex ignores it), and Undo puts it back.'; }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = ''; item.origRemote = item.remote; item.remote = r.to; item.newPath = r.to; }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename on the server: ' + r.error; }
         });
         lastOnServer = ok > 0;
         $('undoBar').hidden = !ok;
         render();
-        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + ' on your Plex server' + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (res.rescanned ? ' Plex is rescanning.' : ''));
+        toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + ' on your Plex server' + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (subsLeft ? ' Left ' + subsLeft + ' subtitle file' + (subsLeft === 1 ? '' : 's') + ' of split videos as they were.' : '') + (res.rescanned ? ' Plex is rescanning.' : ''));
       }, function (err) { toast(String(err.message || 'Renaming on the server failed.').replace(/^Error invoking remote method '[^']*':\s*(\w*Error:\s*)?(\[[A-Z_]+\]\s*)?/, '')); });
     }
     var lastOnServer = false;
@@ -2126,7 +2143,7 @@
       var es = ep.entries || [];
       return { kind: 'apart', title: 'This file holds ' + es.length + ' separate episodes',
         text: joinAnd(names(es)) + ' aren’t next to each other in the episode list, so Plex needs a separate file for each. Shelf can split it for you, without re-encoding.',
-        actions: (v.fullPath ? [{ label: 'Split into ' + es.length + ' Files', run: function () { return work('Finding where to split…', function () { return autoSplit(v, es); }); } }] : []).concat(look) };
+        actions: (canLook(v) ? [{ label: 'Split into ' + es.length + ' Files', run: function () { return work('Finding where to split…', function () { return autoSplit(v, es); }); } }] : []).concat(look) };
     }
     if (!item.epBlock) return null;
     var note = item.epProblem || '';
@@ -2284,16 +2301,16 @@
       });
     });
   }
-  // A video on this PC that holds more than one episode and isn't split yet (files on your server can't be).
+  // A video (on this PC or your Plex server) that holds more than one episode and isn't split yet.
   function splittable(item) {
     var v = linkedVideo(item) || item;
-    return !!(v.fullPath && v.parsed.isVideo && v.kind === 'episode' && !v.split && item.status !== 'done' && current(v) &&
+    return !!(canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !v.split && item.status !== 'done' && current(v) &&
       episodeRows(v, item).length > 1 && !(v.episode && v.episode.needsSplit)); // (that one already offers to split)
   }
   // Split All: every such video of a show, one file per episode. Asks once, then finds each gap.
   function splitAll(list) {
     if (scanning || !list.length) return;
-    native.approveSplit(list.map(function (v) { return v.fullPath; })).then(function (yes) {
+    native.approveSplit(list.map(function (v) { return v.fullPath || v.remote; })).then(function (yes) {
       if (!yes) { toast('Cancelled. Nothing was split.'); return; }
       var job = busy('Finding where to split: 1 of ' + list.length + '…'), done = 0, pieces = 0;
       return list.reduce(function (p, v, k) {
@@ -2315,7 +2332,7 @@
       var rd = e.card != null ? (v.cards || []).filter(function (r) { return Math.abs(r.t - e.card) < 0.05; })[0] : null;
       return e.card != null ? { card: rd && rd.start != null ? rd.start : e.card } : { est: secs0 * (k + 1) / parts.length };
     });
-    return native.suggestCuts(v.fullPath, hints).then(function (res) {
+    return native.suggestCuts(v.fullPath || v.remote, hints).then(function (res) {
       if (!res) { toast('Cancelled. Nothing was changed.'); return false; }
       var secs = res.secs || secs0;
       var cuts = res.cuts.map(function (g, k) { return g ? g.at : secs * (k + 1) / parts.length; });
@@ -2348,7 +2365,7 @@
         // Fill in runtimes from the list (used to estimate where episodes change).
         entries.forEach(function (e) { var f = list.filter(function (x) { return x.season === e.season && x.number === e.number; })[0]; if (f) { e.runtime = e.runtime || f.runtime; e.name = e.name || f.name; } });
         ShelfEditor.open({
-          native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, noSplit: !!r.remote,
+          native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, remote: !!r.remote,
           entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
@@ -2478,5 +2495,14 @@
 
   // Handy for testing: work every show's episodes out again (after test code fills in title cards).
   function resolveAll() { var seen = {}; return Promise.all(items.map(current).filter(function (c) { if (!c) return false; var k = showIdKey(c); if (seen[k]) return false; return (seen[k] = true); }).map(resolveShow)).then(render); }
-  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender };
+  // Something changed on your Plex server outside the list (duplicates set aside): Undo now undoes that, and those
+  // files leave the list.
+  function serverChanged(remotes) {
+    var gone = {}; (remotes || []).forEach(function (r) { gone[r] = 1; });
+    items = items.filter(function (i) { return !(i.remote && gone[i.remote]); });
+    if (selectedId && !itemById(selectedId)) selectedId = null;
+    lastOnServer = true; $('undoBar').hidden = false;
+    render();
+  }
+  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged };
 })();
