@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.2.1)
 - **Fix My Plex Library: pick which shows to fix.** When the check finds files in more than one show, a window lists
   each show (and your movies) with how many files need a look and why; untick the ones to leave alone.
 - **Check Episodes for files on your Plex server**: the video plays, scrubs and shows its timeline pictures straight
