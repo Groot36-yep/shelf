@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.2.3)
 - **Check Episodes, redesigned**: the picture takes all the room the controls leave (Save and Cancel moved
   beside the parts), the controls say what they do (1 s · Frame · Play · Frame · 1 s, Show All), and the
   row of keys became a **Shortcuts** card (`?`). Split view has a **cut bar**: the last frame before the cut
