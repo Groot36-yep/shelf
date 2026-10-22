@@ -91,6 +91,7 @@
     var row = $('renameSendRow');
     if (row && st) row.hidden = !st.set;
     if ($('fixLibBtn') && st) $('fixLibBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
+    if ($('dupesBtn') && st) $('dupesBtn').hidden = !(st.set && st.hasLogin && (st.tv || (st.plex.libraries || []).some(function (l) { return l.kind === 'tv'; })));
   }
 
   // ---------- Setting up your server ----------
@@ -628,6 +629,95 @@
       d.showModal();
     });
   }
+  // ---------- Duplicate episodes on your server ----------
+  // Every TV file is listed (as Fix My Plex Library does with "Include files that already look right"), the ones
+  // sharing an episode are grouped, and you choose which copy of each stays. The rest are set aside, not deleted.
+  var P = window.ShelfParser;
+  function findDupes() {
+    if (fixing || !shelf()) return;
+    if (!st || !st.set || !st.hasLogin) { openServer(); return; }
+    fixing = true;
+    var n = function (x) { return Number(x).toLocaleString(); };
+    var job = shelf().busy('Connecting to ' + st.host + '…', false, function () { native.plexLibraryStop(); job.set('Stopping…'); });
+    var unlisten = native.onFixProgress ? native.onFixProgress(function (p) {
+      if (p.stage === 'walk') job.set('Looking for duplicate episodes: ' + n(p.folders) + ' folders, ' + n(p.files) + ' files…');
+      else if (p.stage === 'plex') job.set('Asking Plex what it has: ' + n(p.done) + (p.total ? ' of ' + n(p.total) : '') + '…');
+    }) : null;
+    native.plexLibraryScan('all').then(function (r) {
+      if (unlisten) unlisten(); job.done();
+      var groups = P.findDuplicates(r.files);
+      if (!groups.length) { toast((r.stopped ? 'Stopped. ' : '') + 'No episode is in more than one file (' + n(r.total) + ' files checked).'); return; }
+      return pickDupes(groups, r.files);
+    }, function (e) {
+      if (unlisten) unlisten(); job.done();
+      toast(why(e).text || 'Couldn’t look through your Plex library.');
+    }).then(function () { fixing = false; });
+  }
+  function epRange(season, eps) { var c = function (x) { return (x < 10 ? '0' : '') + x; }; return 'S' + c(season) + 'E' + c(eps[0]) + (eps.length > 1 ? '–E' + c(eps[eps.length - 1]) : ''); }
+  function mb(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1e6)) + ' MB'; }
+  function pickDupes(groups, all) {
+    var d = $('dupesSheet'), list = $('dpList'), keep = {};
+    var pref = groups.reduce(function (t, g) { return t + g.files.filter(function (f) { return f.eps.length > 1; }).length; }, 0) * 2 >= groups.length ? 'together' : 'separate';
+    var setPref = function (p) {
+      pref = p;
+      document.querySelectorAll('#dpPref button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.pref === p ? 'true' : 'false'); });
+      keep = {};
+      groups.forEach(function (g) { P.keepFor(g, p).forEach(function (r) { keep[r] = true; }); });
+      paint();
+    };
+    var shows = {}; groups.forEach(function (g) { shows[g.show] = 1; });
+    var nEps = groups.reduce(function (t, g) { return t + g.eps.length; }, 0);
+    $('dpLead').textContent = nEps + ' episode' + (nEps === 1 ? ' is' : 's are') + ' in more than one file on your server, in ' + Object.keys(shows).length + (Object.keys(shows).length === 1 ? ' show' : ' shows') + '. Plex then shows them twice, or mixes them up. Choose which copy of each to keep.';
+    var paint = function () {
+      var lost = 0, aside = 0;
+      list.replaceChildren.apply(list, groups.map(function (g) {
+        var have = {};
+        g.files.forEach(function (f) { if (keep[f.remote]) f.eps.forEach(function (x) { have[x] = 1; }); });
+        var missing = g.eps.filter(function (x) { return !have[x]; });
+        if (missing.length) lost++;
+        aside += g.files.filter(function (f) { return !keep[f.remote]; }).length;
+        return el('div', { class: 'dp-group' + (missing.length ? ' lost' : '') }, [
+          el('div', { class: 'dp-head' }, [el('b', { text: g.show }), el('span', { text: epRange(g.season, g.eps) })]),
+          el('div', { class: 'group' }, g.files.map(function (f) {
+            var box = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Keep ' + f.name });
+            box.checked = !!keep[f.remote];
+            box.addEventListener('change', function () { keep[f.remote] = box.checked; paint(); });
+            return el('label', { class: 'row dp-file' + (keep[f.remote] ? '' : ' aside') }, [
+              el('span', { class: 'dp-text' }, [el('span', { class: 'dp-name', text: f.name, title: f.remote }),
+                el('small', { class: 'muted', text: epRange(g.season, f.eps) + (f.eps.length > 1 ? ' (' + f.eps.length + ' episodes)' : '') + ' · ' + mb(f.size) + ' · ' + (keep[f.remote] ? 'Keep' : 'Set aside') })]),
+              box
+            ]);
+          })),
+          missing.length ? el('p', { class: 'dp-warn', text: 'Keep at least one copy of ' + missing.map(function (x) { return epRange(g.season, [x]); }).join(', ') + '.' }) : null
+        ]);
+      }));
+      $('dpGo').disabled = !!lost || !aside;
+      $('dpGo').textContent = lost ? 'Keep One Copy of Each First' : aside ? 'Set Aside ' + aside + (aside === 1 ? ' File' : ' Files') : 'Nothing to Set Aside';
+    };
+    document.querySelectorAll('#dpPref button').forEach(function (b) { b.onclick = function () { if (b.dataset.pref !== pref) setPref(b.dataset.pref); }; });
+    setPref(pref);
+    return new Promise(function (resolve) {
+      $('dpGo').onclick = function () {
+        var videos = [];
+        groups.forEach(function (g) { g.files.forEach(function (f) { if (!keep[f.remote]) videos.push(f.remote); }); });
+        // Their subtitles go with them ("Show - S01E01.en.srt" beside "Show - S01E01.mkv").
+        var subs = all.filter(function (f) {
+          return /\.(srt|ass|ssa|sub|idx|vtt|sup)$/i.test(f.name) && videos.some(function (v) { var stem = v.replace(/\.[^./]+$/, ''); return f.remote.indexOf(stem + '.') === 0 && f.remote.lastIndexOf('/') === v.lastIndexOf('/'); });
+        }).map(function (f) { return f.remote; });
+        d.close();
+        var job = shelf().busy('Setting aside ' + videos.length + ' files on your server…');
+        native.plexSetAside(videos.concat(subs)).then(function (res) {
+          job.done();
+          var ok = res.results.filter(function (x) { return x.ok; }), bad = res.results.filter(function (x) { return x.error; });
+          if (ok.length && shelf().serverChanged) shelf().serverChanged(ok.map(function (x) { return x.remote; }));
+          toast('Set aside ' + ok.length + ' file' + (ok.length === 1 ? '' : 's') + ' on your server' + (bad.length ? ', ' + bad.length + ' couldn’t be (' + bad[0].error + ')' : '') + '.' + (res.rescanned ? ' Plex is rescanning.' : '') + ' Undo puts them back.');
+        }, function (e) { job.done(); toast(why(e).text || 'Couldn’t set them aside.'); }).then(resolve);
+      };
+      d.addEventListener('close', function once() { d.removeEventListener('close', once); resolve(); });
+      d.showModal();
+    });
+  }
+  on('dupesBtn', 'click', findDupes);
   on('svFixLib', 'click', checkLibrary);
   on('fixLibBtn', 'click', checkLibrary);
 

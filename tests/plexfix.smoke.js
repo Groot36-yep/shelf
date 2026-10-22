@@ -111,7 +111,8 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
 
   await win.waitForSelector('#undoBar:not([hidden])', { timeout: 5000 });
   await win.click('#undoBar');
-  for (let i = 0; i < 40 && !srv.files.has('/srv/disk1/Movies/new stuff/Charade.1963.1080p.BluRay.mkv'); i++) await sleep(250);
+  const back = ['/srv/disk1/Movies/new stuff/Charade.1963.1080p.BluRay.mkv', '/srv/disk1/TV/Spongebob/Season 5/SpongeBob.SquarePants.S05E03.720p.mkv'];
+  for (let i = 0; i < 60 && !back.every((f) => srv.files.has(f)); i++) await sleep(250); // put back one after another
   assert.ok(srv.files.has('/srv/disk1/TV/Spongebob/Season 5/SpongeBob.SquarePants.S05E03.720p.mkv'));
   assert.ok(srv.files.has('/srv/disk1/Movies/new stuff/Charade.1963.1080p.BluRay.mkv'));
   console.log('  ✓ Undo put them back on the server');

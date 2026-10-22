@@ -2,6 +2,20 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Split files on your Plex server**: a file whose episodes aren't next to each other (or any file holding more
+  than one) can be split right there. Rename reads it over SSH once, cuts it on this PC without re-encoding, sends
+  each piece to its season folder and checks it; the original is kept on the server as "….shelf-original", which
+  Plex ignores, and Undo puts it back. Split by Hand and Split All work on server files too. (Subtitles of a video
+  split on the server are left as they are.)
+- **Find Duplicate Episodes…** (⚙ menu): finds episodes that are in more than one file on your server (a half-hour
+  as one file and as separate files, maybe in another folder, or a file copied twice) and keeps one copy of each:
+  two-part files or one file per episode, your choice, or file by file. The rest are set aside (renamed to
+  "….shelf-duplicate", never deleted, their subtitles with them), Plex rescans, and Undo puts them back.
+- **The Needs-you card asks less**: a file whose title cards say which episodes it holds offers just what fits
+  (Split into 2 Files), not a row of guesses; "Check Episodes…" appears once; and the card moves beside a file's
+  details instead of under them.
+
 ## Done (2.2.1)
 - **Fix My Plex Library: pick which shows to fix.** When the check finds files in more than one show, a window lists
   each show (and your movies) with how many files need a look and why; untick the ones to leave alone.

@@ -186,8 +186,7 @@
     } else {
       st.parts = (ent.length ? ent : [null]).map(function (e) { return { entry: e }; });
     }
-    $('edFile').textContent = o.name + (o.position ? '   ·   ' + o.position : '') + (o.noSplit ? '   ·   on your Plex server' : '');
-    $('edMode').hidden = !!o.noSplit;
+    $('edFile').textContent = o.name + (o.position ? '   ·   ' + o.position : '') + (o.remote ? '   ·   on your Plex server' : '');
     info('');
     $('edBusy').hidden = true;
     video = $('edVideo');
@@ -541,7 +540,6 @@
   // ---- Modes: one file vs split ----
   function setMode(m, first) {
     if (!st) return;
-    if (m === 'split' && st.o.noSplit) m = 'one'; // a video on your server is renamed there, never cut
     st.mode = m;
     document.querySelectorAll('#edMode button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === m ? 'true' : 'false'); });
     $('editorSheet').classList.toggle('is-split', m === 'split');
@@ -839,7 +837,7 @@
       var en = st.oneEntries;
       if (!en.length) { ok = false; warn = 'Choose at least one episode.'; }
       var together = en.every(function (x, i) { return i === 0 || (x.season === en[i - 1].season && x.number === en[i - 1].number + 1); });
-      if (en.length > 1 && !together) { ok = false; warn = 'These episodes aren’t next to each other, so Plex can’t show one file as all of them. ' + (st.o.noSplit ? 'A file on your server can’t be split here: choose episodes in a row, or copy it to this PC to split it.' : 'Split the file instead (top right), or choose episodes in a row.'); }
+      if (en.length > 1 && !together) { ok = false; warn = 'These episodes aren’t next to each other, so Plex can’t show one file as all of them. Split the file instead (top right), or choose episodes in a row.'; }
     }
     $('edWarn').hidden = !warn; $('edWarn').textContent = warn;
     var names = ok ? st.o.preview(split ? 'split' : 'one', split ? st.parts.map(function (p) { return p.entry; }) : st.oneEntries) : [];

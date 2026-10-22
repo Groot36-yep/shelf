@@ -93,6 +93,36 @@ ok(code(later) === 'S7E4 ?' && /not the first/.test(later.note), 'only a later c
   eq(code(two), 'S1E6-E7', 'a rough reading of the cartoon after a clear one counts');
 }
 
+// ---- The same episode in more than one file (Find Duplicate Episodes) ----
+{
+  const F = (rel, size) => ({ remote: '/srv/' + rel, name: rel.split('/').pop(), relPath: rel, size: size || 100 });
+  const files = [
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeBob SquarePants - S02E01-E02 - Something Smells & Bossy Boots.mkv', 700),
+    F('TV Shows/Spongebob/Season 2/SpongeBob.SquarePants.S02E01.Something.Smells.mkv', 350),
+    F('TV Shows/Spongebob/Season 2/SpongeBob.SquarePants.S02E02.Bossy.Boots.mkv', 340),
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeBob SquarePants - S02E03-E04 - Your Shoe\'s Untied & Squid\'s Day Off.mkv', 700),
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeBob SquarePants - S02E05 - Big Pink Loser.mkv', 300),
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeBob SquarePants - S02E05 - Big Pink Loser (1).mkv', 320),
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 03/SpongeBob SquarePants - S03E01 - The Algae\'s Always Greener.mkv', 300),
+    F('TV Shows/Good Show/Season 01/Good Show - S01E01 - Pilot.mkv'),
+    F('TV Shows/SpongeBob SquarePants {tmdb-387}/Season 02/SpongeBob SquarePants - S02E01-E02 - Something Smells & Bossy Boots.en.srt', 1),
+    F('Movies/Charade (1963)/Charade (1963).mkv')
+  ];
+  const g = P.findDuplicates(files);
+  eq(g.map((x) => x.season + ':' + x.eps.join(',') + ':' + x.files.length), ['2:1,2:3', '2:5:2'], 'one file and separate files of the same episodes (in another folder), and two copies of one, are found; nothing else');
+  const names = (rs) => rs.map((r) => r.split('/').pop());
+  eq(names(P.keepFor(g[0], 'together')), ['SpongeBob SquarePants - S02E01-E02 - Something Smells & Bossy Boots.mkv'], 'keep two-part files: the one file');
+  eq(names(P.keepFor(g[0], 'separate')), ['SpongeBob.SquarePants.S02E01.Something.Smells.mkv', 'SpongeBob.SquarePants.S02E02.Bossy.Boots.mkv'], 'keep one file per episode: the separate ones');
+  eq(names(P.keepFor(g[1], 'together')), ['SpongeBob SquarePants - S02E05 - Big Pink Loser (1).mkv'], 'two copies: the bigger stays');
+  // Overlapping two-part files (E1-E2, E2-E3) and singles: every episode once, no episode twice.
+  const o = P.findDuplicates([F('TV Shows/X/Season 01/X - S01E01-E02.mkv'), F('TV Shows/X/Season 01/X - S01E02-E03.mkv'), F('TV Shows/X/Season 01/X - S01E03.mkv'), F('TV Shows/X/Season 01/X - S01E01.mkv')]);
+  eq(o.length, 1, 'overlapping files are one group');
+  const kept = P.keepFor(o[0], 'together'), seen = {};
+  let twice = false;
+  o[0].files.filter((f) => kept.indexOf(f.remote) >= 0).forEach((f) => f.eps.forEach((n) => { if (seen[n]) twice = true; seen[n] = 1; }));
+  ok(!twice && [1, 2, 3].every((n) => seen[n]), 'every episode kept once: ' + names(kept).join(', '));
+}
+
 // ---- A title card from another season than the name says ----
 {
   const mb = [{ season: 1, number: 9, name: 'Escape from Alcatraz', runtime: 47, aired: '2003-12-12' }, { season: 17, number: 6, name: 'San Francisco Drift', runtime: 47, aired: '2016-02-13' }];

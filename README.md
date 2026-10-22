@@ -154,7 +154,14 @@ working while it sends.
   hasn't added, or that aren't named the Plex way. When they're in more than one show, you pick which
   shows to fix. They're renamed right there on the server, and **Read Title Cards** and **Check
   Episodes…** work on them too, reading only the parts they need over SSH (nothing is downloaded or
-  saved). Files on the server can't be split.
+  saved). A file holding episodes that aren't next to each other can be **split** there too: it's read
+  over SSH once, cut on this PC (no re-encoding), and the pieces are sent back and checked. The original
+  stays on the server as `….shelf-original` (Plex ignores it), and **Undo** puts it back.
+- **Find Duplicate Episodes…** (in the ⚙ menu) finds episodes that are in more than one file on your
+  server, such as a half-hour kept as one file *and* as two separate files, or a file copied twice. Choose
+  **Two-Part Files** or **One File per Episode** (or pick file by file); Shelf keeps one copy of each and
+  sets the others aside (renamed to `….shelf-duplicate`, which Plex ignores; nothing is deleted), then
+  Plex rescans. **Undo** puts them back.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 

@@ -536,7 +536,35 @@ if (gotLock) app.whenReady().then(() => {
     return jpg && jpg.length ? new Uint8Array(jpg) : null;
   });
   // Where to split a video Shelf already looked inside (hints as in splitSuggest). Asks first otherwise.
+  // Where to split a video on your server: the same search, reading only the minutes around each gap over SSH.
+  async function suggestRemote(p, hints) {
+    if (!lookApproved.has(p) && !approvedMedia.has(p)) {
+      const yes = await askFirst([p], {
+        kind: 'split', ok: 'Find Split', title: 'Find where to split this video?',
+        lead: 'Shelf looks for the black, silent moment between the episodes, reading the video on your Plex server.',
+        points: [{ icon: 'lock', text: 'Only the minutes around each gap are read, over your SSH connection' }, { icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'The original is kept on the server' }]
+      });
+      if (!yes) return null;
+      lookApproved.add(p);
+    }
+    return plexSend.withSession(async (s) => {
+      const proxy = await require('./remoteread').open(s.sftp);
+      try {
+        const src = await proxy.add(p);
+        try {
+          const split = require('./split'), out = [];
+          for (const h of hints.slice(0, 5)) {
+            if (h && Number.isFinite(h.card)) out.push(Object.assign({ from: 'card' }, await split.cutBefore(src.url, h.card)));
+            else if (h && Number.isFinite(h.est)) out.push(Object.assign({ from: 'estimate' }, await split.cutNear(src.url, h.est)));
+            else out.push(null);
+          }
+          return { cuts: out, secs: await probe.duration(p, src.fh) };
+        } finally { await src.done(); }
+      } finally { await proxy.close(); }
+    });
+  }
   handle('shelf:suggestCuts', async (p, hints) => {
+    if (onServerVideo(p) && Array.isArray(hints)) return suggestRemote(p, hints);
     const files = pickedVideos([p]);
     if (!files.length || !Array.isArray(hints)) throw new Error('Not a video you picked');
     const f = files[0];
@@ -560,13 +588,16 @@ if (gotLock) app.whenReady().then(() => {
   });
   // Split All: one question for every video, instead of one each.
   handle('shelf:approveSplit', async (paths) => {
-    const files = pickedVideos(Array.isArray(paths) ? paths.slice(0, 2000) : []);
+    const list = Array.isArray(paths) ? paths.slice(0, 2000) : [];
+    const files = pickedVideos(list.filter((f) => !onServerVideo(f))).concat(list.filter(onServerVideo));
     const ask = files.filter((f) => !lookApproved.has(f) && !approvedMedia.has(f));
     if (!ask.length) return files.length > 0;
+    const remote = ask.some(onServerVideo);
     const yes = await askFirst(ask, {
       kind: 'split', ok: 'Find Splits', title: n(ask, 'Find where to split this video?', 'Find where to split these # videos?'),
       lead: 'Shelf looks for the black, silent moment between the episodes in each one.',
-      points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your originals are always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
+      points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your originals are always kept' },
+        remote ? { icon: 'lock', text: 'Videos on your Plex server: only the minutes around each gap are read, over SSH' } : { icon: 'lock', text: 'Nothing leaves this computer' }]
     });
     if (!yes) return false;
     ask.forEach((f) => lookApproved.add(f));
@@ -720,7 +751,7 @@ if (gotLock) app.whenReady().then(() => {
     const token = crypto.randomBytes(16).toString('hex');
     mediaTokens.set(token, src.url);
     remoteOpen.set(token, { ext: path.posix.extname(p).slice(1).toLowerCase(), release });
-    return { token, secs: await probe.duration(p, src.fh), fps: await frameRate(src.url), remote: true };
+    return { token, secs: await probe.duration(p, src.fh), fps: await frameRate(src.url), remote: true }; // (split points: splitSuggest reads it the same way)
   }
   handle('shelf:openSplit', async (p, also) => {
     if (onServerVideo(p)) return openRemote(p, also);

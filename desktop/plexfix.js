@@ -18,6 +18,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const os = require('os');
 const posix = path.posix;
 const S = require('./server');
 const { VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
@@ -237,7 +238,41 @@ function setup(ctx, api) {
     return n;
   }
 
-  /** ops: [{ remote, folder: ['TV Shows', 'Show', 'Season 01'], file }] → [{ remote, ok, to, skipped, error }] */
+  // One video on the server → one file per episode there. It's read over SSH (once) and cut on this PC without
+  // re-encoding; each piece is sent to its folder and checked (SHA-256), and only then is the original renamed to
+  // "….shelf-original", which Plex ignores. So nothing is lost, and Undo can put it back.
+  async function splitOnServer(s, op, from, info, home, kind, r, done, touched) {
+    const ext = posix.extname(from).slice(1).toLowerCase();
+    if (!VIDEO_EXT.includes(ext)) { r.skipped = 'Only videos are split on the server'; return; }
+    const plan = op.split.slice(0, 6).map((p) => ({ start: Number(p && p.start), end: Number(p && p.end), to: targetFor(home.root, p && p.folder, p && p.file) }));
+    if (plan.length < 2 || plan.some((p, k) => !p.to || !(p.start >= 0 && p.end > p.start + 30) || (k && p.start < plan[k - 1].end - 0.5))) { r.error = 'Those split points don’t work.'; return; }
+    for (const p of plan) if (await s.stat(p.to)) { r.skipped = 'A file with one of those names is already there'; return; }
+    const kept = from + '.shelf-original';
+    if (await s.stat(kept)) { r.skipped = 'This video was split before (its original is still kept there)'; return; }
+    const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'shelf-split-'));
+    const made = [];
+    try {
+      const proxy = await require('./remoteread').open(s.sftp);
+      let pieces;
+      try {
+        const src = await proxy.add(from);
+        try { pieces = await require('./split').writePieces(src.url, await require('./probe').duration(from, src.fh), plan, tmp, ext); } finally { await src.done(); }
+      } finally { await proxy.close(); }
+      for (let k = 0; k < plan.length; k++) { await s.upload(pieces[k], plan[k].to, { verify: true }); made.push(plan[k].to); }
+      await s.rename(from, kept, false);
+    } catch (e) {
+      for (const m of made) await s.unlink(m).catch(() => {}); // never half a split
+      r.error = 'Couldn’t split it on the server: ' + S.friendly(e, (cfg() || {}).host || '').message;
+      return;
+    } finally { await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {}); }
+    r.ok = true; r.to = made[0]; r.pieces = made; r.split = true; r.kept = kept;
+    done.push({ from, to: made[0], split: made, kept });
+    listed.delete(from); made.forEach((m) => listed.set(m, { root: home.root, kind, lib: home.lib }));
+    touched.add(info.lib); touched.add(home.lib);
+  }
+
+  /** ops: [{ remote, folder: ['TV Shows', 'Show', 'Season 01'], file } | { remote, split: [{ start, end, folder, file }] }]
+   *  → [{ remote, ok, to, pieces, kept, skipped, error }] */
   handle('shelf:plexLibraryFix', async (ops) => {
     if (!Array.isArray(ops) || !ops.length) return { results: [] };
     const results = [], done = [], touched = new Set(), oldDirs = new Set();
@@ -253,6 +288,7 @@ function setup(ctx, api) {
         if (!info) { r.error = 'Shelf didn’t list this file. Check your Plex library again.'; continue; }
         const kind = Array.isArray(op.folder) && op.folder[0] === 'Movies' ? 'movies' : 'tv';
         const home = kind === info.kind ? { root: info.root, lib: info.lib } : rootOf(kind) || { root: info.root, lib: info.lib };
+        if (Array.isArray(op.split)) { await splitOnServer(s, op, from, info, home, 'tv', r, done, touched); continue; }
         const to = targetFor(home.root, op.folder, op.file);
         if (!to) { r.error = 'That name won’t work on the server.'; continue; }
         if (to === from) { r.ok = true; r.skipped = 'Already named right'; continue; }
@@ -278,6 +314,32 @@ function setup(ctx, api) {
     return { results, rescanned: results.rescanned || 0 };
   });
 
+  // Duplicate episodes: the copies you don't want are renamed to "….shelf-duplicate" (Plex ignores that), never
+  // deleted, so nothing is lost; Undo puts them back. Only files the last check listed.
+  handle('shelf:plexSetAside', async (paths) => {
+    const list = Array.isArray(paths) ? [...new Set(paths.map(String))].filter((p) => listed.has(p)).slice(0, 5000) : [];
+    const results = [], done = [], touched = new Set();
+    if (!list.length) return { results, rescanned: 0 };
+    await withSession(async (s) => {
+      for (const from of list) {
+        const to = from + '.shelf-duplicate', r = { remote: from };
+        results.push(r);
+        try {
+          if (await s.stat(to)) { r.skipped = 'A copy was already set aside under that name'; continue; }
+          await s.rename(from, to, false);
+          r.ok = true; r.to = to;
+          done.push({ from, to });
+          touched.add(listed.get(from).lib);
+          listed.delete(from);
+        } catch (e) { r.error = S.friendly(e, (cfg() || {}).host || '').message; }
+      }
+      if (done.length) await writeJournal({ at: Date.now(), done });
+      results.rescanned = await rescan(s, touched);
+    });
+    if (done.length) log('Plex library: set aside ' + done.length + ' duplicate file(s) on the server');
+    return { results, rescanned: results.rescanned || 0 };
+  });
+
   handle('shelf:plexLibraryCanUndo', async () => { const j = await readJournal(); return !!(j && j.done && j.done.length); });
   handle('shelf:plexLibraryUndo', async () => {
     const j = await readJournal();
@@ -285,7 +347,19 @@ function setup(ctx, api) {
     let undone = 0, kept = 0;
     const touched = new Set();
     await withSession(async (s) => {
-      for (const { from, to } of j.done.slice().reverse()) {
+      for (const rec of j.done.slice().reverse()) {
+        const { from, to } = rec;
+        if (rec.split) { // a split: its pieces go, and the original gets its name back
+          try {
+            if (!(await s.stat(rec.kept)) || (await s.stat(from))) { kept++; continue; }
+            for (const m of rec.split) await s.unlink(m).catch(() => {});
+            await s.rename(rec.kept, from, false);
+            undone++;
+            const lib = libraries().find((l) => l.folders.some((f) => from.startsWith(S.cleanRoot(f) + '/')));
+            if (lib) { touched.add(lib.key); for (const m of rec.split) await tidy(s, posix.dirname(m), S.cleanRoot(lib.folders.find((f) => m.startsWith(S.cleanRoot(f) + '/')) || lib.folders[0])); }
+          } catch (e) { kept++; }
+          continue;
+        }
         try {
           if (!(await s.stat(to)) || (await s.stat(from))) { kept++; continue; } // changed since: left alone
           await s.mkdirp(posix.dirname(from));

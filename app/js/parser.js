@@ -393,6 +393,61 @@
    * libraries like "Breaking Bad (2008)/Season 1/01 - Pilot.mkv".
    */
   var SEASON_DIR = /^(?:season|series|saison|staffel|temporada)[\s._-]*(\d{1,3})\b|^s(\d{1,2})$|^(specials?|extras)$/i;
+  // ---- The same episode in more than one file ----
+  // (A library where some half-hours are one file and some were split by hand, or a file copied twice.)
+  // files: [{ remote, name, relPath: 'TV Shows/Show/Season 1/x.mkv', size }] from Fix My Plex Library.
+  // Returns the groups of videos of one show that share an episode (and the ones sharing with those):
+  // [{ show, season, eps: [1, 2], files: [{ remote, name, size, eps: [1, 2] }] }].
+  function findDuplicates(files) {
+    var norm = function (s) { return String(s || '').toLowerCase().replace(/[{\[](?:tmdb|tvdb|imdb)-[^}\]]*[}\]]/g, '').replace(/^the\s+/, '').replace(/[^a-z0-9]+/g, ''); };
+    var vids = [];
+    (files || []).forEach(function (f) {
+      var segs = String(f.relPath || f.name || '').split('/');
+      if (segs[0] !== 'TV Shows' || segs.length < 2) return;
+      var p = parsePath(f.name || segs[segs.length - 1], segs.slice(1, -1));
+      if (!p.isVideo || p.kind !== 'episode' || p.season == null || p.episode == null) return;
+      var end = p.episodeEnd && p.episodeEnd > p.episode && p.episodeEnd - p.episode < 10 ? p.episodeEnd : p.episode;
+      var eps = [];
+      for (var n = p.episode; n <= end; n++) eps.push(n);
+      vids.push({ f: f, show: norm(p.title) || norm(segs[1]), title: p.title || segs[1], season: p.season, eps: eps });
+    });
+    var parent = vids.map(function (v, i) { return i; });
+    var root = function (i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    var owner = {};
+    vids.forEach(function (v, i) {
+      v.eps.forEach(function (n) { var k = v.show + '|' + v.season + '|' + n; if (k in owner) parent[root(i)] = root(owner[k]); else owner[k] = i; });
+    });
+    var by = {};
+    vids.forEach(function (v, i) { var r = root(i); (by[r] = by[r] || []).push(v); });
+    return Object.keys(by).map(function (k) { return by[k]; }).filter(function (g) { return g.length > 1; }).map(function (g) {
+      var all = {};
+      g.forEach(function (v) { v.eps.forEach(function (n) { all[n] = 1; }); });
+      return {
+        show: g[0].title, season: g[0].season, eps: Object.keys(all).map(Number).sort(function (a, b) { return a - b; }),
+        files: g.map(function (v) { return { remote: v.f.remote, name: v.f.name, size: v.f.size || 0, eps: v.eps }; })
+          .sort(function (a, b) { return a.eps[0] - b.eps[0] || b.eps.length - a.eps.length || String(a.name).localeCompare(String(b.name)); })
+      };
+    }).sort(function (a, b) { return String(a.show).localeCompare(String(b.show)) || a.season - b.season || a.eps[0] - b.eps[0]; });
+  }
+  // Which files of a group to keep: every episode once, as files holding more than one ('together') or one file
+  // per episode ('separate'); of two copies of the same, the bigger. Returns their `remote`s.
+  function keepFor(group, pref) {
+    var order = group.files.slice().sort(function (a, b) {
+      return (pref === 'separate' ? a.eps.length - b.eps.length : b.eps.length - a.eps.length) || b.size - a.size;
+    });
+    var have = {}, keep = [];
+    var take = function (f) { keep.push(f.remote); f.eps.forEach(function (n) { have[n] = 1; }); };
+    // First the ones that don't overlap what's kept; then, for anything still missing, the file adding least again.
+    order.forEach(function (f) { if (f.eps.every(function (n) { return !have[n]; })) take(f); });
+    group.eps.forEach(function (n) {
+      if (have[n]) return;
+      var best = order.filter(function (f) { return keep.indexOf(f.remote) < 0 && f.eps.indexOf(n) >= 0; })
+        .sort(function (a, b) { return a.eps.filter(function (x) { return have[x]; }).length - b.eps.filter(function (x) { return have[x]; }).length; })[0];
+      if (best) take(best);
+    });
+    return keep;
+  }
+
   function parsePath(fileName, folders) {
     folders = (folders || []).filter(function (f) { return f && !/^[a-z]:$/i.test(f); });
     var r = parseFolders(fileName, folders);
@@ -1199,6 +1254,8 @@
   var api = {
     parseFilename: parseFilename,
     parsePath: parsePath,
+    findDuplicates: findDuplicates,
+    keepFor: keepFor,
     resolveEpisode: resolveEpisode,
     matchByTitle: matchByTitle,
     matchCardText: matchCardText,
