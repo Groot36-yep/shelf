@@ -193,7 +193,7 @@
       if (a && a.release && covers[a.release.id]) covers[a.release.id].then(function (u) { if (u) { box.textContent = ''; box.style.background = ''; box.appendChild(el('img', { src: u, alt: '' })); } });
       return box;
     }
-    var TINTS = ['#F2D16B', '#F4B183', '#B5D99C', '#9CC9E5', '#D8B4E2', '#F2A7A7', '#A8DCD1'];
+    var TINTS = ['#F0C27E', '#E7A27C', '#D9C29C', '#C3C98F', '#E3B49A', '#D8B57E', '#B9C29A'];
     function tint(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return TINTS[Math.abs(h) % TINTS.length]; }
     function initials(s) { return String(s || '♪').split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return Array.from(w)[0]; }).join('').toUpperCase() || '♪'; }
 

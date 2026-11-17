@@ -105,7 +105,7 @@
     var w = (s || '?').replace(/^(the|a|an)\s+/i, '').split(/\s+/).filter(Boolean);
     return ((w[0] || '?')[0] + (w[1] ? w[1][0] : '')).toUpperCase();
   }
-  var TINTS = ['#FFB27A', '#C9B8FF', '#B8C2CE', '#F5D58A', '#9CC7FF', '#A8E0C0', '#F4A9B8'];
+  var TINTS = ['#F0C27E', '#E7A27C', '#D9C29C', '#C3C98F', '#E3B49A', '#D8B57E', '#B9C29A'];
   function tintFor(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return TINTS[Math.abs(h) % TINTS.length]; }
   var shownPosters = {};
   function posterNode(cls, url, label) {
