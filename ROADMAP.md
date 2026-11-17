@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.3.0)
 - **Music**: drop in a music folder; songs are grouped into albums (tags first, then folders; CD1/Disc 2 folders
   join their album; loose songs go with their first official album), each album is looked up on MusicBrainz and
   the best-fitting edition picked (MusicBrainz ids in the tags, else track titles, numbers and lengths; the
