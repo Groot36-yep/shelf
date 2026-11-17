@@ -143,6 +143,14 @@
     return cost;
   }
   var ACCEPT = 0.42;
+  /** Two files of one song (another format, or a copy): the same recording, or the same title and length. */
+  function sameSong(a, b) {
+    var x = a.tags && a.tags.ok ? a.tags : null, y = b.tags && b.tags.ok ? b.tags : null;
+    if (x && y && x.mb.recording && x.mb.recording === y.mb.recording) return true;
+    var ta = (x && x.title) || parseTrackName(a.name, a.folders).title, tb = (y && y.title) || parseTrackName(b.name, b.folders).title;
+    var da = a.duration || (x && x.duration) || 0, db = b.duration || (y && y.duration) || 0;
+    return !!ta && sim(ta, tb) >= 0.95 && !!da && Math.abs(da - db) < 2;
+  }
   /**
    * Put each file with the track it most likely is. Returns { pairs: [{ id, track, cost }], extra: [ids that
    * fit no track], missing: [tracks with no file], fit: 0…1 }.
@@ -156,6 +164,15 @@
       if (usedF[x.f.id] || usedT[x.j]) return;
       usedF[x.f.id] = 1; usedT[x.j] = 1;
       pairs.push({ id: x.f.id, track: tracks[x.j], cost: x.c });
+    });
+    // The same song twice (an Ogg made from a FLAC that's still there, say): it goes on its twin's track, marked,
+    // rather than counting as a song this edition doesn't have.
+    var byId = {};
+    files.forEach(function (f) { byId[f.id] = f; });
+    files.forEach(function (f) {
+      if (usedF[f.id]) return;
+      var twin = pairs.filter(function (p) { return !p.dup && sameSong(f, byId[p.id]); })[0];
+      if (twin) { usedF[f.id] = 1; pairs.push({ id: f.id, track: twin.track, cost: twin.cost, dup: twin.id }); }
     });
     var extra = files.filter(function (f) { return !usedF[f.id]; }).map(function (f) { return f.id; });
     var missing = tracks.filter(function (t, j) { return !usedT[j]; });
@@ -223,6 +240,54 @@
     })[0] || null;
   }
 
+  /**
+   * An edition built from the files' own tags, when they all name one MusicBrainz edition and each has a title and
+   * a track number (what Picard writes). It holds only the tracks you have; its track counts come from the tags.
+   * null when the tags aren't complete enough to trust.
+   */
+  function releaseFromTags(files) {
+    var tg = files.map(function (f) { return f.tags && f.tags.ok ? f.tags : null; });
+    if (!tg.length || tg.some(function (t) { return !t || !t.mb.release || !t.title || !t.track || !t.album; })) return null;
+    var id = tg[0].mb.release;
+    if (tg.some(function (t) { return t.mb.release !== id; })) return null;
+    var t0 = tg[0], ids = String(t0.mb.albumArtist || '').split('/').filter(Boolean);
+    var artist = t0.albumArtists[0] || t0.artists[0] || '';
+    var cap = function (s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; };
+    var discs = {}, discTotal = 1;
+    tg.forEach(function (t, i) {
+      var d = t.disc || 1;
+      discTotal = Math.max(discTotal, d, t.discTotal || 0);
+      var m = discs[d] || (discs[d] = { position: d, format: '', title: '', trackCount: 0, tracks: [] });
+      m.trackCount = Math.max(m.trackCount, t.trackTotal || 0, t.track);
+      if (m.tracks.some(function (x) { return x.position === t.track; })) return; // (the same song in another file: a twin)
+      m.tracks.push({ id: '', recording: t.mb.recording || '', position: t.track, number: String(t.track), title: t.title,
+        length: files[i].duration || t.duration || 0, artist: t.artists.join(' & ') || artist,
+        artistIds: String(t.mb.artist || '').split('/').filter(Boolean), artistSort: (t.artistsSort || [])[0] || '' });
+    });
+    var media = [];
+    for (var d = 1; d <= discTotal; d++) media.push(discs[d] || { position: d, format: '', title: '', trackCount: 0, tracks: [] });
+    media.forEach(function (m) { m.tracks.sort(function (a, b) { return a.position - b.position; }); });
+    var year = t0.year || 0, first = t0.originalYear || year;
+    return {
+      id: id, title: t0.album, disambiguation: '', artist: artist, artistIds: ids, artistSort: (t0.albumArtistsSort || [])[0] || '',
+      compilation: !!t0.compilation || ids.indexOf(VARIOUS) >= 0 || /^various artists$/i.test(artist),
+      date: year ? String(year) : '', year: year, country: t0.mb.country || '', status: cap(t0.mb.status), barcode: '', packaging: '',
+      label: '', catno: '', score: 0, trackCount: media.reduce(function (n, m) { return n + m.trackCount; }, 0), formats: [], media: media, genres: [],
+      group: { id: t0.mb.releaseGroup || '', title: t0.album, primaryType: cap(t0.mb.type), secondaryTypes: [], firstDate: first ? String(first) : '' },
+      fromTags: true
+    };
+  }
+
+  /** The album from its own tags alone, at once (no lookups), or null when they don't settle it. */
+  function lookLocal(album, files, prefs) {
+    var g0 = album.guess || album, votes = Object.keys(g0.votes || {});
+    if (votes.length !== 1) return null;
+    var local = releaseFromTags(files);
+    if (!local) return null;
+    var lr = rankReleases({ album: g0.album || '', artist: g0.artist || '', year: g0.year || 0, votes: g0.votes }, files, [local], prefs);
+    return lr.best && !lr.best.result.extra.length ? Object.assign(lr, { how: 'tags' }) : null;
+  }
+
   // ---------- Looking an album up (the whole plan, with the lookups passed in) ----------
   // "Uta's Songs (One Piece Film Red)" / "Double Life (From "Despicable Me 4")": MusicBrainz may write the part
   // in brackets differently, so it's tried without it too.
@@ -240,11 +305,27 @@
       count: files.length, maxTrack: Math.max.apply(null, [0].concat(tg.map(function (t) { return t.track || 0; }))),
       trackTotal: (tg.filter(function (t) { return t.trackTotal; })[0] || {}).trackTotal || 0
     };
-    var fetchAll = function (ids) {
-      return ids.reduce(function (p, id) { return p.then(function (out) { return api.release(id).then(function (r) { if (r) out.push(r); return out; }, function () { return out; }); }); }, Promise.resolve([]));
+    // One edition at a time, stopping as soon as one fits every song closely: MusicBrainz answers one question a
+    // second, so each question saved is a second sooner (have: editions already fetched, compared too).
+    var fetchAll = function (ids, have) {
+      return ids.reduce(function (p, id) {
+        return p.then(function (out) {
+          if (out.done) return out;
+          return api.release(id).then(function (r) {
+            if (r) out.push(r);
+            var rk = rankReleases(guess, files, (have || []).concat(out), prefs);
+            if (rk.sure) out.done = true;
+            return out;
+          }, function () { return out; });
+        });
+      }, Promise.resolve([]));
     };
     var good = function (r) { return r.best && r.best.result.pairs.length && r.best.result.fit > 0.35; };
     var voted = Object.keys(guess.votes).sort(function (x, y) { return guess.votes[y] - guess.votes[x]; });
+    // 0. Tagged by Picard (or Shelf) with one edition, with titles and numbers: the tags hold what MusicBrainz
+    //    would say, so nothing needs asking (a big tagged library is ready at once).
+    var lr = lookLocal(album, files, prefs);
+    if (lr) return Promise.resolve(lr);
     // 1. The editions the files are tagged with.
     var start = voted.length ? fetchAll(voted.slice(0, 3)).then(function (rels) {
       var r = rankReleases(guess, files, rels, prefs);
@@ -267,7 +348,7 @@
             var top = found.filter(function (r) { return !seen[r.id] && (q.artist || !guess.artist || r.compilation || artistSim(guess.artist, r.artist) >= 0.75); })
               .map(function (r) { return [searchScore(g2, r, prefs), r]; })
               .filter(function (s) { return s[0] > 0.3; }).sort(function (a, b) { return b[0] - a[0]; }).slice(0, 3).map(function (s) { seen[s[1].id] = 1; return s[1].id; });
-            return fetchAll(top).then(function (rels) {
+            return fetchAll(top, x.have).then(function (rels) {
               var r = rankReleases(guess, files, x.have.concat(rels), prefs);
               return good(r) ? Object.assign(r, { how: 'search' }) : null;
             });
@@ -399,7 +480,7 @@
   var api = {
     AUDIO_EXT: AUDIO_EXT, LYRICS_EXT: LYRICS_EXT, VARIOUS: VARIOUS,
     norm: norm, sim: sim, artistSim: artistSim, parseTrackName: parseTrackName, groupAlbums: groupAlbums, tracksOf: tracksOf,
-    assign: assign, searchScore: searchScore, rankReleases: rankReleases, pickHome: pickHome, lookAlbum: lookAlbum, plainTitle: plainTitle,
+    assign: assign, searchScore: searchScore, rankReleases: rankReleases, pickHome: pickHome, lookAlbum: lookAlbum, plainTitle: plainTitle, releaseFromTags: releaseFromTags, lookLocal: lookLocal,
     plexName: plexName, tagsFor: tagsFor, tagDiff: tagDiff
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

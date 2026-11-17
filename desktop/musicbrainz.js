@@ -144,10 +144,10 @@ function create(o) {
     });
   }
 
-  // ---- Covers (Cover Art Archive: its own service, no one-a-second rule; a few at a time) ----
+  // ---- Covers (Cover Art Archive: its own service, no one-a-second rule; eight at a time) ----
   let coversRunning = 0; const coverWaiting = [];
   async function coverSlot(fn) {
-    if (coversRunning >= 4) await new Promise((r) => coverWaiting.push(r));
+    if (coversRunning >= 8) await new Promise((r) => coverWaiting.push(r));
     coversRunning++;
     try { return await fn(); } finally { coversRunning--; const n = coverWaiting.shift(); if (n) n(); }
   }

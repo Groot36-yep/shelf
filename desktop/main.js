@@ -7,7 +7,7 @@
  */
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, safeStorage, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session, safeStorage, Menu, nativeTheme, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -824,7 +824,7 @@ if (gotLock) app.whenReady().then(() => {
       const { Worker } = require('worker_threads');
       const w = new Worker(path.join(__dirname, 'tagworker.js'));
       w.waiting = new Map();
-      w.on('message', (m) => { const r = w.waiting.get(m.id); if (r) { w.waiting.delete(m.id); r.resolve(m.results); } });
+      w.on('message', (m) => { const r = w.waiting.get(m.id); if (r) { w.waiting.delete(m.id); r.resolve(m.covers || m.results); } });
       w.on('error', (e) => { w.waiting.forEach((r) => r.reject(e)); w.waiting.clear(); tagWorkers[i] = null; });
       tagWorkers[i] = w;
     }
@@ -848,6 +848,26 @@ if (gotLock) app.whenReady().then(() => {
     const read = ok.length ? await readTags(ok) : [];
     const by = new Map(ok.map((p, i) => [p, read[i]]));
     return list.map((p) => by.get(p) || { ok: false, error: 'Not a music file Shelf may read.' });
+  });
+  // Small pictures of the covers inside files (for the list): read on a background thread, shrunk here, so a
+  // big library's covers show in moments without anything being downloaded.
+  handle('shelf:musicThumbs', async (paths, size) => {
+    const list = (Array.isArray(paths) ? paths : []).slice(0, 200).map(String);
+    const ok = list.filter(audioOk);
+    if (!ok.length) return list.map(() => null);
+    clearTimeout(tagIdle);
+    const pics = await new Promise((resolve, reject) => { const w = tagWorker(0), id = ++tagSeq; w.waiting.set(id, { resolve, reject }); w.postMessage({ id, covers: ok }); });
+    tagIdle = setTimeout(() => { tagWorkers.forEach((w) => w && w.terminate()); tagWorkers.length = 0; }, 60000);
+    const px = Math.max(48, Math.min(400, Number(size) || 160));
+    const by = new Map(ok.map((p, i) => {
+      const c = pics[i];
+      if (!c || !c.data) return [p, null];
+      const img = nativeImage.createFromBuffer(Buffer.from(c.data));
+      if (img.isEmpty()) return [p, null];
+      const sz = img.getSize(), small = sz.width > px ? img.resize({ width: px, quality: 'good' }) : img;
+      return [p, small.toJPEG(82).toString('base64')];
+    }));
+    return list.map((p) => by.get(p) || null);
   });
   // The cover inside a file (to show what it has now).
   handle('shelf:musicFileCover', async (p) => {

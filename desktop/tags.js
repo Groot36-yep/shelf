@@ -53,12 +53,33 @@ function read(file) {
     out.duration = p ? Math.round(p.durationMilliseconds) / 1000 : 0;
     out.bitrate = p ? p.audioBitrate || 0 : 0;
     out.format = path.extname(file).slice(1).toLowerCase();
+    out.originalYear = originalYear(f);
     return out;
   } catch (e) {
     return { ok: false, error: plain(e) };
   } finally {
     try { f.dispose(); } catch (e) {}
   }
+}
+
+// The year the album first came out (Picard writes it beside the edition's own date): Ogg/FLAC ORIGINALDATE or
+// ORIGINALYEAR, MP3 TDOR or "originalyear". 0 when the file doesn't say.
+function originalYear(f) {
+  const y = (s) => { const m = /^(\d{4})/.exec(String(s || '').trim()); return m ? +m[1] : 0; };
+  try {
+    const x = f.getTag(T.TagTypes.Xiph, false);
+    if (x) { const v = y(x.getFieldFirstValue('ORIGINALDATE')) || y(x.getFieldFirstValue('ORIGINALYEAR')); if (v) return v; }
+  } catch (e) {}
+  try {
+    const id = f.getTag(T.TagTypes.Id3v2, false);
+    if (id) {
+      const v = y(id.getTextAsString(T.Id3v2FrameIdentifiers.TDOR));
+      if (v) return v;
+      const u = id.getFramesByClassType(T.Id3v2FrameClassType.UserTextInformationFrame).find((fr) => /^original ?(year|date)$/i.test(fr.description || ''));
+      if (u) return y((u.text || [])[0]);
+    }
+  } catch (e) {}
+  return 0;
 }
 
 /** The front cover's bytes (or null). */

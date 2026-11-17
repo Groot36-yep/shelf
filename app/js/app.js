@@ -1612,6 +1612,7 @@
     if (lastRemoved) dropFrames([lastRemoved.item]);
     var gone = items.splice(idx, 1)[0];
     lastRemoved = { item: gone, idx: idx, at: Date.now() };
+    if (gone.kind === 'track') music.changed(gone);
     selectedId = items.length ? items[Math.min(idx, items.length - 1)].id : null;
     render();
     toast('Took “' + gone.name + '” off the list. Ctrl+Z puts it back.');
@@ -1619,7 +1620,9 @@
   function restoreRemoved() {
     if (!lastRemoved || Date.now() - lastRemoved.at > 30000) return false;
     items.splice(Math.min(lastRemoved.idx, items.length), 0, lastRemoved.item);
-    selectedId = lastRemoved.item.id; lastRemoved = null;
+    selectedId = lastRemoved.item.id;
+    if (lastRemoved.item.kind === 'track') music.changed(lastRemoved.item);
+    lastRemoved = null;
     render();
     toast('Put it back on the list.');
     return true;
