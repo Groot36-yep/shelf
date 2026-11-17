@@ -77,7 +77,7 @@ let batchSeq = 0;
 function newJournalPath() {
   fs.mkdirSync(historyDir(), { recursive: true });
   const old = historyFiles();
-  old.slice(0, Math.max(0, old.length - (HISTORY_MAX - 1))).forEach((f) => fs.rmSync(f, { force: true }));
+  old.slice(0, Math.max(0, old.length - (HISTORY_MAX - 1))).forEach((f) => { fs.rmSync(f, { force: true }); fs.rmSync(f + '.covers', { recursive: true, force: true }); });
   return path.join(historyDir(), Date.now() + '-' + (++batchSeq % 1e6) + '.json');
 }
 async function newestUndoable() {
@@ -164,7 +164,7 @@ function createWindow() {
   win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
 
   // Never navigate away; open approved web links in the normal browser instead.
-  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com|support\.plex\.tv)\//;
+  const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com|support\.plex\.tv|musicbrainz\.org|acoustid\.org)\//;
   // (The About screen's "Check for Updates" opens the GitHub releases page here, in your browser.)
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -476,6 +476,8 @@ if (gotLock) app.whenReady().then(() => {
     const { results } = await fileops.run(ops.slice(0, 20000), {
       library, mode, allowed: allowedSources, journalPath: batch,
       writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
+      // Songs' covers come from the Cover Art Archive, through Shelf (never from the window).
+      coverFor: (ref, size) => mb().cover(ref.release, ref.group, size),
       onProgress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:progress', p); }
     });
     // A moved file's old path is gone; its new path can be renamed again later.
@@ -810,6 +812,68 @@ if (gotLock) app.whenReady().then(() => {
     return require('./split').quietAndKeys(file, Math.max(0, t - 20), t + 20);
   });
 
+  // ---- Music: tags in the files, and looking albums up on MusicBrainz (see app/js/music.js) ----
+  const audioOk = (p) => typeof p === 'string' && allowedSources.has(path.resolve(p)) && P.AUDIO_EXT.includes(path.extname(p).slice(1).toLowerCase());
+  // Tags are read on two background threads, so a big music folder never makes the window wait.
+  const tagWorkers = []; let tagSeq = 0, tagIdle = null;
+  function tagWorker(i) {
+    if (!tagWorkers[i]) {
+      const { Worker } = require('worker_threads');
+      const w = new Worker(path.join(__dirname, 'tagworker.js'));
+      w.waiting = new Map();
+      w.on('message', (m) => { const r = w.waiting.get(m.id); if (r) { w.waiting.delete(m.id); r.resolve(m.results); } });
+      w.on('error', (e) => { w.waiting.forEach((r) => r.reject(e)); w.waiting.clear(); tagWorkers[i] = null; });
+      tagWorkers[i] = w;
+    }
+    return tagWorkers[i];
+  }
+  async function readTags(files) {
+    clearTimeout(tagIdle);
+    const half = Math.ceil(files.length / 2), parts = [files.slice(0, half), files.slice(half)].filter((x) => x.length);
+    const out = await Promise.all(parts.map((list, i) => new Promise((resolve, reject) => {
+      const w = tagWorker(i), id = ++tagSeq;
+      w.waiting.set(id, { resolve, reject });
+      w.postMessage({ id, files: list });
+    })));
+    // Let the threads go once nothing has been read for a minute.
+    tagIdle = setTimeout(() => { tagWorkers.forEach((w) => w && w.terminate()); tagWorkers.length = 0; }, 60000);
+    return [].concat(...out);
+  }
+  handle('shelf:musicTags', async (paths) => {
+    const list = (Array.isArray(paths) ? paths : []).slice(0, 1000).map(String);
+    const ok = list.filter(audioOk);
+    const read = ok.length ? await readTags(ok) : [];
+    const by = new Map(ok.map((p, i) => [p, read[i]]));
+    return list.map((p) => by.get(p) || { ok: false, error: 'Not a music file Shelf may read.' });
+  });
+  // The cover inside a file (to show what it has now).
+  handle('shelf:musicFileCover', async (p) => {
+    if (!audioOk(p)) return null;
+    const c = require('./tags.js').cover(p);
+    return c ? { mime: c.mime, data: c.data.toString('base64') } : null;
+  });
+  // MusicBrainz and the Cover Art Archive. (In tests, a pretend MusicBrainz on this computer.)
+  let mbClient = null;
+  const mb = () => mbClient || (mbClient = (() => {
+    const t = (!app.isPackaged && global.__shelfMusicTest) || {};
+    return require('./musicbrainz.js').create({
+      fetch: t.fetch || net.fetch, userAgent: 'Shelf/' + app.getVersion() + ' ( https://github.com/Groot36-yep/shelf )',
+      cacheDir: path.join(app.getPath('userData'), 'lookups', 'music'), base: t.base, coverBase: t.coverBase, gapMs: t.gapMs
+    });
+  })());
+  const mbid = (s) => (/^[0-9a-f-]{36}$/i.test(String(s || '')) ? String(s) : '');
+  const words = (s) => String(s || '').slice(0, 200);
+  handle('shelf:mbRelease', async (id) => mb().release(mbid(id)));
+  handle('shelf:mbSearch', async (s) => mb().searchReleases({ album: words(s && s.album), artist: words(s && s.artist) }));
+  handle('shelf:mbGroup', async (id) => mb().groupReleases(mbid(id)));
+  handle('shelf:mbGroups', async (s) => mb().searchGroups({ album: words(s && s.album), artist: words(s && s.artist), year: /^\d{4}$/.test(String(s && s.year)) ? String(s.year) : '' }));
+  handle('shelf:mbRecordings', async (s) => mb().searchRecordings({ title: words(s && s.title), artist: words(s && s.artist) }));
+  handle('shelf:mbCover', async (releaseId, groupId, size) => {
+    const c = await mb().cover(mbid(releaseId), mbid(groupId), [250, 500, 1200].includes(size) ? size : 250);
+    return c ? { mime: c.mime, data: c.data.toString('base64') } : null;
+  });
+  handle('shelf:musicForget', async () => { await mb().forget(); return true; });
+
   handle('shelf:showInFolder', async () => { const lib = readPrefs().library; if (lib) shell.openPath(lib); });
 
   // Keys (TMDB, TheTVDB) are encrypted with your Windows account (DPAPI) / macOS Keychain before they're saved.
@@ -845,6 +909,7 @@ if (gotLock) app.whenReady().then(() => {
     plexFix.forget();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
     fs.rmSync(historyDir(), { recursive: true, force: true });
+    fs.rmSync(path.join(app.getPath('userData'), 'lookups'), { recursive: true, force: true });
     logLines = [];
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();

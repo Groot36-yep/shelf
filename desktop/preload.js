@@ -66,6 +66,17 @@ contextBridge.exposeInMainWorld('shelfNative', {
   closeSplit: (token, endBatch) => ipcRenderer.invoke('shelf:closeSplit', token, endBatch),
   splitSuggest: (token, hints) => ipcRenderer.invoke('shelf:splitSuggest', token, hints),
   splitAround: (token, t) => ipcRenderer.invoke('shelf:splitAround', token, t),
+  // Music: the tags in files you added, and MusicBrainz / Cover Art Archive lookups (through Shelf, which says
+  // who it is and keeps to MusicBrainz's one-request-a-second rule).
+  musicTags: (paths) => ipcRenderer.invoke('shelf:musicTags', Array.isArray(paths) ? paths.map(String) : []),
+  musicFileCover: (p) => ipcRenderer.invoke('shelf:musicFileCover', String(p || '')),
+  mbRelease: (id) => ipcRenderer.invoke('shelf:mbRelease', String(id || '')),
+  mbSearch: (s) => ipcRenderer.invoke('shelf:mbSearch', { album: String((s && s.album) || ''), artist: String((s && s.artist) || '') }),
+  mbGroup: (id) => ipcRenderer.invoke('shelf:mbGroup', String(id || '')),
+  mbGroups: (s) => ipcRenderer.invoke('shelf:mbGroups', { album: String((s && s.album) || ''), artist: String((s && s.artist) || ''), year: Number(s && s.year) || 0 }),
+  mbRecordings: (s) => ipcRenderer.invoke('shelf:mbRecordings', { title: String((s && s.title) || ''), artist: String((s && s.artist) || '') }),
+  mbCover: (releaseId, groupId, size) => ipcRenderer.invoke('shelf:mbCover', String(releaseId || ''), String(groupId || ''), Number(size) || 250),
+  musicForget: () => ipcRenderer.invoke('shelf:musicForget'),
   readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
