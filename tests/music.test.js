@@ -112,8 +112,35 @@ assert.deepStrictEqual(d.filter((x) => x.changed).map((x) => x.field), ['album',
 assert.strictEqual(d.find((x) => x.field === 'track').after, '1 of 5');
 ok('Plex names (several discs, compilations, year) and tags, with a clear before → after');
 
-// 7. Nothing by name: recognised by their sound; each song on the track its recording is.
+// 7. Tagged by Picard: the album from the tags alone (no lookups), the album's first year in its folder name;
+//    the same song twice (FLAC and Ogg) on one track, marked, not counted against the edition.
+const pic = (n, title, fmt, rec) => ({ id: 40 + n + (fmt === 'ogg' ? 10 : 0), name: '0' + n + ' ' + title + '.' + fmt, folders: ['ABBA', 'Gold'], duration: 200 + n,
+  tags: tg({ title, track: n, trackTotal: 19, disc: 1, discTotal: 1, album: 'Gold: Greatest Hits', albumArtists: ['ABBA'], artists: ['ABBA'], year: 2014, originalYear: 1992, format: fmt,
+    mb: { release: 'RT', releaseGroup: 'GT', recording: rec, albumArtist: 'a-ABBA', type: 'album', status: 'official', country: 'XW' } }) });
+const tagged = [pic(1, 'Dancing Queen', 'mp3', 'r1'), pic(3, 'Take a Chance on Me', 'mp3', 'r3'), pic(5, 'Lay All Your Love on Me', 'mp3', 'r5')];
+const loc = M.lookLocal({ guess: { album: 'Gold: Greatest Hits', artist: 'ABBA', votes: { RT: 3 } } }, tagged, {});
+assert.ok(loc && loc.how === 'tags' && loc.sure, 'from the tags alone');
+assert.strictEqual(loc.best.release.trackCount, 19); assert.strictEqual(loc.best.release.group.id, 'GT');
+assert.deepStrictEqual(M.plexName(loc.best.release, loc.best.result.pairs[0].track, 'mp3', { safeName: P.safeName }), { folder: ['Music', 'ABBA', 'Gold - Greatest Hits (1992)'], file: '01 - Dancing Queen.mp3' });
+assert.strictEqual(M.lookLocal({ guess: { album: 'Gold', votes: { RT: 2, RX: 1 } } }, tagged, {}), null, 'two editions named: not from tags');
+const twins = tagged.concat([pic(1, 'Dancing Queen', 'ogg', 'r1')]);
+a = M.assign(twins, loc.best.release);
+assert.strictEqual(a.extra.length, 0, 'the copy isn’t a stranger');
+const dup = a.pairs.find((p) => p.dup);
+assert.ok(dup && dup.id === 51 && dup.dup === 41 && dup.track.position === 1, JSON.stringify(dup));
+ok('Picard-tagged albums from their tags alone (first year in the folder); the same song twice shares its track, marked');
+
+// 8. Several editions named: the one most songs name first, and no more questions once one fits.
 (async () => {
+  const asked = [];
+  const api8 = { release: (id) => { asked.push(id); return Promise.resolve(id === 'R1' ? gold : id === 'R3' ? deluxe : null); }, search: () => Promise.resolve([]), recordings: () => Promise.resolve([]) };
+  const r = await M.lookAlbum(api8, { guess: { album: 'Gold: Greatest Hits', artist: 'ABBA', votes: { R1: 2, R3: 1 } } }, part.map((f) => Object.assign({}, f, { tags: Object.assign({}, f.tags, { mb: { release: 'R1', recording: 'rec-' + f.tags.title } }) })), {});
+  assert.strictEqual(r.best.release.id, 'R1');
+  assert.deepStrictEqual(asked, ['R1'], 'one question, not one per edition: ' + asked);
+  ok('several editions named: the most-named one first, and no more questions once one fits');
+})().then(() => {
+// 9. Nothing by name: recognised by their sound; each song on the track its recording is.
+return (async () => {
   const junk = [{ id: 31, name: 'AUD-2019-01.mp3', folders: ['Downloads'], tags: tg({}), duration: 213 }, { id: 32, name: 'AUD-2019-02.mp3', folders: ['Downloads'], tags: tg({}), duration: 231 }];
   const api = {
     release: (id) => Promise.resolve(id === 'R1' ? gold : null), search: () => Promise.resolve([]), recordings: () => Promise.resolve([]),
@@ -127,4 +154,5 @@ ok('Plex names (several discs, compilations, year) and tags, with a clear before
   assert.ok(r2.none, 'not found, and says why');
   ok('nothing by name: recognised by their sound, each song on its own track');
   console.log(passed + ' music checks passed');
-})().catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });
+})();
+}).catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });

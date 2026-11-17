@@ -2,6 +2,17 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Adding music is much faster.** Albums tagged by Picard (one edition named, with titles and track numbers) are
+  matched from their own tags, with nothing to look up: a 1,466-song library is ready in about 8 seconds instead
+  of over an hour. MusicBrainz is asked only about the rest, and an album with songs from several editions now
+  takes one or two questions instead of up to fourteen.
+- **Covers show in seconds.** They come from the songs themselves (shrunk on a background thread), and for albums
+  without one, from the Cover Art Archive straight away (the edition the tags name; eight at a time). A cover that
+  arrives no longer makes the whole list draw itself again.
+- **The same song twice** (an Ogg made from a FLAC that's still there, say) is spotted: both copies sit on their
+  track and ask which to keep, instead of Plex showing the song twice.
+
 ## Done (2.3.0)
 - **Music**: drop in a music folder; songs are grouped into albums (tags first, then folders; CD1/Disc 2 folders
   join their album; loose songs go with their first official album), each album is looked up on MusicBrainz and

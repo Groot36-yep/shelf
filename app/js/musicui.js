@@ -14,7 +14,7 @@
   function create(ctx) {
     var native = ctx.native, el = ctx.el, $ = ctx.$;
     var albums = {};          // key → album (see newAlbum)
-    var covers = {};          // release id → Promise<blob url | null> (the small picture for the list)
+    var covers = {};          // album key → { src, p: Promise<blob url | null>, url } (the small picture for the list)
     var queue = [], running = 0, PARALLEL = 3;
 
     function isTrack(i) { return i.kind === 'track'; }
@@ -62,6 +62,9 @@
           Object.keys(g.votes).forEach(function (r) { a.guess.votes[r] = (a.guess.votes[r] || 0) + g.votes[r]; });
         } else a = albums[g.key] = newAlbum(g);
         a.ids.forEach(function (id) { var i = ctx.itemById(id); if (i) i.music.album = a.key; });
+        // Its tags settle it (Picard-tagged): done now, without waiting for the albums that need looking up.
+        var now = !a.picked && M.lookLocal(a, songsOf(a).map(fileOf), prefs());
+        if (now) { var at = queue.indexOf(a); if (at >= 0) queue.splice(at, 1); use(a, now, now.how); settle(a); return; }
         if (queue.indexOf(a) < 0) queue.push(a);
       });
       ctx.scheduleRender();
@@ -110,23 +113,27 @@
       a.ranked = r.ranked; a.release = r.best.release; a.result = r.best.result; a.sure = r.sure && how !== 'song'; a.how = how;
       a.status = a.sure ? 'matched' : 'review';
       a.mixed = Object.keys(a.guess.votes).length > 1;
-      loadCover(a.release);
+      loadCover(a);
     }
     function prefs() { return { country: ctx.settings.musicCountry || '', format: ctx.settings.musicFormat || '' }; }
 
     // The album's answer goes to each of its songs (and their lyrics).
     function settle(a) {
       var songs = a.ids.map(ctx.itemById).filter(function (i) { return i && i.status !== 'done'; });
-      var pairs = {};
-      ((a.result && a.result.pairs) || []).forEach(function (p) { pairs[p.id] = p; });
+      var pairs = {}, twin = {};
+      ((a.result && a.result.pairs) || []).forEach(function (p) {
+        pairs[p.id] = p;
+        if (p.dup && ctx.itemById(p.id) && ctx.itemById(p.dup)) { twin[p.id] = p.dup; twin[p.dup] = p.id; } // (both still on the list)
+      });
       songs.forEach(function (i) {
         if (!i.music.tags || !i.music.tags.ok) return;
         var p = pairs[i.id];
         i.music.track = p ? p.track : null; i.music.cost = p ? p.cost : 1;
-        i.confirmed = a.picked;
+        i.music.twin = twin[i.id] || null; // the same song in another file (both are asked about)
+        i.confirmed = a.picked && !i.music.twin;
         if (a.status === 'error' || a.status === 'nomatch') { i.status = a.status; i.error = a.error; return; }
         if (!p) { i.status = 'review'; i.error = 'Isn’t on this edition of the album. Pick another edition, or take it off the list.'; return; }
-        i.status = a.sure && p.cost < 0.25 ? 'matched' : 'review';
+        i.status = a.sure && p.cost < 0.25 && !i.music.twin ? 'matched' : 'review';
         i.error = '';
       });
       linkLyrics();
@@ -175,22 +182,62 @@
     }
 
     // ---------- Covers (the list's small picture) ----------
-    function loadCover(rel) {
-      if (!rel || covers[rel.id]) return covers[rel && rel.id];
-      covers[rel.id] = native.mbCover(rel.id, rel.group && rel.group.id, 250).then(function (c) {
-        if (!c) return null;
-        var bytes = Uint8Array.from(atob(c.data), function (ch) { return ch.charCodeAt(0); });
-        return URL.createObjectURL(new Blob([bytes], { type: c.mime }));
-      }).catch(function () { return null; });
-      covers[rel.id].then(function (u) { if (u) ctx.scheduleRender(); });
-      return covers[rel.id];
+    // The picture inside the album's own songs first (read and shrunk on Shelf's background thread: nothing to
+    // download, and it shows before the album is even looked up); the Cover Art Archive only when no song has one.
+    // A cover that arrives is put straight into the pictures already on screen; the list isn't drawn again.
+    var cid = 0;
+    function blobUrl(b64, mime) {
+      var bytes = Uint8Array.from(atob(b64), function (ch) { return ch.charCodeAt(0); });
+      return URL.createObjectURL(new Blob([bytes], { type: mime || 'image/jpeg' }));
     }
+    var thumbWant = [], thumbTimer = 0;
+    function thumbOf(path) {
+      return new Promise(function (resolve) {
+        thumbWant.push({ path: path, resolve: resolve });
+        if (!thumbTimer) thumbTimer = setTimeout(flushThumbs, 30);
+      });
+    }
+    function flushThumbs() {
+      thumbTimer = 0;
+      var batch = thumbWant.splice(0, 60);
+      if (thumbWant.length) thumbTimer = setTimeout(flushThumbs, 0);
+      native.musicThumbs(batch.map(function (x) { return x.path; }), 160).then(function (pics) {
+        batch.forEach(function (x, k) { x.resolve(pics[k] ? blobUrl(pics[k]) : null); });
+      }, function () { batch.forEach(function (x) { x.resolve(null); }); });
+    }
+    function loadCover(a) {
+      if (!a) return null;
+      if (!a.cid) a.cid = ++cid;
+      var src = null, songs = songsOf(a), song = songs.filter(function (i) { return i.music.tags.cover; })[0];
+      // No picture in the songs: the edition their tags name (asked for at once, not after the album is looked
+      // up), else the edition Shelf found.
+      var tagged = songs.filter(function (i) { return i.music.tags.mb.release; })[0], rel = a.release && !a.picked ? null : a.release;
+      var caa = rel ? { id: rel.id, group: rel.group && rel.group.id } : tagged ? { id: tagged.music.tags.mb.release, group: tagged.music.tags.mb.releaseGroup } : a.release ? { id: a.release.id, group: a.release.group && a.release.group.id } : null;
+      if (song) src = 'file:' + song.fullPath;
+      else if (caa) src = 'caa:' + caa.id;
+      var have = covers[a.key];
+      if (have && (have.src === src || !src)) return have.p;
+      if (!src) return null;
+      var entry = covers[a.key] = { src: src, url: null };
+      entry.p = (song ? thumbOf(song.fullPath) : native.mbCover(caa.id, caa.group || '', 250).then(function (c) { return c ? blobUrl(c.data, c.mime) : null; }))
+        .catch(function () { return null; })
+        .then(function (u) {
+          if (covers[a.key] !== entry) return u;
+          entry.url = u;
+          if (u) document.querySelectorAll('.album-cover[data-cover="' + a.cid + '"]').forEach(function (box) { showCover(box, u); });
+          return u;
+        });
+      return entry.p;
+    }
+    function showCover(box, u) { box.textContent = ''; box.style.background = ''; box.appendChild(el('img', { src: u, alt: '' })); }
     function coverNode(a, cls) {
-      var box = el('div', { class: cls + ' album-cover', 'aria-hidden': 'true' });
+      var box = el('div', { class: cls + ' album-cover', 'aria-hidden': 'true', 'data-cover': a ? a.cid || (a.cid = ++cid) : '' });
       var title = a && a.release ? a.release.title : a ? a.guess.album : '';
       box.style.background = tint(title);
       box.textContent = initials(title);
-      if (a && a.release && covers[a.release.id]) covers[a.release.id].then(function (u) { if (u) { box.textContent = ''; box.style.background = ''; box.appendChild(el('img', { src: u, alt: '' })); } });
+      if (!a) return box;
+      var c = covers[a.key];
+      if (c && c.url) showCover(box, c.url); else loadCover(a);
       return box;
     }
     var TINTS = ['#F0C27E', '#E7A27C', '#D9C29C', '#C3C98F', '#E3B49A', '#D8B57E', '#B9C29A'];
@@ -219,6 +266,7 @@
       var s = audioOf(i) || i, a = albumOf(s);
       if (i.status === 'error' || i.status === 'nomatch') return i.error || 'Couldn’t find it.';
       if (!a || i.status !== 'review' || i.confirmed) return '';
+      if (s.music.twin) { var tw = ctx.itemById(s.music.twin); return tw ? 'Also here as “' + tw.name + '”: Plex would show it twice.' : ''; }
       if (!s.music.track) return 'Isn’t on this edition of the album.';
       if (a.how === 'song') return 'Found by its title. Is this the right album?';
       return a.mixed ? 'Its songs were tagged as different editions. Check which.' : 'Shelf isn’t sure which edition this is.';
@@ -345,7 +393,7 @@
       if (a.picked) return '✓ You chose this edition.';
       if (a.status === 'nomatch' || a.status === 'error') return a.error;
       var miss = a.result ? a.result.missing.length : 0, extra = a.result ? a.result.extra.length : 0;
-      var base = a.how === 'ids' ? '✓ Your files name this edition (MusicBrainz ids in their tags).' : a.how === 'song' ? 'Found by the song’s title and artist; it’s placed on its first official album.' : a.how === 'sound' ? 'Recognised by the songs’ sound (AcoustID).' : a.sure ? '✓ Every song fits a track on this edition (titles and lengths).' : 'The closest edition Shelf found by name.';
+      var base = a.how === 'tags' ? '✓ Your files name this edition, and their tags (from Picard, say) hold the rest: nothing needed looking up.' : a.how === 'ids' ? '✓ Your files name this edition (MusicBrainz ids in their tags).' : a.how === 'song' ? 'Found by the song’s title and artist; it’s placed on its first official album.' : a.how === 'sound' ? 'Recognised by the songs’ sound (AcoustID).' : a.sure ? '✓ Every song fits a track on this edition (titles and lengths).' : 'The closest edition Shelf found by name.';
       return base + (miss ? ' ' + miss + ' of its tracks aren’t in your files (that’s fine).' : '') + (extra ? ' ' + extra + ' of your songs aren’t on it.' : '') + (a.mixed ? ' Your songs were tagged as more than one edition; they’ll all be set to this one.' : '');
     }
 
@@ -426,13 +474,20 @@
       return { title: title, meta: meta, facts: f };
     }
     function fmtLen(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
-    function coverUrl(i) { var a = albumOf(i); return a && a.release ? loadCover(a.release) : null; }
+    function coverUrl(i) { var a = albumOf(i); return a ? loadCover(a) : null; }
     function question(i) {
       var s = audioOf(i) || i, a = albumOf(s), name = (s.music && s.music.tags && s.music.tags.ok && s.music.tags.title) || s.name;
       var open = function () { ctx.select(s.id); };
       if (i.status === 'error') return { title: 'Couldn’t read “' + s.name + '”', text: i.error || 'Something went wrong reading this file.', actions: s.music && s.music.tags && s.music.tags.ok ? [{ label: 'Try Again', run: retry }] : [{ label: 'Take It Off the List', run: function () { ctx.select(s.id); ctx.$('removeBtn').click(); } }] };
       if (!a || i.status === 'nomatch') return { title: 'Which album is “' + (a ? a.guess.album || name : name) + '”?', text: (i.error || 'Shelf couldn’t find it on MusicBrainz.') + ' Search by album and artist.', actions: [{ label: 'Search…', run: function () { if (a) openSearch(a); } }] };
       var r = a.release;
+      if (s.music.twin && ctx.itemById(s.music.twin)) {
+        var other = ctx.itemById(s.music.twin), fmt = function (x) { return String(x.parsed.ext).toUpperCase(); };
+        return { title: '“' + name + '” is here twice', text: 'As ' + fmt(s) + ' (“' + s.name + '”) and as ' + fmt(other) + ' (“' + other.name + '”). Plex would show the song twice. Keep one: take the other off the list (it stays where it is on your PC).',
+          actions: [{ label: 'Take This One Off the List', run: function () { ctx.select(s.id); ctx.$('removeBtn').click(); } },
+            { label: 'Take the ' + fmt(other) + ' Off', run: function () { ctx.select(other.id); ctx.$('removeBtn').click(); } },
+            { label: 'Keep Both', link: true, run: function () { s.confirmed = other.confirmed = true; s.music.twin = other.music.twin = null; ctx.render(); } }] };
+      }
       if (!s.music.track) return { title: '“' + name + '” isn’t on this edition', text: 'The album ' + r.title + ' (' + edition(r) + ') doesn’t have this song. Another edition may (a deluxe one, say), or it belongs to another album.', actions: [{ label: 'Other Editions…', run: function () { openEditions(a); } }, { label: 'Search…', run: function () { openSearch(a); } }, { label: 'Details', link: true, run: open }] };
       return { title: 'Is this ' + r.title + ' by ' + r.artist + '?', text: why(a) + ' ' + r.trackCount + ' tracks · ' + [r.date, edition(r)].filter(Boolean).join(' · ') + '.',
         actions: [{ label: 'Looks Right', run: function () { confirm(a); } }, { label: 'Other Editions…', run: function () { openEditions(a); } }, { label: 'Search…', run: function () { openSearch(a); } }, { label: 'Details', link: true, run: open }] };
@@ -441,6 +496,8 @@
       Object.keys(albums).forEach(function (k) { var a = albums[k]; if (a.status === 'error' && queue.indexOf(a) < 0) { relook(a); } });
     }
 
+    // A song taken off the list (or put back): its album is settled again (its twin, say, needn't ask any more).
+    function changed(i) { var a = i && i.music && albums[i.music.album]; if (a && a.result) settle(a); }
     function forget(ids) {
       Object.keys(albums).forEach(function (k) { var a = albums[k]; a.ids = a.ids.filter(function (id) { return ids.indexOf(id) < 0; }); if (!a.ids.length) delete albums[k]; });
     }
@@ -450,7 +507,7 @@
       add: add, isTrack: isTrack, shelfKey: shelfKey, sortKey: sortKey, rowParts: rowParts, reasonFor: reasonFor, known: known, hay: hay,
       shelfTitle: shelfTitle, shelfSub: shelfSub, shelfCover: shelfCover, shelfHead: shelfHead, plexName: plexName, renameExtra: renameExtra,
       inspector: inspector, forget: forget, clear: clear, linkLyrics: linkLyrics, albumOf: albumOf,
-      facts: facts, coverUrl: coverUrl, question: question, retry: retry, readable: readable, shrinkable: shrinkable,
+      facts: facts, coverUrl: coverUrl, question: question, retry: retry, readable: readable, shrinkable: shrinkable, changed: changed,
       _albums: function () { return albums; }
     };
   }

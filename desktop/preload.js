@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('shelfNative', {
   // who it is and keeps to MusicBrainz's one-request-a-second rule).
   musicTags: (paths) => ipcRenderer.invoke('shelf:musicTags', Array.isArray(paths) ? paths.map(String) : []),
   musicFileCover: (p) => ipcRenderer.invoke('shelf:musicFileCover', String(p || '')),
+  musicThumbs: (paths, size) => ipcRenderer.invoke('shelf:musicThumbs', Array.isArray(paths) ? paths.map(String) : [], Number(size) || 160).then((l) => (Array.isArray(l) ? l.map((x) => (typeof x === 'string' ? x : null)) : [])),
   mbRelease: (id) => ipcRenderer.invoke('shelf:mbRelease', String(id || '')),
   mbSearch: (s) => ipcRenderer.invoke('shelf:mbSearch', { album: String((s && s.album) || ''), artist: String((s && s.artist) || '') }),
   mbGroup: (id) => ipcRenderer.invoke('shelf:mbGroup', String(id || '')),
