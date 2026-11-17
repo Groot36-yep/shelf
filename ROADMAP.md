@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.3.1)
 - **Adding music is much faster.** Albums tagged by Picard (one edition named, with titles and track numbers) are
   matched from their own tags, with nothing to look up: a 1,466-song library is ready in about 8 seconds instead
   of over an hour. MusicBrainz is asked only about the rest, and an album with songs from several editions now
