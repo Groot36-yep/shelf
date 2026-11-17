@@ -1486,3 +1486,9 @@ html.os-win32 .editor-sheet { margin-top: 56px; height: calc(100vh - 68px); }
 .fp-row .fp-text, .fp-season .fp-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fp-row .fp-text b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-row .fp-text small, .fp-season .fp-text small { font-size: 11.5px; color: var(--text-2); }
+/* Windows never run past the bottom of Shelf's window (they open 56 px down). */
+.sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
+html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
+/* About and Privacy: the same title type as every other window; their facts in two even columns. */
+.about h2 { font-family: var(--display); font-size: 23px; font-weight: 600; letter-spacing: -0.015em; font-variation-settings: "opsz" 48; }
+.sheet .fact { display: grid; grid-template-columns: minmax(140px, 40%) 1fr; align-items: baseline; gap: 16px; }
