@@ -221,6 +221,15 @@ class Session {
     if (!st || !st.isFile() || st.size > (max || 1 << 20)) return null;
     return this.p((cb) => this.sftp.readFile(f, cb));
   }
+  /** Copy a file from the server to this PC (many pieces in flight at once), checked by size. */
+  async download(remote, local, onBytes) {
+    const st = await this.stat(remote);
+    if (!st || !st.isFile()) throw problem('LOST', 'That file isn’t on the server any more.');
+    await this.p((cb) => this.sftp.fastGet(remote, local, { concurrency: 24, chunkSize: 128 * 1024, step: (got) => { if (onBytes) onBytes(got, st.size); } }, cb));
+    const mine = await fsp.stat(local);
+    if (mine.size !== st.size) throw problem('LOST', 'The file didn’t arrive complete.');
+    return st.size;
+  }
 
   /**
    * Send one file. It is written to ".<name>.shelf-part" next to where it goes, picks up where it
@@ -378,8 +387,8 @@ async function findPlexToken(s) {
 async function plexLibraries(s, token) {
   const j = JSON.parse(await s.plex(token, '/library/sections'));
   const dirs = (j && j.MediaContainer && j.MediaContainer.Directory) || [];
-  return dirs.filter((d) => d.type === 'movie' || d.type === 'show').map((d) => ({
-    key: String(d.key), kind: d.type === 'movie' ? 'movies' : 'tv', title: String(d.title || ''),
+  return dirs.filter((d) => d.type === 'movie' || d.type === 'show' || d.type === 'artist').map((d) => ({
+    key: String(d.key), kind: d.type === 'movie' ? 'movies' : d.type === 'artist' ? 'music' : 'tv', title: String(d.title || ''),
     folders: (d.Location || []).map((l) => String(l.path || '')).filter((x) => x.startsWith('/'))
   }));
 }
@@ -405,12 +414,12 @@ function cleanRoot(r) {
 }
 /**
  * Library-relative path ("TV Shows/Show/Season 01/x.mkv") → path on the server, or null.
- * Movies go to roots.movies, TV Shows to roots.tv. Nothing can climb out of those folders.
+ * Movies go to roots.movies, TV Shows to roots.tv, Music to roots.music. Nothing can climb out of those folders.
  */
 function remoteFor(rel, roots) {
   const parts = String(rel).split(/[\\/]+/).filter(Boolean);
   if (parts.length < 2) return null;
-  const root = parts[0] === 'Movies' ? cleanRoot(roots.movies) : parts[0] === 'TV Shows' ? cleanRoot(roots.tv) : '';
+  const root = parts[0] === 'Movies' ? cleanRoot(roots.movies) : parts[0] === 'TV Shows' ? cleanRoot(roots.tv) : parts[0] === 'Music' ? cleanRoot(roots.music) : '';
   if (!root) return null;
   const rest = parts.slice(1);
   if (rest.some((x) => x === '.' || x === '..' || /[\0\n\r/]/.test(x) || x.length > 255)) return null;

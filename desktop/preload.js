@@ -128,12 +128,17 @@ contextBridge.exposeInMainWorld('shelfNative', {
   plexSetAside: (paths) => ipcRenderer.invoke('shelf:plexSetAside', Array.isArray(paths) ? paths.map(String) : []),
   plexSpareList: () => ipcRenderer.invoke('shelf:plexSpareList'),
   plexSpareDelete: (paths) => ipcRenderer.invoke('shelf:plexSpareDelete', Array.isArray(paths) ? paths.map(String) : []),
+  // Make Music Smaller: lossless songs on the server → Ogg Vorbis / Opus next to them (originals kept aside).
+  plexShrinkList: () => ipcRenderer.invoke('shelf:plexShrinkList'),
+  plexShrink: (paths, format) => ipcRenderer.invoke('shelf:plexShrink', Array.isArray(paths) ? paths.map(String) : [], format === 'opus' ? 'opus' : 'vorbis'),
+  plexShrinkStop: () => ipcRenderer.invoke('shelf:plexShrinkStop'),
   // What Fix My Plex Library is doing right now: { stage: 'connect' | 'plex' | 'walk' | 'done', … numbers }.
   onFixProgress: (fn) => {
     const listener = (e, m) => fn({
       stage: String((m && m.stage) || ''), lib: String((m && m.lib) || ''), index: Number(m && m.index) || 0, of: Number(m && m.of) || 0,
       done: Number(m && m.done) || 0, total: Number(m && m.total) || 0, folders: Number(m && m.folders) || 0, files: Number(m && m.files) || 0,
-      picked: Number(m && m.picked) || 0, stopped: !!(m && m.stopped)
+      picked: Number(m && m.picked) || 0, stopped: !!(m && m.stopped),
+      step: String((m && m.step) || ''), frac: Number(m && m.frac) || 0, file: String((m && m.file) || '')
     });
     ipcRenderer.on('shelf:fixProgress', listener);
     return () => ipcRenderer.removeListener('shelf:fixProgress', listener);

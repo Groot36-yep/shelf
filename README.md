@@ -25,7 +25,7 @@ Windows light or dark mode. The Living Room's fonts (Fraunces, Nunito, Courier P
 SIL Open Font License (see `app/assets/fonts/OFL.txt`) and are built in, so nothing is downloaded.
 
 **Send to Plex.** Shelf can put your renamed files straight onto your Plex server over SSH (the
-same secure way FileZilla does), into the right Movies and TV Shows folders. See
+same secure way FileZilla does), into the right Movies, TV Shows and Music folders. See
 [Send to Plex](#send-to-plex-your-own-server-over-ssh) below.
 
 ## Get Shelf for Windows
@@ -147,6 +147,13 @@ albums by itself (no dragging files onto albums), and looks each album up on
   `Music/Album Artist/Album (Year)/01 - Title.ext` (several discs: `1-01`; compilations under
   `Various Artists`). Synced lyrics (`.lrc`) go along with their song. **Undo** puts back names, tags
   and covers.
+- **Songs with no useful tags or names** are recognised by their sound, with a free
+  [AcoustID](https://acoustid.org) key (Settings → Music). Shelf listens to them on this PC (Chromaprint's
+  fpcalc, built in) and sends only a code made from the sound, and its length.
+- **Make lossless songs smaller.** Rename Now offers to turn FLAC, WAV, AIFF and ALAC songs into
+  Ogg Vorbis (quality 6) or Opus (160 kbps): about a sixth of the size, sounding the same, with every tag
+  and the cover. Copy keeps your originals; Move sends them to the Recycle Bin once each smaller copy is
+  checked.
 - Formats: MP3, FLAC, M4A/AAC, Ogg Vorbis, Opus, WMA, WAV, AIFF, APE, WavPack and more. A damaged
   file is set aside and explained.
 - MusicBrainz is asked politely (Shelf says who it is, at most one question a second, and waits when it's
@@ -196,9 +203,13 @@ working while it sends.
   **Two-Part Files** or **One File per Episode** (or pick file by file); Shelf keeps one copy of each and
   sets the others aside (renamed to `….shelf-duplicate`, which Plex ignores; nothing is deleted), then
   Plex rescans. **Undo** puts them back.
-- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos and
-  duplicate episodes) with their sizes, and deletes the ones you pick, after you confirm. Deleted files can't
-  be put back.
+- **Make Music Smaller…** (in the ⚙ menu) finds the FLAC and other lossless songs in your server's music
+  folder, by album, with the space it would save. Each is copied here, made smaller (Ogg Vorbis or Opus,
+  with all its tags and cover), sent back next to the original and checked; the original is set aside
+  (`….shelf-original`, which Plex ignores) and Plex rescans. **Undo** puts the originals back.
+- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos, of
+  songs made smaller, and duplicate episodes) with their sizes, and deletes the ones you pick, after you
+  confirm. Deleted files can't be put back.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 

@@ -10,9 +10,13 @@ Where things stand, and what's left to do. Newest first.
   **Search…** and **Looks Right**; each song's tags now → after; Rename Now writes tags and covers (in each song
   and/or cover.jpg) and files songs as `Music/Artist/Album (Year)/01 - Title.ext`; lyrics (.lrc) go along; Undo
   puts names, tags and covers back. Settings → Music: covers, year in album folders, genres.
-- **Next for music**: recognising songs by their sound (AcoustID) for files with no tags; sending music to the
-  server (its Music folder); making lossless songs smaller (FLAC → Opus or Ogg Vorbis), on this PC and on the
-  server; then the server windows' redesign.
+- **Songs recognised by their sound** (AcoustID, with your free key; Chromaprint's fpcalc is built in, fetched
+  by the build only if it's byte-for-byte the checked file) when nothing is found by name.
+- **Make lossless songs smaller**: in Rename Now (FLAC/WAV/AIFF/ALAC → Ogg Vorbis q6 or Opus 160, tags and cover
+  along; Move sends originals to the Recycle Bin once each copy is checked), and **Make Music Smaller…** for the
+  songs already on your server (originals set aside as "….shelf-original" until Free Up Space; Undo).
+- **Music on your server**: a Music folder in Server Settings (found from Plex's music library), Send to Plex puts
+  songs and their album's cover.jpg there, and Plex rescans.
 
 ## Done (2.2.3)
 - **Check Episodes, redesigned**: the picture takes all the room the controls leave (Save and Cancel moved

@@ -54,6 +54,7 @@
     <button type="button" role="menuitem" data-open="settings"><span>Settings</span><kbd>Ctrl+,</kbd></button>
     <button type="button" role="menuitem" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there"><span>Fix My Plex Library…</span></button>
     <button type="button" role="menuitem" id="spaceBtn" hidden title="Delete the files Shelf set aside on your Plex server (originals of split videos, duplicate episodes) to get the space back"><span>Free Up Space on Server…</span></button>
+    <button type="button" role="menuitem" id="shrinkBtn" hidden title="Find FLAC and other lossless songs in your Plex music folder and make them about a sixth of the size (Ogg Vorbis), sounding the same"><span>Make Music Smaller…</span></button>
     <button type="button" role="menuitem" id="dupesBtn" hidden title="Find episodes that are in more than one file on your Plex server (one file and separate files, or two copies), and keep one of each"><span>Find Duplicate Episodes…</span></button>
     <button type="button" role="menuitem" id="updatesNav" title="Check for a newer version of Shelf (only when you click)"><span>Check for Updates</span><span class="update-dot" id="updateDot" hidden></span></button>
     <span class="menu-sep" role="separator"></span>
@@ -579,6 +580,7 @@
       <div class="group">
         <div class="row"><span>Movies<br><small class="muted mono-small" id="svMovies">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="movies">Choose…</button></div>
         <div class="row"><span>TV Shows<br><small class="muted mono-small" id="svTv">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="tv">Choose…</button></div>
+        <div class="row"><span>Music<br><small class="muted mono-small" id="svMusic">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="music">Choose…</button></div>
       </div>
       <p class="row-help flush" id="svFolderHelp">Pick the folders your Plex libraries use. Shelf keeps the same Show / Season layout inside them.</p>
       <span class="section-label">Plex</span>
@@ -680,6 +682,32 @@
     <div class="sheet-actions">
       <button class="pill" type="submit" value="cancel">Cancel</button>
       <button class="pill pill-primary" type="button" id="dpGo">Set Aside</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Make music smaller: lossless songs on your server → Ogg Vorbis / Opus next to them, originals set aside. -->
+<dialog class="sheet dupes" id="shrinkSheet" aria-labelledby="shTitle">
+  <form method="dialog">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></span>
+      <div>
+        <h2 id="shTitle">Make your music smaller</h2>
+        <p id="shLead"></p>
+      </div>
+    </div>
+    <div class="dp-pref">
+      <span>Into</span>
+      <div class="segmented small" role="group" aria-label="Smaller format" id="shFormat">
+        <button type="button" data-format="vorbis" aria-pressed="true">Ogg Vorbis</button>
+        <button type="button" data-format="opus" aria-pressed="false">Opus (smallest)</button>
+      </div>
+    </div>
+    <div class="dp-list" id="shList"></div>
+    <p class="row-help flush" id="shHelp">Each song is copied to this PC, made smaller with all its tags and its cover, sent back next to the original and checked. The original is then set aside (renamed to “….shelf-original”, which Plex ignores): Undo puts it back, and Free Up Space deletes it once you’re happy.</p>
+    <div class="sheet-actions">
+      <button class="pill" type="submit" value="cancel">Cancel</button>
+      <button class="pill pill-primary" type="button" id="shGo">Make Smaller</button>
     </div>
   </form>
 </dialog>
