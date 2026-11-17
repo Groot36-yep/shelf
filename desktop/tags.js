@@ -130,6 +130,27 @@ async function writeTo(source, target, values) {
   }
   return old;
 }
+/**
+ * Every tag (and picture) of `source` into `target`, e.g. a FLAC's into the Ogg made from it. Written in place
+ * through the same checked copy as writeTo.
+ */
+async function copyAll(source, target) {
+  const tmp = path.join(path.dirname(target), '.shelf-tags-' + process.pid + '-' + Date.now() + path.extname(target));
+  await fsp.copyFile(target, tmp, fs.constants.COPYFILE_EXCL);
+  try {
+    const from = open(source), to = open(tmp);
+    try {
+      from.tag.copyTo(to.tag, true);
+      to.tag.pictures = from.tag.pictures;
+      // (MusicBrainz ids live in fields the general copy leaves out.)
+      for (const k of Object.values(MB)) if (from.tag[k]) to.tag[k] = from.tag[k];
+      if (from.tag.isCompilation) to.tag.isCompilation = true;
+      to.save();
+    } finally { from.dispose(); to.dispose(); }
+    const check = open(tmp); check.dispose(); // still opens
+    await fsp.rename(tmp, target);
+  } catch (e) { await fsp.unlink(tmp).catch(() => {}); throw e; }
+}
 function pick(o, keys) { const out = {}; keys.forEach((k) => { out[k] = o[k]; }); return out; }
 
 function plain(e) {
@@ -140,4 +161,4 @@ function plain(e) {
   return m;
 }
 
-module.exports = { read, cover, writeTo, FIELDS, AUDIO_EXT };
+module.exports = { read, cover, writeTo, copyAll, FIELDS, AUDIO_EXT };

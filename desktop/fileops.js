@@ -15,6 +15,7 @@ const path = require('path');
 const { safeName, VIDEO_EXT, SUB_EXT, AUDIO_EXT, LYRICS_EXT } = require('../app/js/parser.js');
 const subs = require('./subs.js');
 const tags = require('./tags.js');
+const convert = require('./convert.js');
 
 const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT, AUDIO_EXT, LYRICS_EXT));
 const MAX_FILES = 20000;
@@ -206,7 +207,10 @@ async function run(ops, opts) {
       if (!Array.isArray(op.folder) || !op.folder.length || op.folder.length > 4) throw new Error('Bad destination');
       const dir = path.join(library, ...op.folder.map(safeName));
       const wantExt = path.extname(String(op.file));
-      if (!/^\.[A-Za-z0-9]{2,6}$/.test(wantExt) || wantExt.toLowerCase() !== path.extname(from).toLowerCase()) throw new Error('File type would change');
+      // A lossless song made smaller (FLAC → Ogg) is the only file whose type may change.
+      const shrink = op.music && convert.FORMATS[op.music.convert] && mode !== 'link' && convert.LOSSLESS_EXT.concat(['m4a']).includes(path.extname(from).slice(1).toLowerCase()) ? op.music.convert : null;
+      const okExt = shrink ? '.' + convert.FORMATS[shrink].ext : path.extname(from).toLowerCase();
+      if (!/^\.[A-Za-z0-9]{2,6}$/.test(wantExt) || wantExt.toLowerCase() !== okExt) throw new Error('File type would change');
       const fileName = safeName(String(op.file).slice(0, -wantExt.length)) + wantExt;
       const to = path.join(dir, fileName);
       if (!inside(library, to)) throw new Error('Destination is outside your library');
@@ -219,6 +223,11 @@ async function run(ops, opts) {
       await checkInsideReal(dir, realLibrary);
       await fsp.mkdir(dir, { recursive: true });
       // A song with new tags (and cover): see runTagged.
+      if (shrink) {
+        await runShrink(op, from, to, dir, shrink, mode, opts, res, journal);
+        if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
+        continue;
+      }
       if (op.music && op.music.tags && mode !== 'link' && AUDIO_EXT.includes(path.extname(from).slice(1).toLowerCase())) {
         await runTagged(op, from, to, dir, caseOnly, mode, opts, res, journal);
         if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
@@ -309,6 +318,29 @@ async function runTagged(op, from, to, dir, caseOnly, mode, opts, res, journal) 
 }
 
 /**
+ * A lossless song made smaller (convert.js): the smaller copy is made (with every tag and the cover), given its
+ * new tags, and checked. Copy: your original stays. Move: your original goes to the Recycle Bin, only now.
+ */
+async function runShrink(op, from, to, dir, format, mode, opts, res, journal) {
+  await convert.toSmaller(from, to, format);
+  const rec = { from, to, converted: format };
+  try {
+    const values = op.music.tags ? cleanTags(op.music.tags) : {};
+    const want = op.music.cover && opts.coverFor ? op.music.cover : null;
+    if (want && want.embed) { const c = await opts.coverFor(want, 500).catch(() => null); if (c) values.cover = c; }
+    if (Object.keys(values).length) await tags.writeTo(to, to, values);
+  } catch (e) { res.note = 'Made smaller, but its new tags couldn’t be written (' + (e.message || e) + ').'; }
+  rec.size = (await fsp.stat(to)).size;
+  if (mode === 'move') {
+    if (opts.trash) { await opts.trash(from); rec.trashed = true; }
+    else rec.keptOriginal = true;
+  }
+  journal.done.push(rec);
+  if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+  res.ok = true; res.to = to; res.converted = format; res.trashed = !!rec.trashed;
+}
+
+/**
  * One video → one file per cartoon (op.split: [{ start, end, folder, file }]).
  * Each piece is written under a temporary name next to where it goes, checked, then given its
  * name (never over an existing file). The original is left exactly where it is.
@@ -396,6 +428,7 @@ async function undo(journalPath) {
   const j = await readJournal(journalPath);
   if (!j || !Array.isArray(j.done) || !j.done.length) return { undone: 0, kept: 0, nothing: true, restored: [] };
   let undone = 0, kept = 0;
+  const inTrash = []; // originals of songs made smaller (Move): in the Recycle Bin
   const restored = [];
   for (const rec of j.done.slice().reverse()) {
     const { from, to } = rec;
@@ -407,6 +440,14 @@ async function undo(journalPath) {
         continue;
       }
       if (!inside(path.resolve(j.library), path.resolve(to))) { kept++; continue; }
+      if (rec.converted) {
+        // A smaller copy Shelf made: removed if it's still what Shelf wrote. The original was never changed (with
+        // Move it went to the Recycle Bin, where it can be put back from).
+        const st = await fsp.stat(to).catch(() => null);
+        if (st && st.size === rec.size) { await fsp.unlink(to); undone++; if (rec.trashed) inTrash.push(from); } else kept++;
+        await removeEmptyDirs(path.dirname(to), j.library);
+        continue;
+      }
       if (rec.tagged === 'copy') {
         // A tagged copy of a song: removed if it's still exactly what Shelf wrote. The original was never touched.
         const st = await fsp.stat(to).catch(() => null);
@@ -452,7 +493,7 @@ async function undo(journalPath) {
   }
   await fsp.unlink(journalPath).catch(() => {});
   await fsp.rm(journalPath + '.covers', { recursive: true, force: true }).catch(() => {});
-  return { undone, kept, restored };
+  return { undone, kept, restored, inTrash };
 }
 
 // Tidy up folders Shelf made that are now empty (never the library itself).

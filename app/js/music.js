@@ -196,9 +196,9 @@
       var res = assign(files, r);
       var votes = total ? (guess.votes[r.id] || 0) / total : 0;
       var score = 0.6 * res.fit + 0.15 * searchScore(guess, r, prefs) + 0.25 * votes;
-      // A full album should be the edition with exactly its tracks (not the deluxe one with bonus tracks).
-      var all = files.length >= (r.trackCount || 0) * 0.8;
-      if (all && r.trackCount) score -= Math.min(0.1, Math.abs(r.trackCount - files.length) * 0.02);
+      // Most of an album: the edition with just your tracks wins over the deluxe one with bonus tracks (each
+      // track beyond your songs costs it a little). A song or two of a big album doesn't count against it.
+      if (r.trackCount && files.length >= r.trackCount * 0.5) score -= Math.min(0.1, Math.max(0, r.trackCount - files.length) * 0.012);
       return { release: r, result: res, score: score, votes: votes };
     }).sort(function (a, b) { return b.score - a.score; });
     var best = ranked[0];

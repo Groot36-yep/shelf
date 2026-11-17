@@ -91,6 +91,39 @@ const run = (args) => execFileSync(ff, ['-hide_banner', '-loglevel', 'error', '-
   assert.ok(fs.existsSync(lrc) && fs.existsSync(a) && fs.readFileSync(pic, 'utf8') === 'MINE');
   ok('lyrics move with their song; a cover.jpg already there is never replaced');
 
+  // 5. Made smaller: a FLAC becomes an Ogg Vorbis with its tags (copy: the FLAC stays; move: it goes to the
+  //    Recycle Bin, only once the Ogg is checked); Undo removes the Ogg and says where the original is.
+  const flac = path.join(src, '02 Knowing Me.flac');
+  run(['-f', 'lavfi', '-i', 'sine=frequency=330:duration=8', '-c:a', 'flac', flac]);
+  await tags.writeTo(flac, flac, { title: 'Knowing Me, Knowing You', artists: ['ABBA'], 'mb.recording': 'rec-2', cover: { mime: 'image/jpeg', data: oldCover } });
+  const flacSize = fs.statSync(flac).size;
+  const shrinkOp = { source: flac, folder: ['Music', 'ABBA', 'Gold - Greatest Hits (1992)'], file: '02 - Knowing Me, Knowing You.ogg', music: { convert: 'vorbis', tags: { title: 'Knowing Me, Knowing You', track: 2, album: 'Gold: Greatest Hits' }, cover: null } };
+  const ogg = path.join(lib, 'Music', 'ABBA', 'Gold - Greatest Hits (1992)', '02 - Knowing Me, Knowing You.ogg');
+  j = path.join(hist, '5.json');
+  ({ results } = await fileops.run([shrinkOp], { library: lib, mode: 'copy', allowed: new Set([flac]), journalPath: j, coverFor }));
+  assert.ok(results[0].ok && results[0].converted === 'vorbis', JSON.stringify(results[0]));
+  assert.strictEqual(fs.statSync(flac).size, flacSize, 'copy: the FLAC is untouched');
+  const o = tags.read(ogg);
+  assert.ok(o.ok && o.format === 'ogg' && o.title === 'Knowing Me, Knowing You' && o.album === 'Gold: Greatest Hits' && o.track === 2 && o.mb.recording === 'rec-2', JSON.stringify(o));
+  assert.ok(tags.cover(ogg).data.equals(oldCover), 'its cover came along');
+  assert.ok(fs.statSync(ogg).size < flacSize / 2, 'smaller: ' + fs.statSync(ogg).size + ' vs ' + flacSize);
+  u = await fileops.undo(j);
+  assert.ok(u.undone === 1 && !fs.existsSync(ogg) && fs.existsSync(flac));
+  // Move: the original goes to the (pretend) Recycle Bin.
+  const binned = [];
+  const trash = async (p) => { binned.push(p); fs.renameSync(p, p + '.binned'); };
+  j = path.join(hist, '6.json');
+  ({ results } = await fileops.run([shrinkOp], { library: lib, mode: 'move', allowed: new Set([flac]), journalPath: j, coverFor, trash }));
+  assert.ok(results[0].ok && results[0].trashed, JSON.stringify(results[0]));
+  assert.deepStrictEqual(binned, [flac]); assert.ok(fs.existsSync(ogg));
+  u = await fileops.undo(j);
+  assert.ok(u.undone === 1 && !fs.existsSync(ogg) && u.inTrash.length === 1, JSON.stringify(u));
+  // Something going wrong never costs the original: a "FLAC" that isn't audio stays where it is.
+  const bad = path.join(src, '03 Bad.flac'); fs.writeFileSync(bad, Buffer.alloc(4000, 3));
+  ({ results } = await fileops.run([Object.assign({}, shrinkOp, { source: bad, file: '03 - Bad.ogg' })], { library: lib, mode: 'move', allowed: new Set([bad]), journalPath: path.join(hist, '7.json'), coverFor, trash }));
+  assert.ok(!results[0].ok && fs.existsSync(bad) && binned.length === 1, JSON.stringify(results[0]));
+  ok('made smaller (FLAC → Ogg Vorbis): tags and cover along; copy keeps the FLAC, move bins it only once the Ogg is checked; Undo');
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(passed + ' music rename checks passed');
 })().catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });

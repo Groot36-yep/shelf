@@ -265,11 +265,26 @@
       return [r.country === 'XW' ? 'worldwide' : r.country === 'XE' ? 'Europe' : r.country, f === 'Digital Media' ? 'digital' : f, r.disambiguation].filter(Boolean).join(' ');
     }
 
+    // ---------- Making lossless songs smaller (in Rename Now; desktop/convert.js does it) ----------
+    var LOSSLESS = ['flac', 'wav', 'aif', 'aiff', 'ape', 'wv', 'dsf'], SHRINK = { vorbis: { ext: 'ogg', kbps: 192 }, opus: { ext: 'opus', kbps: 160 } };
+    function lossless(i) {
+      var tg = i.music && i.music.tags && i.music.tags.ok ? i.music.tags : null, ext = String(i.parsed.ext).toLowerCase();
+      return LOSSLESS.indexOf(ext) >= 0 || (ext === 'm4a' && !!tg && tg.bitrate > 500); // (ALAC hides in .m4a)
+    }
+    function shrinkTo(i) { return ctx.settings.musicShrink && i.parsed.isAudio && lossless(i) ? ctx.settings.musicShrinkFormat === 'opus' ? 'opus' : 'vorbis' : null; }
+    /** Of these songs, the lossless ones: how many, their size now, and about how big they'd be. */
+    function shrinkable(list) {
+      var out = { count: 0, before: 0, after: 0 }, kb = SHRINK[ctx.settings.musicShrinkFormat === 'opus' ? 'opus' : 'vorbis'].kbps;
+      list.forEach(function (i) { if (i.kind === 'track' && i.parsed.isAudio && lossless(i)) { out.count++; out.before += i.size || 0; out.after += Math.round((i.music.duration || 0) * kb * 125); } });
+      return out;
+    }
+
     // ---------- New names and tags ----------
     function plexName(i) {
       var s = audioOf(i) || i, a = albumOf(s), t = s.music && s.music.track;
       if (!a || !a.release || !t) return null;
-      var n = M.plexName(a.release, t, s.parsed.ext, { year: ctx.settings.musicYear !== false, safeName: P.safeName });
+      var to = shrinkTo(s);
+      var n = M.plexName(a.release, t, to ? SHRINK[to].ext : s.parsed.ext, { year: ctx.settings.musicYear !== false, safeName: P.safeName });
       if (i.parsed.isLyrics) n = { folder: n.folder, file: n.file.replace(/\.[^.]+$/, '.' + i.parsed.ext) };
       return n;
     }
@@ -279,7 +294,8 @@
       var a = albumOf(i), t = i.music && i.music.track;
       if (!a || !a.release || !t) return null;
       var c = ctx.settings.musicCover || 'both';
-      return { tags: M.tagsFor(a.release, t, { genres: !!ctx.settings.musicGenres }), cover: c === 'none' ? null : { release: a.release.id, group: (a.release.group && a.release.group.id) || '', embed: c !== 'folder', folder: c !== 'embed' } };
+      return { tags: M.tagsFor(a.release, t, { genres: !!ctx.settings.musicGenres }), convert: shrinkTo(i) || undefined,
+        cover: c === 'none' ? null : { release: a.release.id, group: (a.release.group && a.release.group.id) || '', embed: c !== 'folder', folder: c !== 'embed' } };
     }
 
     // ---------- Details panel ----------
@@ -434,7 +450,7 @@
       add: add, isTrack: isTrack, shelfKey: shelfKey, sortKey: sortKey, rowParts: rowParts, reasonFor: reasonFor, known: known, hay: hay,
       shelfTitle: shelfTitle, shelfSub: shelfSub, shelfCover: shelfCover, shelfHead: shelfHead, plexName: plexName, renameExtra: renameExtra,
       inspector: inspector, forget: forget, clear: clear, linkLyrics: linkLyrics, albumOf: albumOf,
-      facts: facts, coverUrl: coverUrl, question: question, retry: retry, readable: readable,
+      facts: facts, coverUrl: coverUrl, question: question, retry: retry, readable: readable, shrinkable: shrinkable,
       _albums: function () { return albums; }
     };
   }

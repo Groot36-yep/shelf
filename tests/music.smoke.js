@@ -55,6 +55,7 @@ let COVER;
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-music-'));
+  const bin = path.join(tmp, 'bin'); fs.mkdirSync(bin);
   const dl = path.join(tmp, 'Downloads'), album = path.join(dl, 'Music', 'ABBA', 'Gold'), va = path.join(dl, 'Music', 'Various Artists'), lib = path.join(tmp, 'Plex');
   fs.mkdirSync(album, { recursive: true }); fs.mkdirSync(va, { recursive: true }); fs.mkdirSync(lib);
   const jpg = path.join(tmp, 'c.jpg'); run(['-f', 'lavfi', '-i', 'color=c=orange:s=300x300', '-frames:v', '1', jpg]); COVER = fs.readFileSync(jpg);
@@ -63,6 +64,9 @@ let COVER;
   await song(path.join(album, '01 Dancing Queen.mp3'), 6, Object.assign({ title: 'Dancing Queen', track: 1 }, base));
   await song(path.join(album, '03 Take a Chance on Me.mp3'), 5, Object.assign({ title: 'Take a Chance on Me', track: 3 }, base));
   await song(path.join(album, '05 Lay All Your Love on Me.mp3'), 7, Object.assign({ title: 'Lay All Your Love on Me', track: 5 }, base));
+  // A lossless song (made smaller in Rename Now).
+  const flac = path.join(album, '04 Mamma Mia.flac');
+  run(['-f', 'lavfi', '-i', 'sine=frequency=550:duration=9', '-c:a', 'flac', flac]); await tags.writeTo(flac, flac, Object.assign({ title: 'Mamma Mia', track: 4 }, base));
   fs.writeFileSync(path.join(album, '01 Dancing Queen.lrc'), '[00:01.00]You can dance\n');
   await song(path.join(va, 'Ginger Root - Let’s Stay Out.mp3'), 6, { title: 'Let’s Stay Out', artists: ['Ginger Root'] });
   fs.writeFileSync(path.join(album, '1-06 At the Door.mp3'), Buffer.alloc(5000, 7)); // damaged
@@ -77,8 +81,8 @@ let COVER;
     const q = [...o.dirs];
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [q.shift()] });
     global.__shelfConsent = async () => true;
-    global.__shelfMusicTest = { base: 'http://127.0.0.1:' + o.port + '/ws/2', coverBase: 'http://127.0.0.1:' + o.port + '/cover', gapMs: 0 };
-  }, { dirs: [dl, lib], port });
+    global.__shelfMusicTest = { base: 'http://127.0.0.1:' + o.port + '/ws/2', coverBase: 'http://127.0.0.1:' + o.port + '/cover', gapMs: 0, trashDir: o.bin };
+  }, { dirs: [dl, lib], port, bin });
   const win = await app.firstWindow();
   await win.setViewportSize({ width: 1400, height: 900 }).catch(() => {});
   const errors = [];
@@ -89,14 +93,14 @@ let COVER;
 
   // 1. Add the folder: songs (and their lyrics) become album shelves.
   await win.click('#chooseFolder');
-  for (let i = 0; i < 100; i++) { await sleep(150); if (await win.evaluate(() => window.Shelf.items().length === 6 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
+  for (let i = 0; i < 100; i++) { await sleep(150); if (await win.evaluate(() => window.Shelf.items().length === 7 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
   await sleep(600); // (the next redraw)
   let s = await state();
   console.log(JSON.stringify(s));
   const by = (n) => s.find((x) => x.name === n);
   assert.ok(s.every((x) => x.kind === 'track'), 'all music');
   assert.strictEqual(by('01 Dancing Queen.mp3').status, 'matched', 'found by its tags (title, number, length): ' + by('01 Dancing Queen.mp3').error);
-  assert.deepStrictEqual(['01 Dancing Queen.mp3', '03 Take a Chance on Me.mp3', '05 Lay All Your Love on Me.mp3'].map((n) => by(n).track), [1, 3, 5]);
+  assert.deepStrictEqual(['01 Dancing Queen.mp3', '03 Take a Chance on Me.mp3', '04 Mamma Mia.flac', '05 Lay All Your Love on Me.mp3'].map((n) => by(n).track), [1, 3, 4, 5]);
   assert.ok(by('01 Dancing Queen.lrc').linkTo, 'lyrics go with their song');
   assert.strictEqual(by('1-06 At the Door.mp3').status, 'error');
   assert.match(by('1-06 At the Door.mp3').error, /damaged/);
@@ -104,7 +108,7 @@ let COVER;
   const heads = await win.$$eval('#list .shelf-head h3', (h) => h.map((x) => x.textContent));
   assert.ok(heads.includes('Gold: Greatest Hits') && heads.includes('City Slicker'), 'album shelves: ' + heads);
   const meta = await win.$$eval('#list .album-head', (hs) => hs.find((h) => /Gold/.test(h.textContent)).querySelector('.shelf-meta').textContent);
-  assert.match(meta, /ABBA · 1992 · 3 of 5 songs/, 'heading: ' + meta);
+  assert.match(meta, /ABBA · 1992 · 4 of 5 songs/, 'heading: ' + meta);
   assert.ok(hits.some((h) => /query=release:"Gold: Greatest Hits" AND artist:"ABBA"/.test(h)), 'searched by album + artist');
   console.log('  ✓ albums as shelves; songs on their tracks; lyrics with their song; a damaged file explained; a loose song on its album');
 
@@ -144,18 +148,27 @@ let COVER;
   // 4. Rename Now: tags + cover written, Plex folders, lyrics along; Undo puts it all back.
   await win.click('#renameBtn');
   await win.click('#pickLib'); await sleep(300);
+  // Make the lossless one smaller.
+  assert.ok(await win.isVisible('#renameShrinkRow'));
+  assert.match(await win.textContent('#renameShrinkLabel'), /Make 1 lossless song smaller \(Ogg Vorbis\)/);
+  assert.match(await win.textContent('#renameShrinkHelp'), /Recycle Bin/);
+  await win.click('#renameShrinkRow .switch'); await sleep(200);
+  assert.match(await win.textContent('#renameSummary'), /6 music files/);
   await win.click('#renameNow');
   for (let i = 0; i < 100; i++) { await sleep(200); if (!(await win.isVisible('#renameSheet'))) break; }
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.relative(lib, path.join(d, e.name)).split(path.sep).join('/')]);
   const made = walk(lib).sort();
   console.log('library:', made);
   const A = 'Music/ABBA/Gold - Greatest Hits (1992)/';
-  assert.deepStrictEqual(made, [A + '01 - Dancing Queen.lrc', A + '01 - Dancing Queen.mp3', A + '03 - Take a Chance on Me.mp3', A + '05 - Lay All Your Love on Me.mp3', A + 'cover.jpg',
+  assert.deepStrictEqual(made, [A + '01 - Dancing Queen.lrc', A + '01 - Dancing Queen.mp3', A + '03 - Take a Chance on Me.mp3', A + '04 - Mamma Mia.ogg', A + '05 - Lay All Your Love on Me.mp3', A + 'cover.jpg',
     'Music/Ginger Root/City Slicker (2020)/02 - Let’s Stay Out.mp3', 'Music/Ginger Root/City Slicker (2020)/cover.jpg']);
   const t = tags.read(path.join(lib, A + '01 - Dancing Queen.mp3'));
   assert.strictEqual(t.title, 'Dancing Queen'); assert.strictEqual(t.trackTotal, now.id === R2 ? 6 : 5); assert.strictEqual(t.mb.release, now.id);
   assert.ok(t.cover && t.cover.size === COVER.length, 'cover embedded');
-  console.log('  ✓ Rename Now: Plex folders and names, tags and cover written, cover.jpg, lyrics along');
+  const mm = tags.read(path.join(lib, A + '04 - Mamma Mia.ogg'));
+  assert.ok(mm.ok && mm.format === 'ogg' && mm.title === 'Mamma Mia' && mm.mb.release === now.id && mm.cover, 'made smaller, with its tags: ' + JSON.stringify(mm));
+  assert.ok(!fs.existsSync(flac) && fs.existsSync(path.join(bin, '04 Mamma Mia.flac')), 'the FLAC went to the (pretend) Recycle Bin');
+  console.log('  ✓ Rename Now: Plex folders and names, tags and cover written, cover.jpg, lyrics along; the FLAC made smaller (Ogg Vorbis)');
   await win.click('#undoBar');
   for (let i = 0; i < 50; i++) { await sleep(200); if (fs.existsSync(path.join(album, '01 Dancing Queen.mp3'))) break; }
   await sleep(500);

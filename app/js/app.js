@@ -31,6 +31,8 @@
     // Music: the cover picture (embed | folder | both | none), the year in album folders, genres, which editions to prefer.
     musicCover: load('musicCover', 'both'), musicYear: load('musicYear', true), musicGenres: load('musicGenres', false),
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
+    // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
+    musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
 
@@ -1381,7 +1383,7 @@
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
       $('acoustInput').value = settings.acoustKey || '';
-      $('optCover').value = settings.musicCover; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
+      $('optCover').value = settings.musicCover; $('optShrinkFormat').value = settings.musicShrinkFormat; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
       $('optOrder').value = settings.order;
@@ -1412,11 +1414,12 @@
     refreshDupes();
     var r = readyItems();
     var movies = r.filter(function (i) { return i.kind === 'movie'; }).length;
-    var eps = r.length - movies;
+    var songs = r.filter(function (i) { return i.kind === 'track'; }).length;
+    var eps = r.length - movies - songs;
     var waiting = items.filter(needsReview).length;
     $('renameTitle').textContent = 'Rename ' + r.length + ' item' + (r.length === 1 ? '' : 's') + '?';
     $('renameSummary').textContent =
-      [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') +
+      [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : '', songs ? songs + ' music file' + (songs === 1 ? '' : 's') : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '') +
       (function () {
         var sp = r.filter(function (i) { return i.split; }); // videos only (subtitles follow along)
@@ -1434,6 +1437,15 @@
       var cutThere = r.filter(function (i) { return i.remote && i.split; }).length;
       $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there, then Plex rescans.' +
         (cutThere ? ' ' + cutThere + ' of them will be split there: each is read over SSH, cut on this PC (no re-encoding), and its pieces sent back and checked. The originals are kept on the server.' : ' Nothing is copied.');
+    }
+    // Lossless songs: offer to make them smaller, with what it saves.
+    var sh = music.shrinkable(r);
+    $('renameShrinkRow').hidden = !sh.count;
+    if (sh.count) {
+      var fmt = settings.musicShrinkFormat === 'opus' ? 'Opus' : 'Ogg Vorbis';
+      $('renameShrink').checked = !!settings.musicShrink;
+      $('renameShrinkLabel').textContent = 'Make ' + sh.count + ' lossless song' + (sh.count === 1 ? '' : 's') + ' smaller (' + fmt + ')';
+      $('renameShrinkHelp').textContent = 'About ' + fmtSize(sh.before) + ' → ' + fmtSize(sh.after) + '. Sounds the same. ' + (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
     }
     native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('renameNow').disabled = !r.length || (!lib && local > 0); });
     canUndoAny().then(function (yes) { $('undoNow').hidden = !yes; });
@@ -1499,7 +1511,7 @@
           if (!item) return;
           if (r.ok && r.to) item.batch = r.batch || null; // which Rename Now this was, for Undo
           if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
-          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
@@ -1563,10 +1575,11 @@
         $('undoBar').hidden = !r.more; // earlier renames can be put back too, one at a time
         if (r.nothing) { toast('Nothing to undo.'); return; }
         items.forEach(function (i) {
+          if (i.status === 'done' && !i.origRemote && (!r.batch || i.batch === r.batch) && i.trashedOriginal) { i.status = 'skipped'; i.error = 'The smaller copy was removed. The original is in the Recycle Bin: put it back from there.'; i.trashedOriginal = false; return; }
           if (i.status === 'done' && !i.origRemote && (!r.batch || i.batch === r.batch)) { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
         });
         $('renameSheet').close();
-        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
+        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.') + (r.inTrash ? ' ' + r.inTrash + ' original song' + (r.inTrash === 1 ? ' is' : 's are') + ' in the Recycle Bin: put ' + (r.inTrash === 1 ? 'it' : 'them') + ' back from there.' : ''));
         render();
       });
     }
@@ -1735,6 +1748,8 @@
     var k = e.target.value.trim(); saveKey(k, 'acoustid');
     $('acoustStatus').textContent = k ? 'Saved. Songs Shelf can’t find by name are recognised by their sound.' : 'Key removed from this computer.';
   });
+  on('optShrinkFormat', 'change', function (e) { settings.musicShrinkFormat = e.target.value === 'opus' ? 'opus' : 'vorbis'; save('musicShrinkFormat', settings.musicShrinkFormat); render(); });
+  on('renameShrink', 'change', function (e) { settings.musicShrink = e.target.checked; save('musicShrink', settings.musicShrink); render(); prepareRename(); });
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });

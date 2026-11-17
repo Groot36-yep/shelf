@@ -253,7 +253,11 @@
         <span>Your Plex library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
         <button class="pill" type="button" id="pickLib">Choose…</button>
       </div>
-      <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
+      <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, songs in <b>Music</b>, inside this folder.</p>
+      <label class="row" id="renameShrinkRow" hidden>
+        <span><span id="renameShrinkLabel">Make lossless songs smaller</span><br><small class="muted" id="renameShrinkHelp"></small></span>
+        <input type="checkbox" class="switch" id="renameShrink">
+      </label>
       <label class="row" id="renameSendRow" hidden>
         <span>Then send them to Plex<br><small class="muted" id="renameSendHelp">Straight to your server, checked, in the right folders</small></span>
         <input type="checkbox" class="switch" id="renameSend">
@@ -363,6 +367,14 @@
           <option value="none">Leave covers as they are</option>
         </select>
         <span class="row-help">Plex shows either; music players on phones usually read the one inside each song.</span>
+      </div>
+      <div class="row stack">
+        <label for="optShrinkFormat">Making lossless songs smaller (FLAC, WAV, AIFF, ALAC)</label>
+        <select id="optShrinkFormat" class="text">
+          <option value="vorbis">Ogg Vorbis, quality 6 (about 190 kbps): plays on almost everything</option>
+          <option value="opus">Opus, 160 kbps: the smallest, a few older devices make Plex convert it</option>
+        </select>
+        <span class="row-help">Both sound the same as the original to practically everyone, at about a sixth of the size. Offered in Rename Now.</span>
       </div>
       <label class="row">
         <span>Add the year to album folders<br><small class="muted">Music / ABBA / Gold - Greatest Hits (1992) — keeps editions and same-named albums apart</small></span>

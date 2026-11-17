@@ -478,6 +478,9 @@ if (gotLock) app.whenReady().then(() => {
       writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
       // Songs' covers come from the Cover Art Archive, through Shelf (never from the window).
       coverFor: (ref, size) => mb().cover(ref.release, ref.group, size),
+      // An original made smaller (Move): to the Recycle Bin, where it can be put back from.
+      // (In tests: a pretend bin folder, never your real Recycle Bin.)
+      trash: (p) => { const t = !app.isPackaged && global.__shelfMusicTest; return t && t.trashDir ? fs.promises.rename(p, path.join(t.trashDir, path.basename(p))) : shell.trashItem(p); },
       onProgress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:progress', p); }
     });
     // A moved file's old path is gone; its new path can be renamed again later.
@@ -494,7 +497,7 @@ if (gotLock) app.whenReady().then(() => {
     if (!file) return { undone: 0, kept: 0, nothing: true, batch: null, more: false };
     const r = await fileops.undo(file);
     (r.restored || []).forEach((p) => allowedSources.add(path.resolve(p))); // files put back can be renamed again
-    return { undone: r.undone, kept: r.kept, nothing: !!r.nothing, batch: path.basename(file, '.json'), more: !!(await newestUndoable()) };
+    return { undone: r.undone, kept: r.kept, nothing: !!r.nothing, inTrash: (r.inTrash || []).length, batch: path.basename(file, '.json'), more: !!(await newestUndoable()) };
   });
   // Frames per second (for frame-by-frame stepping), from ffmpeg's description of the file.
   async function frameRate(file) {
