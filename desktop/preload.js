@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld('shelfNative', {
   mbRecordings: (s) => ipcRenderer.invoke('shelf:mbRecordings', { title: String((s && s.title) || ''), artist: String((s && s.artist) || '') }),
   mbCover: (releaseId, groupId, size) => ipcRenderer.invoke('shelf:mbCover', String(releaseId || ''), String(groupId || ''), Number(size) || 250),
   musicForget: () => ipcRenderer.invoke('shelf:musicForget'),
+  // Songs recognised by their sound: only fingerprints (codes made from the sound, on this PC) go to AcoustID.
+  musicSound: (paths) => ipcRenderer.invoke('shelf:musicSound', Array.isArray(paths) ? paths.map(String) : []),
+  musicSoundReady: () => ipcRenderer.invoke('shelf:musicSoundReady').then((x) => x === true),
   readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),

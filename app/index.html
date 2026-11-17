@@ -368,6 +368,11 @@
         <span>Add the year to album folders<br><small class="muted">Music / ABBA / Gold - Greatest Hits (1992) — keeps editions and same-named albums apart</small></span>
         <input type="checkbox" class="switch" id="optMusicYear">
       </label>
+      <div class="row stack">
+        <label for="acoustInput">Recognise songs by their sound: your free AcoustID key</label>
+        <input id="acoustInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From acoustid.org → Sign in → Your API key">
+        <span class="row-help" id="acoustStatus">For songs with no useful tags or names. Shelf listens to them on this PC and sends only a code made from the sound (and its length) to AcoustID.</span>
+      </div>
       <label class="row">
         <span>Write genres<br><small class="muted">From MusicBrainz’s most-voted genres (up to three). Off: the genres your files have stay.</small></span>
         <input type="checkbox" class="switch" id="optGenres">
@@ -407,7 +412,7 @@
       <div class="fact"><span>Undo history</span><span>Where your last 50 renames came from, so Undo can put them back. Erase it below</span></div>
       <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB, TVmaze or MusicBrainz answered, kept up to 30 days</span></div>
 <div class="fact"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
-      <div class="fact"><span>Your TMDB and TheTVDB keys</span><span>Encrypted with your computer account</span></div>
+      <div class="fact"><span>Your TMDB, TheTVDB and AcoustID keys</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Your Plex server login</span><span>Shelf’s own key, encrypted. Your password isn’t kept</span></div>
     </div>
     <span class="section-label">The only things that leave</span>
@@ -417,6 +422,7 @@
       <div class="fact"><span>Posters (optional)</span><span>from TMDB / TVmaze</span></div>
       <div class="fact"><span>Album title + artist, song title</span><span>to MusicBrainz (and edition ids, to look them up)</span></div>
       <div class="fact"><span>Album covers</span><span>from the Cover Art Archive</span></div>
+      <div class="fact"><span>A code made from a song’s sound + its length</span><span>to AcoustID, only for songs it can’t find by name, and only with your key</span></div>
       <div class="fact"><span>Files you send to Plex</span><span>Only to your own server, encrypted (SSH)</span></div>
     </div>
     <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB, TVmaze and MusicBrainz can see your internet address when Shelf asks them something.</p>

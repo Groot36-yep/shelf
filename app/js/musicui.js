@@ -90,14 +90,22 @@
     }
 
     // ---------- Looking an album up (the plan itself is M.lookAlbum, in music.js) ----------
-    var api = { release: native.mbRelease, search: native.mbSearch, recordings: native.mbRecordings, groups: native.mbGroups, groupReleases: native.mbGroup };
+    var api = { release: native.mbRelease, search: native.mbSearch, recordings: native.mbRecordings, groups: native.mbGroups, groupReleases: native.mbGroup,
+      // By their sound (only with your AcoustID key): files → what each one sounds like.
+      sound: function (files) {
+        if (!ctx.settings.acoustKey) return Promise.resolve(null);
+        return native.musicSound(files.map(function (f) { var i = ctx.itemById(f.id); return i ? i.fullPath : ''; }));
+      } };
     function look(a) {
       a.status = 'looking'; a.error = '';
       return M.lookAlbum(api, a, songsOf(a).map(fileOf), prefs()).then(function (r) {
         if (r.none) nothing(a, r.none); else use(a, r, r.how);
       });
     }
-    function nothing(a, why) { a.status = 'nomatch'; a.error = why; a.release = null; a.ranked = []; a.result = null; }
+    function nothing(a, why) {
+      a.status = 'nomatch'; a.release = null; a.ranked = []; a.result = null;
+      a.error = why + (ctx.settings.acoustKey ? '' : ' With a free AcoustID key (Settings → Music), Shelf can recognise it by its sound.');
+    }
     function use(a, r, how) {
       a.ranked = r.ranked; a.release = r.best.release; a.result = r.best.result; a.sure = r.sure && how !== 'song'; a.how = how;
       a.status = a.sure ? 'matched' : 'review';
@@ -220,7 +228,7 @@
       if (!a || !s.music || !s.music.track) return '';
       if (a.how === 'manual') return 'You chose';
       if (s.music.tags.mb.recording && s.music.tags.mb.recording === s.music.track.recording) return 'MusicBrainz id';
-      return a.how === 'song' ? 'Song title' : 'Tags';
+      return a.how === 'song' ? 'Song title' : a.how === 'sound' ? 'Sound' : 'Tags';
     }
     function hay(i) {
       var s = audioOf(i) || i, a = albumOf(s), t = s.music && s.music.track, tg = s.music && s.music.tags && s.music.tags.ok ? s.music.tags : {};
@@ -321,7 +329,7 @@
       if (a.picked) return '✓ You chose this edition.';
       if (a.status === 'nomatch' || a.status === 'error') return a.error;
       var miss = a.result ? a.result.missing.length : 0, extra = a.result ? a.result.extra.length : 0;
-      var base = a.how === 'ids' ? '✓ Your files name this edition (MusicBrainz ids in their tags).' : a.how === 'song' ? 'Found by the song’s title and artist; it’s placed on its first official album.' : a.sure ? '✓ Every song fits a track on this edition (titles and lengths).' : 'The closest edition Shelf found by name.';
+      var base = a.how === 'ids' ? '✓ Your files name this edition (MusicBrainz ids in their tags).' : a.how === 'song' ? 'Found by the song’s title and artist; it’s placed on its first official album.' : a.how === 'sound' ? 'Recognised by the songs’ sound (AcoustID).' : a.sure ? '✓ Every song fits a track on this edition (titles and lengths).' : 'The closest edition Shelf found by name.';
       return base + (miss ? ' ' + miss + ' of its tracks aren’t in your files (that’s fine).' : '') + (extra ? ' ' + extra + ' of your songs aren’t on it.' : '') + (a.mixed ? ' Your songs were tagged as more than one edition; they’ll all be set to this one.' : '');
     }
 

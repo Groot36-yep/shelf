@@ -90,7 +90,7 @@ async function newestUndoable() {
   return null;
 }
 // Each key lives in its own encrypted file. Only these names exist.
-const SECRETS = { tmdb: 'tmdb-key.bin', tvdb: 'tvdb-key.bin', tvdbPin: 'tvdb-pin.bin' };
+const SECRETS = { tmdb: 'tmdb-key.bin', tvdb: 'tvdb-key.bin', tvdbPin: 'tvdb-pin.bin', acoustid: 'acoustid-key.bin' };
 const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] || SECRETS.tmdb);
 
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
@@ -873,6 +873,22 @@ if (gotLock) app.whenReady().then(() => {
     return c ? { mime: c.mime, data: c.data.toString('base64') } : null;
   });
   handle('shelf:musicForget', async () => { await mb().forget(); return true; });
+  // Recognising songs by their sound: Chromaprint's fpcalc (shipped with Shelf) and your own AcoustID key.
+  let acoustClient = null;
+  const fpcalcPath = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin', 'fpcalc.exe') : path.join(__dirname, '..', 'build', 'bin', process.platform === 'win32' ? 'fpcalc.exe' : 'fpcalc'));
+  const secretNow = (name) => { try { const b = fs.readFileSync(secretPath(name)); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(b) : ''; } catch (e) { return ''; } };
+  const acoust = () => acoustClient || (acoustClient = (() => {
+    const t = (!app.isPackaged && global.__shelfMusicTest) || {};
+    return require('./acoustid.js').create({ fpcalc: t.fpcalc || fpcalcPath(), fetch: t.fetch || net.fetch, base: t.acoustBase, key: () => (t.acoustKey != null ? t.acoustKey : secretNow('acoustid')) });
+  })());
+  handle('shelf:musicSound', async (paths) => {
+    const list = (Array.isArray(paths) ? paths : []).slice(0, 200).map(String);
+    const ok = list.map((p) => (audioOk(p) ? p : null));
+    const heard = await acoust().recognise(ok.filter(Boolean));
+    let k = 0;
+    return ok.map((p) => (p ? heard[k++] : null));
+  });
+  handle('shelf:musicSoundReady', async () => fs.existsSync(((!app.isPackaged && global.__shelfMusicTest) || {}).fpcalc || fpcalcPath()));
 
   handle('shelf:showInFolder', async () => { const lib = readPrefs().library; if (lib) shell.openPath(lib); });
 

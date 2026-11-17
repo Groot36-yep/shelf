@@ -112,4 +112,19 @@ assert.deepStrictEqual(d.filter((x) => x.changed).map((x) => x.field), ['album',
 assert.strictEqual(d.find((x) => x.field === 'track').after, '1 of 5');
 ok('Plex names (several discs, compilations, year) and tags, with a clear before → after');
 
-console.log(passed + ' music checks passed');
+// 7. Nothing by name: recognised by their sound; each song on the track its recording is.
+(async () => {
+  const junk = [{ id: 31, name: 'AUD-2019-01.mp3', folders: ['Downloads'], tags: tg({}), duration: 213 }, { id: 32, name: 'AUD-2019-02.mp3', folders: ['Downloads'], tags: tg({}), duration: 231 }];
+  const api = {
+    release: (id) => Promise.resolve(id === 'R1' ? gold : null), search: () => Promise.resolve([]), recordings: () => Promise.resolve([]),
+    sound: (fs) => Promise.resolve(fs.map((f) => ({ recordings: [{ id: f.id === 31 ? 'rec-Mamma Mia' : 'rec-Dancing Queen', score: 0.95, releases: [{ id: 'R1', status: 'Official', date: '1992', group: { primaryType: 'Album', secondaryTypes: ['Compilation'] } }] }] })))
+  };
+  const r = await M.lookAlbum(api, { guess: { album: 'Downloads', artist: '', votes: {} } }, junk, {});
+  assert.strictEqual(r.how, 'sound', JSON.stringify(r.none || r.how));
+  assert.deepStrictEqual(r.best.result.pairs.map((p) => [p.id, p.track.title]).sort(), [[31, 'Mamma Mia'], [32, 'Dancing Queen']]);
+  // No key: the reason by name stands.
+  const r2 = await M.lookAlbum(Object.assign({}, api, { sound: () => Promise.resolve(null) }), { guess: { album: 'Downloads', artist: '', votes: {} } }, junk, {});
+  assert.ok(r2.none, 'not found, and says why');
+  ok('nothing by name: recognised by their sound, each song on its own track');
+  console.log(passed + ' music checks passed');
+})().catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });

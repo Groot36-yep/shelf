@@ -130,6 +130,8 @@
       var n0 = tg.track || nm.track;
       return !n0 || n0 === t.position ? 0 : 0.05;
     }
+    // Recognised by its sound (AcoustID): as good as an id in its tags.
+    if (f.soundRecs && f.soundRecs.indexOf(t.recording) >= 0) return 0.02;
     var title = (tg && tg.title) || nm.title, num = (tg && tg.track) || nm.track, disc = (tg && tg.disc) || nm.disc || 1;
     var dur = f.duration || (tg && tg.duration) || 0;
     var cTitle = title ? 1 - sim(title, t.title) : 0.6;
@@ -250,7 +252,7 @@
     }) : Promise.resolve({ have: [] });
     return start.then(function (x) {
       if (x.ranked) return x;
-      if (album.single || !guess.album) return bySong();
+      if (album.single || !guess.album) return Promise.resolve(bySong()).then(orSound);
       // 2. By name; then without the part in brackets; then without the artist (credited differently).
       var tries = [{ album: guess.album, artist: guess.artist }], plain = plainTitle(guess.album);
       if (plain && plain !== guess.album) tries.push({ album: plain, artist: guess.artist });
@@ -271,8 +273,35 @@
             });
           });
         });
-      }, Promise.resolve(null)).then(function (r) { return r || byYear().then(function (y) { return y || bySong(); }); });
+      }, Promise.resolve(null)).then(function (r) { return r || byYear().then(function (y) { return y || Promise.resolve(bySong()).then(orSound); }); });
     });
+    // 4. Nothing by name: by their sound (AcoustID). Each song votes for the editions its recording is on.
+    function orSound(r) {
+      if (!r.none || !api.sound) return r;
+      return api.sound(files).then(function (heard) {
+        if (!heard) return r; // (no key, or no fingerprint tool: the reason by name stands)
+        var votes = {}, homes = {}, recs = {}, known = 0;
+        heard.forEach(function (h, i) {
+          var top = h && h.recordings && h.recordings.filter(function (x) { return x.score >= 0.5; });
+          if (!top || !top.length) return;
+          known++;
+          recs[files[i].id] = top.slice(0, 3).map(function (x) { return x.id; });
+          var seenHere = {};
+          top.slice(0, 3).forEach(function (rec) { (rec.releases || []).forEach(function (rel) { if (seenHere[rel.id]) return; seenHere[rel.id] = 1; votes[rel.id] = (votes[rel.id] || 0) + 1; homes[rel.id] = rel; }); });
+        });
+        if (!known) return { none: (r.none ? r.none + ' ' : '') + 'Its sound wasn’t recognised either.' };
+        var max = Math.max.apply(null, Object.keys(votes).map(function (k) { return votes[k]; }));
+        // Of the editions most songs are on: the one Plex would most expect (official album, earliest).
+        var best = pickHome({ releases: Object.keys(votes).filter(function (k) { return votes[k] === max; }).map(function (k) { return homes[k]; }) });
+        if (!best) return r;
+        return api.release(best.id).then(function (rel) {
+          if (!rel) return r;
+          var heardFiles = files.map(function (f) { return Object.assign({}, f, { soundRecs: recs[f.id] || [] }); });
+          var rk = rankReleases(Object.assign({}, guess, { album: rel.title, artist: rel.artist, votes: {} }), heardFiles, [rel], prefs);
+          return rk.best && rk.best.result.pairs.length ? Object.assign(rk, { how: 'sound', sure: rk.sure && known === files.length }) : r;
+        });
+      }, function (e) { return e && e.code === 'NOKEY' ? r : { none: (e && e.message) || 'Recognising its sound failed.' }; });
+    }
     // 2b. Same-named albums ("Weezer" 1994 and 2016): the album from the year in the tags, then its editions.
     function byYear() {
       if (!guess.year || !api.groups || !api.groupReleases) return Promise.resolve(null);

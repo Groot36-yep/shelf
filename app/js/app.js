@@ -45,7 +45,7 @@
 
   function saveKey(key, name) {
     name = name || 'tmdb';
-    if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else settings.tvdbPin = key;
+    if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else if (name === 'acoustid') settings.acoustKey = key; else settings.tvdbPin = key;
     native.setKey(name, key).then(function (stored) {
       if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
     });
@@ -651,7 +651,7 @@
     if (item.kind === 'track') {
       if (item.parsed.isLyrics) return k('', ['Its song'], 'Named to go with its song');
       var mk = music.known(item);
-      return k(mk === 'You chose' ? 'you' : mk === 'MusicBrainz id' ? 'card' : '', [mk || 'Tags'], { 'MusicBrainz id': 'The MusicBrainz id in its tags names this exact recording', 'Tags': 'From its tags (title, track number) and its length', 'Song title': 'Found by its title and artist' }[mk] || '');
+      return k(mk === 'You chose' ? 'you' : mk === 'MusicBrainz id' ? 'card' : '', [mk || 'Tags'], { 'MusicBrainz id': 'The MusicBrainz id in its tags names this exact recording', 'Tags': 'From its tags (title, track number) and its length', 'Song title': 'Found by its title and artist', 'Sound': 'Recognised by its sound (AcoustID)' }[mk] || '');
     }
     if (splitOf(item)) return k('you', ['You split it']);
     if (item.parsed.isSubtitle && item.linkTo) return k('', ['Its video'], 'Named to go with its video');
@@ -1380,6 +1380,7 @@
       $('keyInput').value = settings.tmdbKey;
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
+      $('acoustInput').value = settings.acoustKey || '';
       $('optCover').value = settings.musicCover; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
@@ -1721,7 +1722,7 @@
     native.eraseAll().then(function () { if (window.ShelfSend) window.ShelfSend.refresh(); });
     dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
-    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
+    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.acoustKey = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
@@ -1730,6 +1731,10 @@
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
   on('optCover', 'change', function (e) { settings.musicCover = e.target.value; save('musicCover', settings.musicCover); render(); });
   on('optMusicYear', 'change', function (e) { settings.musicYear = e.target.checked; save('musicYear', settings.musicYear); render(); });
+  on('acoustInput', 'change', function (e) {
+    var k = e.target.value.trim(); saveKey(k, 'acoustid');
+    $('acoustStatus').textContent = k ? 'Saved. Songs Shelf can’t find by name are recognised by their sound.' : 'Key removed from this computer.';
+  });
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
@@ -2047,6 +2052,7 @@
   native.getKey('tmdb').then(function (k) { settings.tmdbKey = k || ''; render(); });
   native.getKey('tvdb').then(function (k) { settings.tvdbKey = k || ''; render(); });
   native.getKey('tvdbPin').then(function (k) { settings.tvdbPin = k || ''; });
+  native.getKey('acoustid').then(function (k) { settings.acoustKey = k || ''; });
   native.version().then(function (v) { $('appVersion').textContent = 'Version ' + v; });
   // ---------- Updates (only when you click; see desktop/updates.js) ----------
   var up = { state: 'idle', info: null };
