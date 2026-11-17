@@ -1,6 +1,6 @@
 # Shelf
 
-**Rename your movie and TV files so Plex recognizes them.**
+**Rename your movie, TV and music files so Plex recognizes them.**
 
 Shelf is a friendly, Mac-style take on tools like FileBot. Drop in your video files, and Shelf
 works out what each one is, looks it up, shows you the match with its poster, and gives it the
@@ -10,6 +10,7 @@ exact name and folder that Plex expects.
 charade.1963.1080p.bluray.x264-GRP.mkv        →  Movies/Charade (1963)/Charade (1963).mkv
 bonanza.s01e01.a.rose.for.lotta.mkv           →  TV Shows/Bonanza/Season 01/Bonanza - S01E01 - A Rose for Lotta.mkv
 bonanza.s01e01.a.rose.for.lotta.en.srt        →  TV Shows/Bonanza/Season 01/Bonanza - S01E01 - A Rose for Lotta.en.srt
+ABBA/Gold/01 Dancing Queen.ogg                →  Music/ABBA/Gold - Greatest Hits (1992)/01 - Dancing Queen.ogg
 ```
 
 > **Private by design.** Your videos, folders and file list never leave your computer (unless you send
@@ -24,7 +25,7 @@ Windows light or dark mode. The Living Room's fonts (Fraunces, Nunito, Courier P
 SIL Open Font License (see `app/assets/fonts/OFL.txt`) and are built in, so nothing is downloaded.
 
 **Send to Plex.** Shelf can put your renamed files straight onto your Plex server over SSH (the
-same secure way FileZilla does), into the right Movies and TV Shows folders. See
+same secure way FileZilla does), into the right Movies, TV Shows and Music folders. See
 [Send to Plex](#send-to-plex-your-own-server-over-ssh) below.
 
 ## Get Shelf for Windows
@@ -127,6 +128,37 @@ episode, after asking once.
 Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your original is
 kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
 
+## Music
+
+Drop in a music folder like anything else. Shelf reads each song's tags, puts songs together into
+albums by itself (no dragging files onto albums), and looks each album up on
+[MusicBrainz](https://musicbrainz.org):
+
+- **The right edition.** Albums come in many editions (years, countries, CD or digital, bonus tracks).
+  Shelf picks the one your songs fit best: the one their MusicBrainz ids name (if Picard or Shelf tagged
+  them before), else the one whose track list matches their titles, numbers and lengths, and the year
+  in their tags tells same-named albums apart. A few of an album's songs is fine ("6 of 19 songs").
+  **Other Editions…** shows every edition side by side; **Search…** finds another album.
+- **See every change first.** Each song shows its tags now → after (only what changes stands out), and
+  the name and folder it gets. Albums Shelf isn't sure about wait for **Looks Right**.
+- **Rename Now** writes the tags (title, artists, album, album artist, track and disc numbers, year,
+  MusicBrainz ids, genres if you want) and the album's cover from the
+  [Cover Art Archive](https://coverartarchive.org), then files each song the Plex way:
+  `Music/Album Artist/Album (Year)/01 - Title.ext` (several discs: `1-01`; compilations under
+  `Various Artists`). Synced lyrics (`.lrc`) go along with their song. **Undo** puts back names, tags
+  and covers.
+- **Songs with no useful tags or names** are recognised by their sound, with a free
+  [AcoustID](https://acoustid.org) key (Settings → Music). Shelf listens to them on this PC (Chromaprint's
+  fpcalc, built in) and sends only a code made from the sound, and its length.
+- **Make lossless songs smaller.** Rename Now offers to turn FLAC, WAV, AIFF and ALAC songs into
+  Ogg Vorbis (quality 6) or Opus (160 kbps): about a sixth of the size, sounding the same, with every tag
+  and the cover. Copy keeps your originals; Move sends them to the Recycle Bin once each smaller copy is
+  checked.
+- Formats: MP3, FLAC, M4A/AAC, Ogg Vorbis, Opus, WMA, WAV, AIFF, APE, WavPack and more. A damaged
+  file is set aside and explained.
+- MusicBrainz is asked politely (Shelf says who it is, at most one question a second, and waits when it's
+  busy), and every answer is remembered for 30 days.
+
 ## Send to Plex (your own server, over SSH)
 
 If your Plex server is another computer (for example Ubuntu) and you used to copy files with
@@ -171,9 +203,13 @@ working while it sends.
   **Two-Part Files** or **One File per Episode** (or pick file by file); Shelf keeps one copy of each and
   sets the others aside (renamed to `….shelf-duplicate`, which Plex ignores; nothing is deleted), then
   Plex rescans. **Undo** puts them back.
-- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos and
-  duplicate episodes) with their sizes, and deletes the ones you pick, after you confirm. Deleted files can't
-  be put back.
+- **Make Music Smaller…** (in the ⚙ menu) finds the FLAC and other lossless songs in your server's music
+  folder, by album, with the space it would save. Each is copied here, made smaller (Ogg Vorbis or Opus,
+  with all its tags and cover), sent back next to the original and checked; the original is set aside
+  (`….shelf-original`, which Plex ignores) and Plex rescans. **Undo** puts the originals back.
+- **Free Up Space on Server…** (in the ⚙ menu) lists those set-aside files (originals of split videos, of
+  songs made smaller, and duplicate episodes) with their sizes, and deletes the ones you pick, after you
+  confirm. Deleted files can't be put back.
 - **Forget This Server…** deletes everything Shelf saved about it, and can take Shelf's key back off
   the server.
 
@@ -195,9 +231,10 @@ to save files in the folders you pick. Shelf tells you if it isn't.
 ## Project layout
 
 ```
-app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js)
+app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js),
+                  music matching (js/music.js) and its part of the window (js/musicui.js)
 desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files),
-                  server.js + plexsend.js (Send to Plex over SSH)
+                  server.js + plexsend.js (Send to Plex over SSH), tags.js (music tags), musicbrainz.js (album lookups)
 tests/            npm test; app/tv/sources.smoke.js run the whole app end to end with mocked lookups
 index.html        the download page at groot36-yep.github.io/shelf
 ```
@@ -214,6 +251,10 @@ Metadata provided by [TheTVDB](https://thetvdb.com). Please consider adding miss
 
 TV information is provided by [TVmaze](https://www.tvmaze.com), licensed under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+Music information is provided by [MusicBrainz](https://musicbrainz.org) (CC0), and album covers by the
+[Cover Art Archive](https://coverartarchive.org). Music tags are read and written with
+[node-taglib-sharp](https://github.com/benrr101/node-taglib-sharp) (LGPL-2.1).
 
 Shelf is not affiliated with Plex Inc.
 

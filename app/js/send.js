@@ -73,7 +73,7 @@
     if (src && st) {
       var dot = src.querySelector('.dot');
       var running = st.sending && st.sending.running;
-      var folders = st.movies || st.tv;
+      var folders = st.movies || st.tv || st.music;
       dot.className = 'dot ' + (!st.set ? 'dot-off' : !st.hasLogin || !folders ? 'dot-warn' : running ? 'dot-busy' : 'dot-ok');
       $('serverName').textContent = st.set ? st.host : 'Not set up';
       $('serverNote').textContent = !st.set ? 'Set Up' : !st.hasLogin ? 'Log In' : !folders ? 'Pick Folders' : running ? Math.round(100 * (st.sending.bytesDone || 0) / Math.max(1, st.sending.bytesTotal)) + '%' : 'Ready';
@@ -92,6 +92,7 @@
     if (row && st) row.hidden = !st.set;
     if ($('fixLibBtn') && st) $('fixLibBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
     if ($('spaceBtn') && st) $('spaceBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
+    if ($('shrinkBtn') && st) $('shrinkBtn').hidden = !(st.set && st.hasLogin && (st.music || (st.plex.libraries || []).some(function (l) { return l.kind === 'music'; })));
     if ($('dupesBtn') && st) $('dupesBtn').hidden = !(st.set && st.hasLogin && (st.tv || (st.plex.libraries || []).some(function (l) { return l.kind === 'tv'; })));
   }
 
@@ -107,7 +108,7 @@
       trust: ['Is this your server?', ''],
       login: ['Log in to ' + (sv.probe ? sv.probe.host : 'your server'), 'Use the same username and password you use in FileZilla.'],
       ready: ['Your Plex server', ''],
-      browse: [sv.browseKind === 'movies' ? 'Choose the Movies folder' : 'Choose the TV Shows folder', 'Open the folder your Plex library uses, then click Use This Folder.'],
+      browse: [sv.browseKind === 'movies' ? 'Choose the Movies folder' : sv.browseKind === 'music' ? 'Choose the Music folder' : 'Choose the TV Shows folder', 'Open the folder your Plex library uses, then click Use This Folder.'],
       forget: ['Forget this server?', '']
     }[name];
     $('svTitle').textContent = T[0];
@@ -262,6 +263,7 @@
     $('svTv').textContent = st.tv || 'Choose a folder';
     $('svMovies').classList.toggle('need', !st.movies);
     $('svTv').classList.toggle('need', !st.tv);
+    $('svMusic').textContent = st.music || 'Choose a folder (optional)';
     var libs = st.plex.libraries || [];
     $('svPlexText').textContent = '';
     if (st.plex.token) {
@@ -383,7 +385,7 @@
         $('sdConflictText').textContent = p.different.length + ' file' + (p.different.length === 1 ? ' has' : 's have') + ' the same name as a different file already on your server (for example “' + p.different[0] + '”).';
       }
       var warn = [];
-      if (p.missing.length) warn.push('Choose a ' + p.missing.map(function (k) { return k === 'movies' ? 'Movies' : 'TV Shows'; }).join(' and a ') + ' folder on the server first (Server Settings). Those files are left out for now.');
+      if (p.missing.length) warn.push('Choose a ' + p.missing.map(function (k) { return k === 'movies' ? 'Movies' : k === 'music' ? 'Music' : 'TV Shows'; }).join(' and a ') + ' folder on the server first (Server Settings). Those files are left out for now.');
       if (!p.room) warn.push('There isn’t enough free space on the server for all of this.');
       $('sdWarn').textContent = warn.join(' ');
       $('sdWarn').hidden = !warn.length;
@@ -816,7 +818,8 @@
     };
     list.replaceChildren.apply(list, [
       section('original', 'Originals of split videos', 'Each was split into one file per episode, and the pieces were checked when they arrived.'),
-      section('duplicate', 'Duplicate episodes', 'Another copy of each of these episodes is still in your library.')
+      section('duplicate', 'Duplicate episodes', 'Another copy of each of these episodes is still in your library.'),
+      section('music', 'Originals of songs made smaller', 'A smaller copy of each (Ogg Vorbis or Opus, with the same tags) is next to it, and was checked when it arrived.')
     ].filter(Boolean));
     sync();
     return new Promise(function (resolve) {
@@ -836,13 +839,83 @@
       d.showModal();
     });
   }
+  // ---------- Make Music Smaller: lossless songs on your server (desktop/plexfix.js) ----------
+  // About how big they'd be: FLAC averages ~1,100 kbps; Ogg Vorbis quality 6 ~190, Opus 160.
+  var SHRINK_RATIO = { vorbis: 0.17, opus: 0.145 };
+  function shrinkMusic() {
+    if (fixing || !shelf()) return;
+    if (!st || !st.set || !st.hasLogin) { openServer(); return; }
+    fixing = true;
+    var n = function (x) { return Number(x).toLocaleString(); };
+    var job = shelf().busy('Connecting to ' + st.host + '…', false, function () { native.plexLibraryStop(); job.set('Stopping…'); });
+    var unlisten = native.onFixProgress ? native.onFixProgress(function (p) { if (p.stage === 'walk') job.set('Looking for lossless songs: ' + n(p.folders) + ' folders, ' + n(p.files) + ' found…'); }) : null;
+    native.plexShrinkList().then(function (r) {
+      if (unlisten) unlisten(); job.done();
+      if (!r.files.length) { toast(r.stopped ? 'Stopped.' : 'No FLAC or other lossless songs in your Plex music folder: it’s as small as it gets.'); return; }
+      return pickShrink(r.files);
+    }, function (e) { if (unlisten) unlisten(); job.done(); toast(why(e).text || 'Couldn’t look through your server.'); })
+      .then(function () { fixing = false; });
+  }
+  function pickShrink(files) {
+    var d = $('shrinkSheet'), list = $('shList'), off = {}, format = 'vorbis';
+    var total = function (fs) { return fs.reduce(function (t, f) { return t + (f.size || 0); }, 0); };
+    // By album (the song's folder).
+    var albums = [], byDir = {};
+    files.forEach(function (f) {
+      var dir = f.rel.split('/').slice(0, -1).join(' / ') || 'Music';
+      if (!byDir[dir]) { byDir[dir] = { dir: dir, files: [] }; albums.push(byDir[dir]); }
+      byDir[dir].files.push(f);
+    });
+    var picked = function () { return files.filter(function (f) { return !off[f.path]; }); };
+    var sync = function () {
+      var p = picked(), b = total(p), a = Math.round(b * SHRINK_RATIO[format]);
+      $('shLead').textContent = files.length + (files.length === 1 ? ' lossless song takes ' : ' lossless songs take ') + mb(total(files)) + ' on your server. As ' + (format === 'opus' ? 'Opus' : 'Ogg Vorbis') + ' the ones picked would take about ' + mb(Math.round(total(files) * SHRINK_RATIO[format])) + ', and sound the same.';
+      $('shGo').disabled = !p.length;
+      $('shGo').textContent = p.length ? 'Make ' + p.length + (p.length === 1 ? ' Song' : ' Songs') + ' Smaller (' + mb(b) + ' → about ' + mb(a) + ')' : 'Make Smaller';
+      document.querySelectorAll('#shFormat button').forEach(function (x) { x.setAttribute('aria-pressed', x.dataset.format === format ? 'true' : 'false'); });
+    };
+    document.querySelectorAll('#shFormat button').forEach(function (x) { x.onclick = function () { format = x.dataset.format; sync(); }; });
+    list.replaceChildren.apply(list, [el('div', { class: 'group' }, albums.map(function (al) {
+      var box = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Make ' + al.dir + ' smaller' });
+      box.checked = true;
+      box.addEventListener('change', function () { al.files.forEach(function (f) { off[f.path] = !box.checked; }); sync(); });
+      return el('label', { class: 'row dp-file' }, [
+        el('span', { class: 'dp-text' }, [el('span', { class: 'dp-name', text: al.dir, title: al.dir }), el('small', { class: 'muted', text: al.files.length + (al.files.length === 1 ? ' song · ' : ' songs · ') + mb(total(al.files)) })]),
+        box
+      ]);
+    }))]);
+    sync();
+    return new Promise(function (resolve) {
+      $('shGo').onclick = function () {
+        var paths = picked().map(function (f) { return f.path; });
+        d.close();
+        var job = shelf().busy('Making ' + paths.length + ' songs smaller…', false, function () { native.plexShrinkStop(); job.set('Stopping after this song…'); });
+        var words = { download: 'copying it here', convert: 'making it smaller', upload: 'sending it back' };
+        var unlisten = native.onFixProgress ? native.onFixProgress(function (p) {
+          if (p.stage === 'shrink') job.set('Song ' + (p.index + 1) + ' of ' + p.of + ': ' + p.file.replace(/\.[^.]+$/, '') + ' (' + (words[p.step] || p.step) + (p.step === 'download' && p.frac ? ' ' + Math.round(p.frac * 100) + '%' : '') + ')…');
+        }) : null;
+        native.plexShrink(paths, format).then(function (res) {
+          if (unlisten) unlisten(); job.done();
+          var ok = res.results.filter(function (x) { return x.ok; }), bad = res.results.filter(function (x) { return x.error; }), skip = res.results.filter(function (x) { return x.skipped; });
+          var before = ok.reduce(function (t, x) { return t + (x.before || 0); }, 0), after = ok.reduce(function (t, x) { return t + (x.after || 0); }, 0);
+          if (shelf().checkUndo) shelf().checkUndo();
+          toast(ok.length
+            ? 'Made ' + ok.length + ' song' + (ok.length === 1 ? '' : 's') + ' smaller: ' + mb(before) + ' → ' + mb(after) + '. The originals are set aside (Plex ignores them): Free Up Space deletes them when you’re happy.' + (res.rescanned ? ' Plex is rescanning.' : '') + (bad.length ? ' ' + bad.length + ' didn’t work (' + bad[0].error + ').' : '') + (skip.length ? ' Skipped ' + skip.length + '.' : '')
+            : (res.stopped ? 'Stopped.' : bad.length ? 'Couldn’t make them smaller: ' + bad[0].error : 'Nothing was changed.'));
+        }, function (e) { if (unlisten) unlisten(); job.done(); toast(why(e).text || 'Couldn’t make them smaller.'); }).then(resolve);
+      };
+      d.addEventListener('close', function once() { d.removeEventListener('close', once); resolve(); });
+      d.showModal();
+    });
+  }
+  on('shrinkBtn', 'click', shrinkMusic);
   on('spaceBtn', 'click', freeSpace);
   on('svFixLib', 'click', checkLibrary);
   on('fixLibBtn', 'click', checkLibrary);
 
   // ---------- For the rest of Shelf ----------
   window.ShelfSend = {
-    ready: function () { return !!(st && st.set && st.hasLogin && (st.movies || st.tv)); },
+    ready: function () { return !!(st && st.set && st.hasLogin && (st.movies || st.tv || st.music)); },
     autoSend: function () { return !!(st && st.options && st.options.autoSend); },
     // After Rename Now: send these new files (files already on the server with another size are left alone).
     afterRename: function (paths) { if (paths && paths.length) startSend(paths, false, true); },

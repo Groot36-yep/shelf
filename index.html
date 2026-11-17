@@ -3,23 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf for Windows</title>
-<meta name="description" content="Shelf renames your movie and TV files so Plex recognizes them. Private by design.">
+<meta name="description" content="Shelf renames your movie, TV and music files so Plex recognizes them. Private by design.">
 <link rel="icon" href="app/assets/icon.svg" type="image/svg+xml">
 <style>
-  :root { --bg: #F5F5F7; --card: #FFFFFF; --text: #1D1D1F; --muted: #6E6E73; --accent: #0066CC; --btn: #0071E3; color-scheme: light dark; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1C1C1E; --card: #2C2C2E; --text: #F2F2F7; --muted: #A1A1A6; --accent: #4DA3FF; --btn: #0A84FF; } }
+  @font-face { font-family: "Fraunces"; src: url("app/assets/fonts/fraunces.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  /* Shelf's own colours: warm paper, ink and amber. */
+  :root { --bg: #F4F1EC; --card: #FFFFFF; --text: #1F1A15; --muted: #6C635A; --accent: #8F560A; --btn: #1F1A15; --btn-text: #FFFFFF; --line: rgba(45, 32, 20, 0.1); color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12100E; --card: #1E1A16; --text: #F3EEE7; --muted: #ABA196; --accent: #F1B860; --btn: #EBA640; --btn-text: #1A140D; --line: rgba(255, 238, 215, 0.1); } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif; }
   main { max-width: 640px; margin: 0 auto; padding: 72px 20px 48px; text-align: center; }
-  h1 { font-size: 40px; letter-spacing: -0.02em; margin: 18px 0 6px; }
+  h1 { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 44px; letter-spacing: -0.02em; margin: 18px 0 6px; font-variation-settings: "opsz" 96; }
   .lead { font-size: 19px; color: var(--muted); margin: 0 0 28px; }
-  .download { display: inline-block; background: var(--btn); color: #fff; text-decoration: none; font-weight: 600; padding: 14px 28px; border-radius: 999px; font-size: 17px; }
+  .download { display: inline-block; background: var(--btn); color: var(--btn-text); text-decoration: none; font-weight: 600; padding: 14px 28px; border-radius: 999px; font-size: 17px; }
   .note { font-size: 13px; color: var(--muted); margin-top: 12px; }
-  .card { background: var(--card); border-radius: 18px; padding: 22px 26px; margin-top: 40px; text-align: left; }
-  .card h2 { font-size: 17px; margin: 0 0 8px; }
+  .card { background: var(--card); border-radius: 18px; padding: 22px 26px; margin-top: 40px; text-align: left; box-shadow: 0 0 0 1px var(--line); }
+  .card h2 { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 20px; margin: 0 0 8px; }
   .card ul { margin: 0; padding-left: 20px; color: var(--muted); }
   .card li { margin: 4px 0; }
   a { color: var(--accent); }
@@ -31,14 +33,14 @@
 <main>
   <img src="app/assets/icon.svg" alt="" width="96" height="96">
   <h1>Shelf</h1>
-  <p class="lead">Renames your movie and TV files so Plex recognizes them.</p>
+  <p class="lead">Renames your movie, TV and music files so Plex recognizes them.</p>
   <a class="download" href="https://github.com/Groot36-yep/shelf/releases/latest">Download for Windows</a>
   <p class="note">Free. Windows 10 and 11. Windows may say “unknown publisher”: click More info → Run anyway.</p>
 
   <div class="card">
     <h2>Private by design</h2>
     <ul>
-      <li>Your videos never leave your computer, except to your own Plex server when you send them. Only a cleaned-up title is looked up.</li>
+      <li>Your videos and music never leave your computer, except to your own Plex server when you send them. Only a cleaned-up title (or an album and artist) is looked up.</li>
       <li>No accounts, tracking, analytics or update checks.</li>
       <li>Your TMDB key is stored encrypted with your Windows account.</li>
       <li>Never overwrites a file, and Undo puts everything back.</li>
@@ -48,7 +50,7 @@
   <footer>
     <p><a href="https://github.com/Groot36-yep/shelf">Source code</a> · <a href="https://github.com/Groot36-yep/shelf/blob/main/PRIVACY.md">Privacy</a> · <a href="https://github.com/Groot36-yep/shelf/blob/main/SECURITY.md">Security</a></p>
     <p><img src="app/assets/tmdb-logo.svg" alt="TMDB"> This product uses the TMDB API but is not endorsed or certified by TMDB.
-    TV information from <a href="https://www.tvmaze.com">TVmaze</a> (CC BY-SA). Not affiliated with Plex Inc.</p>
+    TV information from <a href="https://www.tvmaze.com">TVmaze</a> (CC BY-SA). Music information from <a href="https://musicbrainz.org">MusicBrainz</a>. Not affiliated with Plex Inc.</p>
   </footer>
 </main>
 </body>

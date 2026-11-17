@@ -2,6 +2,27 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Music**: drop in a music folder; songs are grouped into albums (tags first, then folders; CD1/Disc 2 folders
+  join their album; loose songs go with their first official album), each album is looked up on MusicBrainz and
+  the best-fitting edition picked (MusicBrainz ids in the tags, else track titles, numbers and lengths; the
+  tags' year tells same-named albums apart). Album shelves with covers, "6 of 19 songs", **Other Editions…**,
+  **Search…** and **Looks Right**; each song's tags now → after; Rename Now writes tags and covers (in each song
+  and/or cover.jpg) and files songs as `Music/Artist/Album (Year)/01 - Title.ext`; lyrics (.lrc) go along; Undo
+  puts names, tags and covers back. Settings → Music: covers, year in album folders, genres.
+- **Songs recognised by their sound** (AcoustID, with your free key; Chromaprint's fpcalc is built in, fetched
+  by the build only if it's byte-for-byte the checked file) when nothing is found by name.
+- **Make lossless songs smaller**: in Rename Now (FLAC/WAV/AIFF/ALAC → Ogg Vorbis q6 or Opus 160, tags and cover
+  along; Move sends originals to the Recycle Bin once each copy is checked), and **Make Music Smaller…** for the
+  songs already on your server (originals set aside as "….shelf-original" until Free Up Space; Undo).
+- **Warmer, matching colours**: a new amber app icon (instead of blue) and a matching "Opening Shelf…" picture;
+  switches, "Sure" badges and Check Episodes' markers in a warm sage instead of a cool green; shows and albums
+  without a picture get warm colours; the download page matches the app.
+- **The server windows look like the rest of Shelf**: serif titles, quiet icon tiles, plain-text names, buttons
+  that stay in sight however long the list, and windows that never run past the bottom of Shelf's window.
+- **Music on your server**: a Music folder in Server Settings (found from Plex's music library), Send to Plex puts
+  songs and their album's cover.jpg there, and Plex rescans.
+
 ## Done (2.2.3)
 - **Check Episodes, redesigned**: the picture takes all the room the controls leave (Save and Cancel moved
   beside the parts), the controls say what they do (1 s · Frame · Play · Frame · 1 s, Show All), and the

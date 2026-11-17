@@ -66,6 +66,20 @@ contextBridge.exposeInMainWorld('shelfNative', {
   closeSplit: (token, endBatch) => ipcRenderer.invoke('shelf:closeSplit', token, endBatch),
   splitSuggest: (token, hints) => ipcRenderer.invoke('shelf:splitSuggest', token, hints),
   splitAround: (token, t) => ipcRenderer.invoke('shelf:splitAround', token, t),
+  // Music: the tags in files you added, and MusicBrainz / Cover Art Archive lookups (through Shelf, which says
+  // who it is and keeps to MusicBrainz's one-request-a-second rule).
+  musicTags: (paths) => ipcRenderer.invoke('shelf:musicTags', Array.isArray(paths) ? paths.map(String) : []),
+  musicFileCover: (p) => ipcRenderer.invoke('shelf:musicFileCover', String(p || '')),
+  mbRelease: (id) => ipcRenderer.invoke('shelf:mbRelease', String(id || '')),
+  mbSearch: (s) => ipcRenderer.invoke('shelf:mbSearch', { album: String((s && s.album) || ''), artist: String((s && s.artist) || '') }),
+  mbGroup: (id) => ipcRenderer.invoke('shelf:mbGroup', String(id || '')),
+  mbGroups: (s) => ipcRenderer.invoke('shelf:mbGroups', { album: String((s && s.album) || ''), artist: String((s && s.artist) || ''), year: Number(s && s.year) || 0 }),
+  mbRecordings: (s) => ipcRenderer.invoke('shelf:mbRecordings', { title: String((s && s.title) || ''), artist: String((s && s.artist) || '') }),
+  mbCover: (releaseId, groupId, size) => ipcRenderer.invoke('shelf:mbCover', String(releaseId || ''), String(groupId || ''), Number(size) || 250),
+  musicForget: () => ipcRenderer.invoke('shelf:musicForget'),
+  // Songs recognised by their sound: only fingerprints (codes made from the sound, on this PC) go to AcoustID.
+  musicSound: (paths) => ipcRenderer.invoke('shelf:musicSound', Array.isArray(paths) ? paths.map(String) : []),
+  musicSoundReady: () => ipcRenderer.invoke('shelf:musicSoundReady').then((x) => x === true),
   readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
@@ -114,12 +128,17 @@ contextBridge.exposeInMainWorld('shelfNative', {
   plexSetAside: (paths) => ipcRenderer.invoke('shelf:plexSetAside', Array.isArray(paths) ? paths.map(String) : []),
   plexSpareList: () => ipcRenderer.invoke('shelf:plexSpareList'),
   plexSpareDelete: (paths) => ipcRenderer.invoke('shelf:plexSpareDelete', Array.isArray(paths) ? paths.map(String) : []),
+  // Make Music Smaller: lossless songs on the server → Ogg Vorbis / Opus next to them (originals kept aside).
+  plexShrinkList: () => ipcRenderer.invoke('shelf:plexShrinkList'),
+  plexShrink: (paths, format) => ipcRenderer.invoke('shelf:plexShrink', Array.isArray(paths) ? paths.map(String) : [], format === 'opus' ? 'opus' : 'vorbis'),
+  plexShrinkStop: () => ipcRenderer.invoke('shelf:plexShrinkStop'),
   // What Fix My Plex Library is doing right now: { stage: 'connect' | 'plex' | 'walk' | 'done', … numbers }.
   onFixProgress: (fn) => {
     const listener = (e, m) => fn({
       stage: String((m && m.stage) || ''), lib: String((m && m.lib) || ''), index: Number(m && m.index) || 0, of: Number(m && m.of) || 0,
       done: Number(m && m.done) || 0, total: Number(m && m.total) || 0, folders: Number(m && m.folders) || 0, files: Number(m && m.files) || 0,
-      picked: Number(m && m.picked) || 0, stopped: !!(m && m.stopped)
+      picked: Number(m && m.picked) || 0, stopped: !!(m && m.stopped),
+      step: String((m && m.step) || ''), frac: Number(m && m.frac) || 0, file: String((m && m.file) || '')
     });
     ipcRenderer.on('shelf:fixProgress', listener);
     return () => ipcRenderer.removeListener('shelf:fixProgress', listener);

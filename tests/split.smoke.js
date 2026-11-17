@@ -218,7 +218,9 @@ function fakeSingle(file) {
   }
 
   // Save → rename → two files; undo
-  await win.click('#edSave'); await sleep(400);
+  await win.click('#edSave');
+  // (The details redraw once the new names are worked out: wait for it rather than a fixed moment.)
+  for (let i = 0; i < 50 && !/Will be split/.test(await win.textContent('#inspEpLabel')); i++) await sleep(100);
   assert.match(await win.textContent('#inspEpLabel'), /Will be split into 2 files/);
   await win.click('#renameBtn');
   await win.click('#pickLib'); await sleep(300);

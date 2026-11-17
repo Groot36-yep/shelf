@@ -5,3 +5,4 @@ dist/
 *.ps1
 .env
 *.key
+build/bin/

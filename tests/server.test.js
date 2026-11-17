@@ -25,6 +25,10 @@ test('files go only into the folder you chose for their kind', () => {
   assert.strictEqual(S.remoteFor('TV Shows/../../etc/passwd', roots), null);
   assert.strictEqual(S.remoteFor('TV Shows/Lost/../../../x', roots), null);
   assert.strictEqual(S.remoteFor('Other/x.mkv', roots), null);
+  // Music goes to the Music folder (and nowhere without one).
+  assert.strictEqual(S.remoteFor('Music/ABBA/Gold (1992)/01 - Dancing Queen.ogg', Object.assign({ music: '/srv/media/Music' }, roots)), '/srv/media/Music/ABBA/Gold (1992)/01 - Dancing Queen.ogg');
+  assert.strictEqual(S.remoteFor('Music/ABBA/x.ogg', roots), null);
+  assert.strictEqual(S.remoteFor('Music/../TV/x.ogg', { music: '/srv/media/Music' }), null);
   assert.strictEqual(S.remoteFor('Movies/x.mkv', { movies: 'relative/path' }), null);
   assert.strictEqual(S.remoteFor('Movies/a\nb.mkv', roots), null);
   assert.strictEqual(S.remoteFor('Movies', roots), null);

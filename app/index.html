@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Privacy & security: the page may only talk to TMDB, TheTVDB and TVmaze, load nothing from anywhere else,
-     run no inline or third-party code, and never tell other sites where you came from. -->
+     run no inline or third-party code, and never tell other sites where you came from. (MusicBrainz and its
+     covers are asked through Shelf itself, desktop/musicbrainz.js, never by the page.) -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: shelf-media: https://image.tmdb.org https://static.tvmaze.com https://artworks.thetvdb.com; media-src shelf-media:; connect-src https://api.themoviedb.org https://api.tvmaze.com https://api4.thetvdb.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Shelf — Plex file organizer</title>
@@ -23,7 +24,7 @@
     <div class="brand"><img class="app-icon" src="assets/icon.svg" alt="" width="26" height="26"><span class="wordmark">Shelf</span></div>
     <label class="find" id="findBox" hidden>
       <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-      <input id="findInput" type="search" placeholder="Find a file or show" autocomplete="off" spellcheck="false" aria-label="Find a file or show">
+      <input id="findInput" type="search" placeholder="Find a file, show or song" autocomplete="off" spellcheck="false" aria-label="Find a file, show or song">
     </label>
     <div class="segmented filter" role="group" aria-label="Show" id="filterSeg" hidden>
       <button type="button" data-filter="all" aria-pressed="true">All <span class="count" id="allCount">0</span></button>
@@ -53,6 +54,7 @@
     <button type="button" role="menuitem" data-open="settings"><span>Settings</span><kbd>Ctrl+,</kbd></button>
     <button type="button" role="menuitem" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there"><span>Fix My Plex Library…</span></button>
     <button type="button" role="menuitem" id="spaceBtn" hidden title="Delete the files Shelf set aside on your Plex server (originals of split videos, duplicate episodes) to get the space back"><span>Free Up Space on Server…</span></button>
+    <button type="button" role="menuitem" id="shrinkBtn" hidden title="Find FLAC and other lossless songs in your Plex music folder and make them about a sixth of the size (Ogg Vorbis), sounding the same"><span>Make Music Smaller…</span></button>
     <button type="button" role="menuitem" id="dupesBtn" hidden title="Find episodes that are in more than one file on your Plex server (one file and separate files, or two copies), and keep one of each"><span>Find Duplicate Episodes…</span></button>
     <button type="button" role="menuitem" id="updatesNav" title="Check for a newer version of Shelf (only when you click)"><span>Check for Updates</span><span class="update-dot" id="updateDot" hidden></span></button>
     <span class="menu-sep" role="separator"></span>
@@ -70,8 +72,8 @@
         <span class="card c1"></span><span class="card c2"></span>
         <span class="card c3"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></span>
       </div>
-      <h2>Add your movies and TV episodes</h2>
-      <p>Shelf works out what each file is and gives it the exact name and folder Plex expects. Messy file names are fine.</p>
+      <h2>Add your movies, shows and music</h2>
+      <p>Shelf works out what each file is, from a movie to an album’s edition, and gives it the exact name and folder Plex expects. Messy file names are fine.</p>
       <div class="drop-actions">
         <button class="btn btn-primary" type="button" id="chooseFiles" title="Ctrl+O">Choose Files…</button>
         <button class="btn" type="button" id="chooseFolder" title="Ctrl+Shift+O">Choose a Folder…</button>
@@ -84,7 +86,7 @@
       <!-- The one thing that needs you right now, as a plain question with its answers (keys 1–4). -->
       <div class="needs" id="needs" hidden></div>
       <div class="list-head" aria-hidden="true">
-        <span>Episode</span><span>Becomes</span><span>Known by</span><span>Your file</span>
+        <span id="listHeadFirst">Episode</span><span>Becomes</span><span>Known by</span><span>Your file</span>
       </div>
       <div class="list" id="list" role="listbox" aria-label="Files" tabindex="0"></div>
       <!-- Live title-card reader: shows the frame Shelf is reading right now (kept in memory only). -->
@@ -164,6 +166,8 @@
         </div>
       </section>
       <p class="insp-note" id="inspNote" hidden></p>
+      <!-- A song: the album edition it's on, and its tags now → after (see musicui.js). -->
+      <div class="insp-music" id="inspMusic" hidden></div>
       <div class="insp-section" id="inspCandWrap" hidden>
         <span class="section-label">Is this the right one?</span>
         <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
@@ -250,7 +254,11 @@
         <span>Your Plex library folder<br><small class="muted mono-small" id="libPath">Not chosen yet</small></span>
         <button class="pill" type="button" id="pickLib">Choose…</button>
       </div>
-      <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, inside this folder.</p>
+      <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, songs in <b>Music</b>, inside this folder.</p>
+      <label class="row" id="renameShrinkRow" hidden>
+        <span><span id="renameShrinkLabel">Make lossless songs smaller</span><br><small class="muted" id="renameShrinkHelp"></small></span>
+        <input type="checkbox" class="switch" id="renameShrink">
+      </label>
       <label class="row" id="renameSendRow" hidden>
         <span>Then send them to Plex<br><small class="muted" id="renameSendHelp">Straight to your server, checked, in the right folders</small></span>
         <input type="checkbox" class="switch" id="renameSend">
@@ -349,6 +357,40 @@
         <input type="checkbox" class="switch" id="optShowYear">
       </label>
     </div>
+    <span class="section-label">Music</span>
+    <div class="group">
+      <div class="row stack">
+        <label for="optCover">Album covers (from the Cover Art Archive)</label>
+        <select id="optCover" class="text">
+          <option value="both">In each song and as cover.jpg in the album folder</option>
+          <option value="embed">In each song only</option>
+          <option value="folder">As cover.jpg in the album folder only</option>
+          <option value="none">Leave covers as they are</option>
+        </select>
+        <span class="row-help">Plex shows either; music players on phones usually read the one inside each song.</span>
+      </div>
+      <div class="row stack">
+        <label for="optShrinkFormat">Making lossless songs smaller (FLAC, WAV, AIFF, ALAC)</label>
+        <select id="optShrinkFormat" class="text">
+          <option value="vorbis">Ogg Vorbis, quality 6 (about 190 kbps): plays on almost everything</option>
+          <option value="opus">Opus, 160 kbps: the smallest, a few older devices make Plex convert it</option>
+        </select>
+        <span class="row-help">Both sound the same as the original to practically everyone, at about a sixth of the size. Offered in Rename Now.</span>
+      </div>
+      <label class="row">
+        <span>Add the year to album folders<br><small class="muted">Music / ABBA / Gold - Greatest Hits (1992) — keeps editions and same-named albums apart</small></span>
+        <input type="checkbox" class="switch" id="optMusicYear">
+      </label>
+      <div class="row stack">
+        <label for="acoustInput">Recognise songs by their sound: your free AcoustID key</label>
+        <input id="acoustInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From acoustid.org → Sign in → Your API key">
+        <span class="row-help" id="acoustStatus">For songs with no useful tags or names. Shelf listens to them on this PC and sends only a code made from the sound (and its length) to AcoustID.</span>
+      </div>
+      <label class="row">
+        <span>Write genres<br><small class="muted">From MusicBrainz’s most-voted genres (up to three). Off: the genres your files have stay.</small></span>
+        <input type="checkbox" class="switch" id="optGenres">
+      </label>
+    </div>
     <span class="section-label">Reading title cards</span>
     <div class="group">
       <div class="row stack">
@@ -377,13 +419,13 @@
     </div>
     <span class="section-label">Stays on your computer, always</span>
     <div class="group">
-      <div class="fact"><span>Your video files</span><span>Never uploaded (only sent to your own Plex server, if you choose)</span></div>
+      <div class="fact"><span>Your video and music files</span><span>Never uploaded (only sent to your own Plex server, if you choose)</span></div>
       <div class="fact"><span>Original file names and folders</span><span>Never sent</span></div>
       <div class="fact"><span>Your file list</span><span>Gone when you close Shelf</span></div>
       <div class="fact"><span>Undo history</span><span>Where your last 50 renames came from, so Undo can put them back. Erase it below</span></div>
-      <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB or TVmaze answered, kept up to 30 days</span></div>
+      <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB, TVmaze or MusicBrainz answered, kept up to 30 days</span></div>
 <div class="fact"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
-      <div class="fact"><span>Your TMDB and TheTVDB keys</span><span>Encrypted with your computer account</span></div>
+      <div class="fact"><span>Your TMDB, TheTVDB and AcoustID keys</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Your Plex server login</span><span>Shelf’s own key, encrypted. Your password isn’t kept</span></div>
     </div>
     <span class="section-label">The only things that leave</span>
@@ -391,9 +433,12 @@
       <div class="fact"><span>Movie title + year</span><span>to TMDB</span></div>
       <div class="fact"><span>Show title</span><span>to TMDB, TheTVDB or TVmaze (the order you chose)</span></div>
       <div class="fact"><span>Posters (optional)</span><span>from TMDB / TVmaze</span></div>
+      <div class="fact"><span>Album title + artist, song title</span><span>to MusicBrainz (and edition ids, to look them up)</span></div>
+      <div class="fact"><span>Album covers</span><span>from the Cover Art Archive</span></div>
+      <div class="fact"><span>A code made from a song’s sound + its length</span><span>to AcoustID, only for songs it can’t find by name, and only with your key</span></div>
       <div class="fact"><span>Files you send to Plex</span><span>Only to your own server, encrypted (SSH)</span></div>
     </div>
-    <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB and TVmaze can see your internet address when Shelf asks them something.</p>
+    <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB, TVmaze and MusicBrainz can see your internet address when Shelf asks them something.</p>
     <span class="section-label">Never</span>
     <div class="group">
       <div class="fact"><span>Accounts, cookies, tracking or analytics</span><span>None</span></div>
@@ -535,8 +580,9 @@
       <div class="group">
         <div class="row"><span>Movies<br><small class="muted mono-small" id="svMovies">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="movies">Choose…</button></div>
         <div class="row"><span>TV Shows<br><small class="muted mono-small" id="svTv">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="tv">Choose…</button></div>
+        <div class="row"><span>Music<br><small class="muted mono-small" id="svMusic">Choose a folder</small></span><button class="pill small-pill" type="button" data-pick="music">Choose…</button></div>
       </div>
-      <p class="row-help flush" id="svFolderHelp">Pick the folders your Plex libraries use. Shelf keeps the same Show / Season layout inside them.</p>
+      <p class="row-help flush" id="svFolderHelp">Pick the folders your Plex libraries use. Inside them Shelf files things the Plex way: Show / Season, Artist / Album.</p>
       <span class="section-label">Plex</span>
       <div class="group">
         <div class="row" id="svPlexRow"><span id="svPlexText">Not connected<br><small class="muted">Optional: lets Shelf find your folders and tell Plex about new files right away</small></span><button class="pill small-pill" type="button" id="svPlexFind">Connect</button></div>
@@ -640,6 +686,32 @@
   </form>
 </dialog>
 
+<!-- Make music smaller: lossless songs on your server → Ogg Vorbis / Opus next to them, originals set aside. -->
+<dialog class="sheet dupes" id="shrinkSheet" aria-labelledby="shTitle">
+  <form method="dialog">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></span>
+      <div>
+        <h2 id="shTitle">Make your music smaller</h2>
+        <p id="shLead"></p>
+      </div>
+    </div>
+    <div class="dp-pref">
+      <span>Into</span>
+      <div class="segmented small" role="group" aria-label="Smaller format" id="shFormat">
+        <button type="button" data-format="vorbis" aria-pressed="true">Ogg Vorbis</button>
+        <button type="button" data-format="opus" aria-pressed="false">Opus (smallest)</button>
+      </div>
+    </div>
+    <div class="dp-list" id="shList"></div>
+    <p class="row-help flush" id="shHelp">Each song is copied to this PC, made smaller with all its tags and its cover, sent back next to the original and checked. The original is then set aside (renamed to “….shelf-original”, which Plex ignores): Undo puts it back, and Free Up Space deletes it once you’re happy.</p>
+    <div class="sheet-actions">
+      <button class="pill" type="submit" value="cancel">Cancel</button>
+      <button class="pill pill-primary" type="button" id="shGo">Make Smaller</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Free up space: the files Shelf set aside on your server, deleted for good once you confirm. -->
 <dialog class="sheet dupes" id="spaceSheet" aria-labelledby="spTitle">
   <form method="dialog">
@@ -655,6 +727,46 @@
     <div class="sheet-actions">
       <button class="pill" type="submit" value="cancel">Cancel</button>
       <button class="pill danger-fill" type="button" id="spGo">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Music: every edition of an album (years, countries, CD or digital, bonus tracks), to pick the one your files are. -->
+<dialog class="sheet music-sheet" id="editionSheet" aria-labelledby="mxTitle">
+  <form method="dialog">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3.5v3"/></svg></span>
+      <div>
+        <h2 id="mxTitle">Which edition are your songs?</h2>
+        <p id="mxAlbum"></p>
+      </div>
+    </div>
+    <p class="row-help flush" id="mxHelp"></p>
+    <div class="mx-options" id="mxEditions" role="radiogroup" aria-labelledby="mxTitle"></div>
+    <div class="sheet-actions">
+      <button class="pill" type="submit" value="cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Music: not this album? Search MusicBrainz. -->
+<dialog class="sheet music-sheet" id="albumSearchSheet" aria-labelledby="asTitle">
+  <form id="albumSearchForm">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></span>
+      <div>
+        <h2 id="asTitle">Find the album</h2>
+        <p>Search MusicBrainz by the album’s title and artist.</p>
+      </div>
+    </div>
+    <div class="as-fields">
+      <label><span>Album</span><input class="text" id="albumQuery" type="search" autocomplete="off" spellcheck="false" required></label>
+      <label><span>Artist</span><input class="text" id="artistQuery" type="search" autocomplete="off" spellcheck="false" placeholder="Optional"></label>
+      <button class="pill pill-primary" type="submit">Search</button>
+    </div>
+    <div class="mx-options" id="albumResults"></div>
+    <div class="sheet-actions">
+      <button class="pill" type="button" id="asCancel">Cancel</button>
     </div>
   </form>
 </dialog>
@@ -847,6 +959,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="js/parser.js"></script>
+<script src="js/music.js"></script>
+<script src="js/musicui.js"></script>
 <script src="js/remember.js"></script>
 <script src="js/sources.js"></script>
 <script src="js/editor.js"></script>

@@ -17,10 +17,10 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const S = require('./server');
-const { VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
+const { VIDEO_EXT, SUB_EXT, AUDIO_EXT, LYRICS_EXT } = require('../app/js/parser.js');
 
-const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT));
-const TOPS = ['Movies', 'TV Shows'];
+const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT, AUDIO_EXT, LYRICS_EXT, ['jpg'])); // (jpg: an album's cover.jpg)
+const TOPS = ['Movies', 'TV Shows', 'Music'];
 const SECRET_FILES = { password: 'server-pass.bin', key: 'server-key.bin', plex: 'plex-token.bin' };
 
 function setup(ctx) {
@@ -57,7 +57,7 @@ function setup(ctx) {
       set: !!(c && c.host && c.fingerprint),
       host: c ? c.host : '', port: c ? c.port : 22, user: c ? c.user : '', fingerprint: c ? c.fingerprint : '', keyType: c ? c.keyType || '' : '',
       auth: c ? c.auth : '', hasLogin: !!(c && (c.auth === 'key' ? getSecret('key') : getSecret('password'))),
-      movies: (c && c.movies) || '', tv: (c && c.tv) || '',
+      movies: (c && c.movies) || '', tv: (c && c.tv) || '', music: (c && c.music) || '',
       plex: { token: !!getSecret('plex'), libraries: (c && c.libraries) || [] },
       options: options(c), locked: canLock(), library: readPrefs().library || '',
       sending: queue.snapshot()
@@ -174,7 +174,7 @@ function setup(ctx) {
         try { c.libraries = await S.plexLibraries(s, token); } catch (e) { c.libraries = c.libraries || []; }
       }
       // Pick the folders for you when Plex says where they are (and your account can save there).
-      for (const kind of ['movies', 'tv']) {
+      for (const kind of ['movies', 'tv', 'music']) {
         if (c[kind]) continue;
         const lib = (c.libraries || []).find((l) => l.kind === kind && l.folders.length);
         if (lib && await s.writable(lib.folders[0])) c[kind] = lib.folders[0];
@@ -215,7 +215,7 @@ function setup(ctx) {
     return full;
   }));
   handle('shelf:serverFolder', async (kind, where) => {
-    if (kind !== 'movies' && kind !== 'tv') throw new Error('Bad folder');
+    if (kind !== 'movies' && kind !== 'tv' && kind !== 'music') throw new Error('Bad folder');
     const at = S.cleanRoot(where);
     if (!at) throw S.problem('FOLDER', 'Pick a folder on the server.');
     const ok = await withSession((s) => s.writable(at));
@@ -290,7 +290,8 @@ function setup(ctx) {
       if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
       const parts = rel.split(path.sep);
       if (!TOPS.includes(parts[0]) || parts.some((x) => x.startsWith('.'))) return;
-      if (!WANTED.has(path.extname(real).slice(1).toLowerCase())) return;
+      const ext = path.extname(real).slice(1).toLowerCase();
+      if (!WANTED.has(ext) || (ext === 'jpg' && !(parts[0] === 'Music' && path.basename(real) === 'cover.jpg'))) return;
       const st = await fsp.lstat(real).catch(() => null);
       if (!st || !st.isFile()) return;
       if (!out.some((o) => o.local === real)) out.push({ local: real, rel: parts.join('/'), size: st.size });
@@ -315,7 +316,7 @@ function setup(ctx) {
   }
   function withRemote(list) {
     const c = cfg() || {};
-    return list.map((f) => Object.assign({}, f, { remote: S.remoteFor(f.rel, { movies: c.movies, tv: c.tv }), kind: f.rel.startsWith('Movies/') ? 'movies' : 'tv' }));
+    return list.map((f) => Object.assign({}, f, { remote: S.remoteFor(f.rel, { movies: c.movies, tv: c.tv, music: c.music }), kind: f.rel.startsWith('Movies/') ? 'movies' : f.rel.startsWith('Music/') ? 'music' : 'tv' }));
   }
 
   /** A look before sending: what's new, what's already there, what's different, and is there room. */
@@ -335,7 +336,7 @@ function setup(ctx) {
         if (part && part.size <= f.size) { plan.partial++; plan.bytes += f.size - part.size; } else plan.bytes += f.size;
       }
       const c = cfg();
-      const frees = await Promise.all([c.movies, c.tv].filter(Boolean).map((r) => s.free(r)));
+      const frees = await Promise.all([c.movies, c.tv, c.music].filter(Boolean).map((r) => s.free(r)));
       const known = frees.filter((x) => x != null);
       if (known.length) { plan.free = Math.min(...known); plan.room = plan.free > plan.bytes + 256 * 1024 * 1024; }
     });

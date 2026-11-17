@@ -7,6 +7,9 @@
 
   var VIDEO_EXT = ['mkv', 'mp4', 'm4v', 'avi', 'mov', 'wmv', 'mpg', 'mpeg', 'ts', 'm2ts', 'webm', 'flv', 'divx', 'ogm'];
   var SUB_EXT = ['srt', 'ass', 'ssa', 'sub', 'idx', 'vtt', 'smi'];
+  // Music (see music.js), and the synced lyrics that sit next to songs.
+  var AUDIO_EXT = ['mp3', 'flac', 'm4a', 'aac', 'alac', 'ogg', 'oga', 'opus', 'wma', 'wav', 'aif', 'aiff', 'ape', 'wv', 'mpc', 'dsf'];
+  var LYRICS_EXT = ['lrc'];
 
   // Words that show up in release names but are never part of a title.
   var JUNK = [
@@ -224,7 +227,8 @@
       kind: 'unknown', title: '', year: null, season: null, episode: null, episodeEnd: null, episodeTitle: '',
       airdate: null, country: null, resolution: null, source: null, hdr: null,
       ext: ext, isSubtitle: isSubtitle, lang: lang, subFlags: subFlags,
-      isVideo: VIDEO_EXT.indexOf(ext) >= 0
+      isVideo: VIDEO_EXT.indexOf(ext) >= 0,
+      isAudio: AUDIO_EXT.indexOf(ext) >= 0, isLyrics: LYRICS_EXT.indexOf(ext) >= 0
     };
     // Quality words are only read from the part AFTER the title, so a film called "Web" stays a title.
     function setQuality(tail) {
@@ -1269,7 +1273,9 @@
     safeName: safeName,
     subtitleStem: function (base) { return peelSubtitle(String(base || '')).base; },
     VIDEO_EXT: VIDEO_EXT,
-    SUB_EXT: SUB_EXT
+    SUB_EXT: SUB_EXT,
+    AUDIO_EXT: AUDIO_EXT,
+    LYRICS_EXT: LYRICS_EXT
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ShelfParser = api;

@@ -28,6 +28,11 @@
     tvdbKey: '', tvdbPin: '',
     posters: load('posters', true),
     mode: load('mode', 'move'),
+    // Music: the cover picture (embed | folder | both | none), the year in album folders, genres, which editions to prefer.
+    musicCover: load('musicCover', 'both'), musicYear: load('musicYear', true), musicGenres: load('musicGenres', false),
+    musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
+    // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
+    musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
 
@@ -42,7 +47,7 @@
 
   function saveKey(key, name) {
     name = name || 'tmdb';
-    if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else settings.tvdbPin = key;
+    if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else if (name === 'acoustid') settings.acoustKey = key; else settings.tvdbPin = key;
     native.setKey(name, key).then(function (stored) {
       if (!stored && key) toast('Your computer’s secure storage isn’t available, so the key is kept only until you close Shelf.');
     });
@@ -53,6 +58,14 @@
   var selectedId = null;
   var filter = 'all';
   var nextId = 1;
+  // Songs and albums (musicui.js). It calls back into this window for what it shares with videos.
+  var music = window.ShelfMusicUI.create({
+    native: native, settings: settings,
+    el: function () { return el.apply(null, arguments); }, $: function (id) { return $(id); },
+    items: function () { return items; }, itemById: function (id) { return itemById(id); },
+    render: function () { render(); }, scheduleRender: function () { scheduleRender(); },
+    toast: function (m) { toast(m); }, select: function (id) { select(id); openDrawer(); }
+  });
 
   var SAMPLES = [
     'charade.1963.1080p.bluray.x264-GRP.mkv',
@@ -92,7 +105,7 @@
     var w = (s || '?').replace(/^(the|a|an)\s+/i, '').split(/\s+/).filter(Boolean);
     return ((w[0] || '?')[0] + (w[1] ? w[1][0] : '')).toUpperCase();
   }
-  var TINTS = ['#FFB27A', '#C9B8FF', '#B8C2CE', '#F5D58A', '#9CC7FF', '#A8E0C0', '#F4A9B8'];
+  var TINTS = ['#F0C27E', '#E7A27C', '#D9C29C', '#C3C98F', '#E3B49A', '#D8B57E', '#B9C29A'];
   function tintFor(s) { var h = 0; for (var i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return TINTS[Math.abs(h) % TINTS.length]; }
   var shownPosters = {};
   function posterNode(cls, url, label) {
@@ -166,12 +179,13 @@
   function makeItem(name, relPath, size, fullPath, parents) {
     var folders = Array.isArray(parents) ? parents.map(String) : String(relPath || '').split('/').slice(0, -1);
     var parsed = P.parsePath(name, folders);
-    var ok = parsed.isVideo || parsed.isSubtitle;
+    var music = parsed.isAudio || parsed.isLyrics; // songs (and their lyrics): see musicui.js
+    var ok = parsed.isVideo || parsed.isSubtitle || music;
     return {
       id: nextId++, name: name, relPath: relPath || name, size: size || 0, parsed: parsed, fullPath: fullPath || null,
-      kind: parsed.kind === 'episode' ? 'episode' : 'movie',
+      kind: music ? 'track' : parsed.kind === 'episode' ? 'episode' : 'movie',
       status: ok ? 'pending' : 'skipped',
-      error: ok ? '' : 'Not a video or subtitle file',
+      error: ok ? '' : 'Not a video, song or subtitle file',
       candidates: [], choice: 0, confirmed: false, episode: null
     };
   }
@@ -203,6 +217,7 @@
   }
 
   function plexFor(item) {
+    if (item.kind === 'track') return music.plexName(item);
     var m = matchFor(item);
     if (!m) return null;
     return P.plexName(item.parsed, m, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(item) });
@@ -260,7 +275,7 @@
   }
 
   function addFiles(list) {
-    var added = 0;
+    var added = 0, before = items.length;
     list.forEach(function (f) {
       if (/^\./.test(f.name) || /^(thumbs\.db|desktop\.ini)$/i.test(f.name)) return; // hidden/system files
       var keyOf = f.fullPath || f.remote || f.relPath;
@@ -275,6 +290,7 @@
     if (!selectedId && items.length) selectedId = items[0].id;
     render();
     matchAll();
+    music.add(items.slice(before));
     if (added) toast('Added ' + added + ' file' + (added === 1 ? '' : 's'));
   }
 
@@ -329,8 +345,9 @@
 
   function matchAll() {
     linkSubtitles();
-    items.filter(function (i) { return i.status === 'pending' && !linkedVideo(i); }).forEach(function (i) { matchItem(i); });
-    items.filter(function (i) { return linkedVideo(i); }).forEach(function (i) { followVideo(linkedVideo(i)); });
+    // (Songs are looked up a whole album at a time: musicui.js.)
+    items.filter(function (i) { return i.status === 'pending' && !linkedVideo(i) && i.kind !== 'track'; }).forEach(function (i) { matchItem(i); });
+    items.filter(function (i) { return linkedVideo(i) && i.kind !== 'track'; }).forEach(function (i) { followVideo(linkedVideo(i)); });
   }
 
   // "SpongeBob SquarePants - Reef Blower" (no episode number): is it an episode of that show?
@@ -547,7 +564,8 @@
 
   function retryFailed() {
     networkWarned = false;
-    items.forEach(function (i) { if (i.status === 'error' && !i.needsKey) i.status = 'pending'; });
+    items.forEach(function (i) { if (i.status === 'error' && !i.needsKey && i.kind !== 'track') i.status = 'pending'; });
+    music.retry();
     matchAll();
   }
 
@@ -620,7 +638,9 @@
       case 'pending': case 'matching': return el('span', { class: 'known wait' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Looking up']);
       case 'nomatch': return k('attn', ['Not found']);
       case 'skipped': return el('span', { class: 'known wait', text: 'Not a video' });
-      case 'error': return k(item.needsKey ? 'attn' : 'err', [item.needsKey ? 'Needs a key' : 'Couldn’t look up']);
+      case 'error':
+        if (item.kind === 'track' && !music.readable(item)) return k('err', ['Can’t open'], item.error);
+        return k(item.needsKey ? 'attn' : 'err', [item.needsKey ? 'Needs a key' : 'Couldn’t look up']);
       case 'done':
         return item.sendState === 'sent' ? k('done', ['On Plex'], 'Renamed and sent to your Plex server')
           : item.sendState === 'sending' ? el('span', { class: 'known scan' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Sending'])
@@ -630,6 +650,11 @@
           : k('done', ['Renamed']);
     }
     if (needsReview(item)) return k('attn', ['Needs you']);
+    if (item.kind === 'track') {
+      if (item.parsed.isLyrics) return k('', ['Its song'], 'Named to go with its song');
+      var mk = music.known(item);
+      return k(mk === 'You chose' ? 'you' : mk === 'MusicBrainz id' ? 'card' : '', [mk || 'Tags'], { 'MusicBrainz id': 'The MusicBrainz id in its tags names this exact recording', 'Tags': 'From its tags (title, track number) and its length', 'Song title': 'Found by its title and artist', 'Sound': 'Recognised by its sound (AcoustID)' }[mk] || '');
+    }
     if (splitOf(item)) return k('you', ['You split it']);
     if (item.parsed.isSubtitle && item.linkTo) return k('', ['Its video'], 'Named to go with its video');
     var how = v.kind === 'episode' ? (v.episode ? v.episode.how : '') : '';
@@ -644,9 +669,11 @@
   // A subtitle sits with its video; episodes in episode order.
   function videoOf(item) { return (item.linkTo && linkedVideo(item)) || item; }
   function shelfKey(item) {
+    if (item.kind === 'track') return music.shelfKey(item); // one shelf per album
     var v = videoOf(item), c = current(v);
     return v.kind === 'episode' ? 'tv:' + (c ? showIdKey(c) : showKey(v.parsed)) : 'movies';
   }
+  function isAlbum(key) { return key.indexOf('album:') === 0; }
   function epSort(item) {
     var v = videoOf(item), ep = v.episode;
     var sn = ep && ep.season != null ? ep.season : v.parsed.season != null ? v.parsed.season : 1;
@@ -657,10 +684,14 @@
   function shelves(list) {
     var map = {}, order = [];
     list.forEach(function (i) { var k = shelfKey(i); if (!map[k]) { map[k] = []; order.push(k); } map[k].push(i); });
-    order.sort(function (a, b) { return (a === 'movies') - (b === 'movies'); }); // shows first, then movies
+    // Shows first, then movies, then albums (by artist).
+    var rank = function (k) { return k === 'movies' ? 1 : isAlbum(k) ? 2 : 0; };
+    var artistOf = function (k) { return !isAlbum(k) ? '' : k.indexOf('album:?') === 0 ? '￿' + k : (music.shelfSub(k) + ' ' + music.shelfTitle(k)).toLowerCase(); }; // (unreadable / still reading: last)
+    order.sort(function (a, b) { return rank(a) - rank(b) || (rank(a) === 2 ? artistOf(a).localeCompare(artistOf(b)) : 0); });
     return order.map(function (k) {
       var its = map[k];
       if (k === 'movies') its.sort(function (a, b) { var ca = current(videoOf(a)), cb = current(videoOf(b)); return cmp([ca ? ca.title : a.parsed.title || a.name, a.parsed.isSubtitle ? 1 : 0], [cb ? cb.title : b.parsed.title || b.name, b.parsed.isSubtitle ? 1 : 0]); });
+      else if (isAlbum(k)) its.sort(function (a, b) { return cmp(music.sortKey(a), music.sortKey(b)); });
       else its.sort(function (a, b) { return cmp(epSort(a), epSort(b)); });
       return { key: k, items: its };
     });
@@ -668,6 +699,7 @@
   // What the list shows: the filter (All / Needs you), the show picked on the left, and what you typed in Find.
   var showFilter = 'all', findText = '';
   function findHay(i) {
+    if (i.kind === 'track') return (i.name + ' ' + i.relPath + ' ' + music.hay(i)).toLowerCase();
     var v = videoOf(i), c = current(v), ep = v.episode;
     return [i.name, i.relPath, c && c.title, ep && ep.name, ep && epCodeOf(ep)].filter(Boolean).join(' ').toLowerCase();
   }
@@ -696,6 +728,7 @@
   }
   // The row's first two columns: the episode (or year), and what it becomes.
   function rowParts(item) {
+    if (item.kind === 'track') return music.rowParts(item);
     var v = videoOf(item), c = current(v), m = rowMain(item);
     if (item.parsed.isSubtitle) {
       var flags = (item.parsed.subFlags || []).join(' ');
@@ -712,6 +745,7 @@
   }
   // Why a file needs you, in plain words (empty when it doesn't).
   function reasonFor(item) {
+    if (item.kind === 'track') return dupeIds[item.id] ? 'Another file would get the same name.' : music.reasonFor(item);
     if (item.status === 'error') return item.needsKey ? 'Movies need a free TMDB key: add one in Settings.' : 'Couldn’t look this up. Try Again in the top bar.';
     if (item.status === 'nomatch') return 'Couldn’t find it. Open it to search by name.';
     if (dupeIds[item.id]) return 'Another file would get the same name.';
@@ -726,14 +760,27 @@
     return 'Shelf isn’t sure about this one.';
   }
   function shelfTitle(sh) {
+    if (isAlbum(sh.key)) return music.shelfTitle(sh.key);
     var v = videoOf(sh.items[0]), c = current(v);
     return sh.key === 'movies' ? 'Movies' : c ? c.title : v.parsed.title || 'TV show';
   }
   function shelfPoster(sh, cls) {
+    if (isAlbum(sh.key)) return music.shelfCover(sh.key, cls);
     var v = videoOf(sh.items[0]), c = current(v);
     return sh.key === 'movies' ? el('div', { class: cls + ' movies', 'aria-hidden': 'true' }) : posterNode(cls, c && c.poster, shelfTitle(sh));
   }
+  // An album's heading: its cover, the artist, year, how many of its songs you have, the edition; and
+  // ways to pick another edition or search.
+  function albumHead(sh) {
+    var h = music.shelfHead(sh.key, sh.items), check = sh.items.filter(needsReview).length;
+    var meta = el('span', { class: 'shelf-meta' }, [h.bits.join(' · ')].concat(check ? [' · ', el('b', { text: check + (check === 1 ? ' needs you' : ' need you') })] : []));
+    var acts = el('div', { class: 'shelf-acts' }, h.actions.map(function (a) {
+      return el('button', { type: 'button', class: a.primary ? 'pill small-pill pill-primary' : 'link-btn', text: a.label, title: a.title || '', onclick: a.run });
+    }));
+    return el('div', { class: 'shelf-head album-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: shelfTitle(sh) }), meta, acts])]);
+  }
   function shelfHead(sh) {
+    if (isAlbum(sh.key)) return albumHead(sh);
     var first = sh.items[0], v = videoOf(first), c = current(v), tv = sh.key !== 'movies';
     var title = shelfTitle(sh);
     var n = sh.items.length, check = sh.items.filter(needsReview).length;
@@ -781,7 +828,8 @@
       return a ? a + (a === 1 ? ' needs you' : ' need you') : busy ? 'Looking up…' : its.length + (its.length === 1 ? ' file' : ' files');
     };
     var attnAll = items.filter(needsReview).length;
-    nav.replaceChildren.apply(nav, [el('span', { class: 'shows-k', text: 'Your shows' }),
+    var hasMusic = all.some(function (s) { return isAlbum(s.key); });
+    nav.replaceChildren.apply(nav, [el('span', { class: 'shows-k', text: hasMusic ? 'Your library' : 'Your shows' }),
       line('all', el('span', { class: 'show-swatch all', 'aria-hidden': 'true' }, [svgIcon(['M4 7h16', 'M4 12h16', 'M4 17h10'])]), 'All files', subFor(items), items.length, attnAll)]
       .concat(all.map(function (s) { return line(s.key, shelfPoster(s, 'show-swatch'), shelfTitle(s), subFor(s.items), s.items.length, s.items.filter(needsReview).length); })));
   }
@@ -827,6 +875,9 @@
     newThisRender = 0; doneThisRender = 0;
     var list = $('list');
     var shown = shownItems();
+    // The first column: episodes, tracks, or both.
+    var songs = shown.filter(function (i) { return i.kind === 'track'; }).length;
+    $('listHeadFirst').textContent = !songs ? 'Episode' : songs === shown.length ? 'Track' : 'Episode / Track';
     var keep = {};
     var groups = shelves(shown).map(function (sh) {
       var rows = sh.items.map(function (item) { keep[item.id] = 1; return rowNode(item); });
@@ -879,6 +930,7 @@
   var needsShownId = null, needsAnswers = [], needsOrder = [];
   function needsList() { return displayOrder().filter(function (i) { return needsReview(i) && !(i.parsed.isSubtitle && i.linkTo); }); }
   function questionFor(item) {
+    if (item.kind === 'track' && !dupeIds[item.id]) return music.question(item);
     var v = videoOf(item), c = current(v), name = c ? c.title : item.parsed.title || item.name;
     var drawer = function (focusSearch) { return function () { select(item.id); openDrawer(); if (focusSearch) setTimeout(function () { $('searchInput').focus(); }, 60); }; };
     if (dupeIds[item.id]) {
@@ -944,7 +996,8 @@
     };
     var thumb = el('div', { class: 'needs-thumb', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
     var card = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
-    if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) thumb.replaceChildren(el('img', { src: url, alt: '' })); });
+    if (item.kind === 'track') { var mc = music.coverUrl(item); if (mc) mc.then(function (url) { if (url) { thumb.classList.add('poster'); thumb.replaceChildren(el('img', { src: url, alt: '' })); } }); }
+    else if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) thumb.replaceChildren(el('img', { src: url, alt: '' })); });
     else if (current(v) && current(v).poster && settings.posters) {
       var warn = thumb.firstChild, pimg = el('img', { src: current(v).poster, alt: '', referrerpolicy: 'no-referrer' });
       pimg.addEventListener('error', function () { thumb.classList.remove('poster'); thumb.replaceChildren(warn); });
@@ -960,7 +1013,7 @@
         el('button', { type: 'button', 'aria-label': 'Next (N)', title: 'Next (N)', disabled: list.length < 2 ? 'disabled' : null, onclick: function () { go(1); } }, [svgIcon('M9 6l6 6-6 6')])
       ])
     ]);
-    var meta = [item.name, v.minutes ? Math.round(v.minutes) + ' min' : ''].filter(Boolean).join(' · ');
+    var meta = [item.kind === 'track' ? item.relPath.split('/').slice(-2).join(' / ') : item.name, v.minutes ? Math.round(v.minutes) + ' min' : ''].filter(Boolean).join(' · ');
     var changed = needsShownId !== item.id || box.hidden;
     box.replaceChildren(top, thumb, el('div', { class: 'needs-body' }, [el('div', { class: 'needs-q', text: q.title }), el('div', { class: 'needs-text', text: q.text }), el('div', { class: 'needs-file', text: meta, title: item.relPath })]), actions);
     paint();
@@ -1010,6 +1063,9 @@
     if (!item) drawerOpen = false;
     $('inspector').hidden = !item || !drawerOpen;
     if (!item || !drawerOpen) return;
+    var isTrack = item.kind === 'track';
+    $('inspMusic').hidden = !isTrack; $('searchForm').hidden = isTrack;
+    if (isTrack) { renderTrackInspector(item); return; }
     var c = current(item);
     var title = c ? c.title : (item.parsed.title || item.name);
 
@@ -1177,6 +1233,41 @@
     si.placeholder = item.parsed.title ? 'e.g. ' + item.parsed.title : 'Movie or show name';
   }
 
+  // A song (or its lyrics): the album it's on, its tags now → after, and its new name.
+  function renderTrackInspector(item) {
+    var s = item.parsed.isLyrics && linkedVideo(item) || item, info = music.facts(s);
+    var poster = $('inspPoster');
+    poster.textContent = ''; poster.removeAttribute('style');
+    poster.appendChild(music.shelfCover(shelfKey(s), 'insp-cover'));
+    $('inspTitle').textContent = info.title;
+    $('inspMeta').textContent = info.meta;
+    var errBox = $('inspError');
+    errBox.hidden = !(item.status === 'error' || item.status === 'nomatch') || !item.error;
+    errBox.textContent = item.error || '';
+    if (item.status === 'error' && s.music && s.music.tags && s.music.tags.ok) {
+      errBox.appendChild(document.createTextNode(' '));
+      errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Try Again', onclick: retryFailed }));
+    }
+    $('inspNote').hidden = true; $('inspEpWrap').hidden = true; $('inspCandWrap').hidden = true;
+    var issBox = $('inspIssue');
+    issBox.hidden = !dupeIds[item.id];
+    if (dupeIds[item.id]) {
+      issBox.className = 'insp-issue same';
+      $('issueTitle').textContent = 'Two files would get this name';
+      $('issueText').textContent = 'Another song would be named the same (the same track twice, maybe in two formats). Take one off the list, or pick another edition for the album.';
+      $('issueActions').replaceChildren(el('button', { type: 'button', class: 'pill small-pill pill-primary', text: 'Take This One Off the List', onclick: function () { $('removeBtn').click(); } }));
+    }
+    music.inspector(item, $('inspMusic'));
+    var facts = $('inspFacts');
+    facts.textContent = '';
+    info.facts.forEach(function (f) { facts.appendChild(el('div', { class: 'fact' }, [el('span', { text: f[0] }), typeof f[1] === 'string' ? el('span', { text: f[1] }) : f[1]])); });
+    facts.appendChild(el('div', { class: 'fact' }, [el('span', { text: 'Original' }), el('span', { style: 'font-family:var(--mono);font-size:11px;overflow-wrap:anywhere', text: item.relPath })]));
+    var plex = plexFor(item), crumbs = $('inspCrumbs');
+    crumbs.textContent = '';
+    if (plex) plex.folder.forEach(function (f, i) { if (i) crumbs.appendChild(el('span', { class: 'chev', text: '›' })); crumbs.appendChild(el('span', { class: 'folder', text: f })); });
+    $('inspFile').textContent = plex ? plex.file : item.status === 'matching' ? 'Looking it up…' : 'Pick an edition of the album to see the new name.';
+  }
+
   var renderQueued = false;
   function scheduleRender() {
     if (renderQueued) return;
@@ -1213,7 +1304,7 @@
     $('autoMode').disabled = scanning;
     $('autoMode').querySelector('.lbl').textContent = scanning ? 'Reading…' : 'Read Title Cards';
     $('autoMode').title = scanning ? 'Shelf is reading title cards right now' : 'Look at the title card inside each of your ' + tvVids.length + ' TV video' + (tvVids.length === 1 ? '' : 's') + ' to see which episodes it really holds. Shelf asks first.';
-    $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey; });
+    $('retryBtn').hidden = !items.some(function (i) { return i.status === 'error' && !i.needsKey && (i.kind !== 'track' || music.readable(i)); });
     $('allCount').textContent = items.length.toLocaleString();
     $('reviewCount').textContent = review.toLocaleString();
     $('reviewCount').classList.toggle('attn', review > 0);
@@ -1291,6 +1382,8 @@
       $('keyInput').value = settings.tmdbKey;
       $('optIds').checked = settings.movieIds;
       $('optShowYear').checked = settings.showYear;
+      $('acoustInput').value = settings.acoustKey || '';
+      $('optCover').value = settings.musicCover; $('optShrinkFormat').value = settings.musicShrinkFormat; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
       $('optOrder').value = settings.order;
@@ -1321,11 +1414,12 @@
     refreshDupes();
     var r = readyItems();
     var movies = r.filter(function (i) { return i.kind === 'movie'; }).length;
-    var eps = r.length - movies;
+    var songs = r.filter(function (i) { return i.kind === 'track'; }).length;
+    var eps = r.length - movies - songs;
     var waiting = items.filter(needsReview).length;
     $('renameTitle').textContent = 'Rename ' + r.length + ' item' + (r.length === 1 ? '' : 's') + '?';
     $('renameSummary').textContent =
-      [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') +
+      [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : '', songs ? songs + ' music file' + (songs === 1 ? '' : 's') : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '') +
       (function () {
         var sp = r.filter(function (i) { return i.split; }); // videos only (subtitles follow along)
@@ -1343,6 +1437,15 @@
       var cutThere = r.filter(function (i) { return i.remote && i.split; }).length;
       $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there, then Plex rescans.' +
         (cutThere ? ' ' + cutThere + ' of them will be split there: each is read over SSH, cut on this PC (no re-encoding), and its pieces sent back and checked. The originals are kept on the server.' : ' Nothing is copied.');
+    }
+    // Lossless songs: offer to make them smaller, with what it saves.
+    var sh = music.shrinkable(r);
+    $('renameShrinkRow').hidden = !sh.count;
+    if (sh.count) {
+      var fmt = settings.musicShrinkFormat === 'opus' ? 'Opus' : 'Ogg Vorbis';
+      $('renameShrink').checked = !!settings.musicShrink;
+      $('renameShrinkLabel').textContent = 'Make ' + sh.count + ' lossless song' + (sh.count === 1 ? '' : 's') + ' smaller (' + fmt + ')';
+      $('renameShrinkHelp').textContent = 'About ' + fmtSize(sh.before) + ' → ' + fmtSize(sh.after) + '. Sounds the same. ' + (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
     }
     native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('renameNow').disabled = !r.length || (!lib && local > 0); });
     canUndoAny().then(function (yes) { $('undoNow').hidden = !yes; });
@@ -1392,7 +1495,9 @@
           var names = pieceNames(i);
           return { source: i.fullPath, split: splitOf(i).pieces.map(function (pc, k) { return { start: pc.start, end: pc.end, folder: names[k].folder, file: names[k].file }; }) };
         }
-        var p = plexFor(i); return { source: i.fullPath, folder: p.folder, file: p.file };
+        var p = plexFor(i), op = { source: i.fullPath, folder: p.folder, file: p.file };
+        if (i.kind === 'track') { var mx = music.renameExtra(i); if (mx) op.music = mx; } // its new tags and cover
+        return op;
       });
       var btn = $('renameNow');
       btn.disabled = true;
@@ -1406,7 +1511,7 @@
           if (!item) return;
           if (r.ok && r.to) item.batch = r.batch || null; // which Rename Now this was, for Undo
           if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
-          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = ''; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
@@ -1470,10 +1575,11 @@
         $('undoBar').hidden = !r.more; // earlier renames can be put back too, one at a time
         if (r.nothing) { toast('Nothing to undo.'); return; }
         items.forEach(function (i) {
+          if (i.status === 'done' && !i.origRemote && (!r.batch || i.batch === r.batch) && i.trashedOriginal) { i.status = 'skipped'; i.error = 'The smaller copy was removed. The original is in the Recycle Bin: put it back from there.'; i.trashedOriginal = false; return; }
           if (i.status === 'done' && !i.origRemote && (!r.batch || i.batch === r.batch)) { i.status = 'matched'; i.fullPath = i.origPath || i.fullPath; i.newPath = null; if (window.ShelfSend) window.ShelfSend.forgetPaths(i.sendPaths); i.sendPaths = null; i.sendState = ''; }
         });
         $('renameSheet').close();
-        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.'));
+        toast('Put back ' + r.undone + ' file' + (r.undone === 1 ? '' : 's') + (r.kept ? '. Left ' + r.kept + ' alone that had changed since.' : '.') + (r.inTrash ? ' ' + r.inTrash + ' original song' + (r.inTrash === 1 ? ' is' : 's are') + ' in the Recycle Bin: put ' + (r.inTrash === 1 ? 'it' : 'them') + ' back from there.' : ''));
         render();
       });
     }
@@ -1496,7 +1602,7 @@
       v._frames = null;
     });
   }
-  on('clearBtn', 'click', function () { dropFrames(items); items = []; showChoices = {}; selectedId = null; filter = 'all'; findText = ''; $('findInput').value = ''; drawerOpen = false; render(); });
+  on('clearBtn', 'click', function () { dropFrames(items); items = []; music.clear(); showChoices = {}; selectedId = null; filter = 'all'; findText = ''; $('findInput').value = ''; drawerOpen = false; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
   // Taking a file off the list can be undone (Ctrl+Z) for half a minute: a stray Delete costs nothing.
   var lastRemoved = null;
@@ -1618,9 +1724,9 @@
     saveKey(''); $('keyInput').value = ''; $('keyStatus').textContent = 'Key removed from this computer.'; render();
   });
   on('forgetLookups', 'click', function () {
-    S.forgetRemembered().then(function () {
+    Promise.all([S.forgetRemembered(), native.musicForget()]).then(function () {
       episodeLists = {}; refreshed = {};
-      toast('Forgot every remembered lookup. Shows and movies will be looked up afresh.');
+      toast('Forgot every remembered lookup. Shows, movies and music will be looked up afresh.');
     });
   });
   on('eraseAll', 'click', function () {
@@ -1629,13 +1735,22 @@
     native.eraseAll().then(function () { if (window.ShelfSend) window.ShelfSend.refresh(); });
     dropFrames(items); items = []; selectedId = null; filter = 'all';
     settings.tmdbKey = ''; settings.movieIds = false; settings.showYear = false; settings.quality = false; settings.posters = true;
-    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
+    settings.tvdbKey = ''; settings.tvdbPin = ''; settings.acoustKey = ''; settings.order = 'tmdb'; settings.showIds = true; numbering = {}; episodeLists = {}; settings.mode = 'move';
     $('privacySheet').close();
     render();
     toast('Erased. Shelf has nothing stored on this computer.');
   });
   on('optIds', 'change', function (e) { settings.movieIds = e.target.checked; save('movieIds', settings.movieIds); render(); });
   on('optShowYear', 'change', function (e) { settings.showYear = e.target.checked; save('showYear', settings.showYear); render(); });
+  on('optCover', 'change', function (e) { settings.musicCover = e.target.value; save('musicCover', settings.musicCover); render(); });
+  on('optMusicYear', 'change', function (e) { settings.musicYear = e.target.checked; save('musicYear', settings.musicYear); render(); });
+  on('acoustInput', 'change', function (e) {
+    var k = e.target.value.trim(); saveKey(k, 'acoustid');
+    $('acoustStatus').textContent = k ? 'Saved. Songs Shelf can’t find by name are recognised by their sound.' : 'Key removed from this computer.';
+  });
+  on('optShrinkFormat', 'change', function (e) { settings.musicShrinkFormat = e.target.value === 'opus' ? 'opus' : 'vorbis'; save('musicShrinkFormat', settings.musicShrinkFormat); render(); });
+  on('renameShrink', 'change', function (e) { settings.musicShrink = e.target.checked; save('musicShrink', settings.musicShrink); render(); prepareRename(); });
+  on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
 
@@ -1952,6 +2067,7 @@
   native.getKey('tmdb').then(function (k) { settings.tmdbKey = k || ''; render(); });
   native.getKey('tvdb').then(function (k) { settings.tvdbKey = k || ''; render(); });
   native.getKey('tvdbPin').then(function (k) { settings.tvdbPin = k || ''; });
+  native.getKey('acoustid').then(function (k) { settings.acoustKey = k || ''; });
   native.version().then(function (v) { $('appVersion').textContent = 'Version ' + v; });
   // ---------- Updates (only when you click; see desktop/updates.js) ----------
   var up = { state: 'idle', info: null };
@@ -2506,5 +2622,5 @@
   }
   // After set-aside files were deleted, Undo may have nothing left to undo.
   function checkUndo() { canUndoAny().then(function (yes) { $('undoBar').hidden = !yes; render(); }); }
-  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged, checkUndo: checkUndo };
+  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged, checkUndo: checkUndo, music: music };
 })();

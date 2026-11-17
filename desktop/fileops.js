@@ -12,10 +12,12 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { safeName, VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
+const { safeName, VIDEO_EXT, SUB_EXT, AUDIO_EXT, LYRICS_EXT } = require('../app/js/parser.js');
 const subs = require('./subs.js');
+const tags = require('./tags.js');
+const convert = require('./convert.js');
 
-const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT));
+const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT, AUDIO_EXT, LYRICS_EXT));
 const MAX_FILES = 20000;
 
 function isWanted(name) {
@@ -205,7 +207,10 @@ async function run(ops, opts) {
       if (!Array.isArray(op.folder) || !op.folder.length || op.folder.length > 4) throw new Error('Bad destination');
       const dir = path.join(library, ...op.folder.map(safeName));
       const wantExt = path.extname(String(op.file));
-      if (!/^\.[A-Za-z0-9]{2,6}$/.test(wantExt) || wantExt.toLowerCase() !== path.extname(from).toLowerCase()) throw new Error('File type would change');
+      // A lossless song made smaller (FLAC → Ogg) is the only file whose type may change.
+      const shrink = op.music && convert.FORMATS[op.music.convert] && mode !== 'link' && convert.LOSSLESS_EXT.concat(['m4a']).includes(path.extname(from).slice(1).toLowerCase()) ? op.music.convert : null;
+      const okExt = shrink ? '.' + convert.FORMATS[shrink].ext : path.extname(from).toLowerCase();
+      if (!/^\.[A-Za-z0-9]{2,6}$/.test(wantExt) || wantExt.toLowerCase() !== okExt) throw new Error('File type would change');
       const fileName = safeName(String(op.file).slice(0, -wantExt.length)) + wantExt;
       const to = path.join(dir, fileName);
       if (!inside(library, to)) throw new Error('Destination is outside your library');
@@ -217,12 +222,24 @@ async function run(ops, opts) {
       if (!caseOnly && await exists(to)) { res.skipped = 'A file with this name already exists'; continue; }
       await checkInsideReal(dir, realLibrary);
       await fsp.mkdir(dir, { recursive: true });
+      // A song with new tags (and cover): see runTagged.
+      if (shrink) {
+        await runShrink(op, from, to, dir, shrink, mode, opts, res, journal);
+        if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
+        continue;
+      }
+      if (op.music && op.music.tags && mode !== 'link' && AUDIO_EXT.includes(path.extname(from).slice(1).toLowerCase())) {
+        await runTagged(op, from, to, dir, caseOnly, mode, opts, res, journal);
+        if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
+        continue;
+      }
       if (caseOnly) await renameCase(from, to);
       else if (mode === 'move') await moveNoOverwrite(from, to);
       else if (mode === 'copy') await copyNoOverwrite(from, to);
       else await fsp.link(from, to);
       res.ok = true;
       res.to = to;
+      if (op.music && mode === 'link') res.note = 'Hard-linked: the link and your original are one file, so its tags were left as they are.';
       journal.done.push(caseOnly ? { from, to, caseOnly: true } : { from, to });
       if (opts.journalPath) await writeJournal(opts.journalPath, journal); // saved as we go
     } catch (e) {
@@ -231,6 +248,96 @@ async function run(ops, opts) {
     if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
   }
   return { results, journal };
+}
+
+// Only these tag fields can come from the window (the cover never does: Shelf fetches it itself).
+function cleanTags(v) {
+  const out = {};
+  for (const k of tags.FIELDS) {
+    if (k === 'cover' || !(k in v)) continue;
+    const x = v[k];
+    if (Array.isArray(x)) out[k] = x.slice(0, 10).map((s) => String(s).slice(0, 300));
+    else if (typeof x === 'number') out[k] = Math.max(0, Math.min(9999, Math.floor(x) || 0));
+    else if (typeof x === 'boolean') out[k] = x;
+    else out[k] = String(x == null ? '' : x).slice(0, 500);
+  }
+  return out;
+}
+// Old covers (for Undo) are kept once each, next to the journal, instead of inside it.
+async function stashCover(journalPath, c) {
+  if (!c || !c.data || !journalPath) return null;
+  const buf = Buffer.from(c.data, 'base64'), id = require('crypto').createHash('sha1').update(buf).digest('hex');
+  const dir = journalPath + '.covers';
+  await fsp.mkdir(dir, { recursive: true });
+  if (!(await exists(path.join(dir, id)))) await fsp.writeFile(path.join(dir, id), buf);
+  return { mime: c.mime, ref: id };
+}
+/**
+ * A song: renamed like any file, and given its new tags and cover.
+ *  - copy: the copy is written with the new tags (your original is never touched).
+ *  - move: moved, then its tags changed (through a checked copy); the old values go in the journal for Undo.
+ * The album's cover picture can also be saved once as cover.jpg in the album folder.
+ */
+async function runTagged(op, from, to, dir, caseOnly, mode, opts, res, journal) {
+  const values = cleanTags(op.music.tags);
+  const want = op.music.cover && opts.coverFor ? op.music.cover : null;
+  let embed = null;
+  if (want && want.embed) embed = await opts.coverFor(want, 500).catch(() => null);
+  if (embed) values.cover = embed;
+  let rec;
+  if (mode === 'copy' && !caseOnly) {
+    await tags.writeTo(from, to, values);
+    const st = await fsp.stat(to);
+    rec = { from, to, tagged: 'copy', size: st.size };
+  } else {
+    if (caseOnly) await renameCase(from, to); else await moveNoOverwrite(from, to);
+    rec = caseOnly ? { from, to, caseOnly: true } : { from, to };
+    journal.done.push(rec);
+    if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+    try {
+      const old = await tags.writeTo(to, to, values);
+      if (old.cover !== undefined) old.cover = old.cover ? await stashCover(opts.journalPath, old.cover) : null;
+      rec.oldTags = old;
+    } catch (e) {
+      res.note = 'Renamed, but its tags couldn’t be changed (' + (e.message || e) + ').';
+    }
+  }
+  if (!journal.done.includes(rec)) journal.done.push(rec);
+  // The album's cover as a picture in its folder (once, never over one that's there).
+  if (want && want.folder) {
+    const pic = path.join(dir, 'cover.jpg');
+    if (!(await exists(pic))) {
+      const big = await opts.coverFor(want, 1200).catch(() => null);
+      if (big && /jpe?g/i.test(big.mime)) {
+        await fsp.writeFile(pic, big.data, { flag: 'wx' }).then(() => journal.done.push({ made: pic, size: big.data.length }), () => {});
+      }
+    }
+  }
+  if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+  res.ok = true; res.to = to; res.tagged = !res.note;
+}
+
+/**
+ * A lossless song made smaller (convert.js): the smaller copy is made (with every tag and the cover), given its
+ * new tags, and checked. Copy: your original stays. Move: your original goes to the Recycle Bin, only now.
+ */
+async function runShrink(op, from, to, dir, format, mode, opts, res, journal) {
+  await convert.toSmaller(from, to, format);
+  const rec = { from, to, converted: format };
+  try {
+    const values = op.music.tags ? cleanTags(op.music.tags) : {};
+    const want = op.music.cover && opts.coverFor ? op.music.cover : null;
+    if (want && want.embed) { const c = await opts.coverFor(want, 500).catch(() => null); if (c) values.cover = c; }
+    if (Object.keys(values).length) await tags.writeTo(to, to, values);
+  } catch (e) { res.note = 'Made smaller, but its new tags couldn’t be written (' + (e.message || e) + ').'; }
+  rec.size = (await fsp.stat(to)).size;
+  if (mode === 'move') {
+    if (opts.trash) { await opts.trash(from); rec.trashed = true; }
+    else rec.keptOriginal = true;
+  }
+  journal.done.push(rec);
+  if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+  res.ok = true; res.to = to; res.converted = format; res.trashed = !!rec.trashed;
 }
 
 /**
@@ -321,11 +428,40 @@ async function undo(journalPath) {
   const j = await readJournal(journalPath);
   if (!j || !Array.isArray(j.done) || !j.done.length) return { undone: 0, kept: 0, nothing: true, restored: [] };
   let undone = 0, kept = 0;
+  const inTrash = []; // originals of songs made smaller (Move): in the Recycle Bin
   const restored = [];
   for (const rec of j.done.slice().reverse()) {
     const { from, to } = rec;
     try {
+      if (rec.made) {
+        // A cover picture Shelf saved in an album folder: removed if it's still what Shelf wrote.
+        const st = inside(path.resolve(j.library), path.resolve(rec.made)) ? await fsp.stat(rec.made).catch(() => null) : null;
+        if (st && st.size === rec.size) await fsp.unlink(rec.made);
+        continue;
+      }
       if (!inside(path.resolve(j.library), path.resolve(to))) { kept++; continue; }
+      if (rec.converted) {
+        // A smaller copy Shelf made: removed if it's still what Shelf wrote. The original was never changed (with
+        // Move it went to the Recycle Bin, where it can be put back from).
+        const st = await fsp.stat(to).catch(() => null);
+        if (st && st.size === rec.size) { await fsp.unlink(to); undone++; if (rec.trashed) inTrash.push(from); } else kept++;
+        await removeEmptyDirs(path.dirname(to), j.library);
+        continue;
+      }
+      if (rec.tagged === 'copy') {
+        // A tagged copy of a song: removed if it's still exactly what Shelf wrote. The original was never touched.
+        const st = await fsp.stat(to).catch(() => null);
+        if (st && st.size === rec.size) { await fsp.unlink(to); undone++; } else kept++;
+        await removeEmptyDirs(path.dirname(to), j.library);
+        continue;
+      }
+      if (rec.oldTags && (await exists(to))) {
+        // A song whose tags Shelf changed: its old tags (and cover) go back first.
+        const old = Object.assign({}, rec.oldTags);
+        if (old.cover && old.cover.ref) old.cover = { mime: old.cover.mime, data: await fsp.readFile(path.join(journalPath + '.covers', String(old.cover.ref).replace(/[^0-9a-f]/g, ''))).catch(() => null) };
+        if (old.cover && !old.cover.data) delete old.cover; // (its picture went missing: leave the cover as it is)
+        await tags.writeTo(to, to, old).catch(() => {});
+      }
       if (rec.split) {
         // A piece Shelf cut: remove it only if it's still exactly what Shelf wrote. The original was never touched.
         const st = await fsp.stat(to).catch(() => null);
@@ -356,7 +492,8 @@ async function undo(journalPath) {
     } catch (e) { kept++; }
   }
   await fsp.unlink(journalPath).catch(() => {});
-  return { undone, kept, restored };
+  await fsp.rm(journalPath + '.covers', { recursive: true, force: true }).catch(() => {});
+  return { undone, kept, restored, inTrash };
 }
 
 // Tidy up folders Shelf made that are now empty (never the library itself).

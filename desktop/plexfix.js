@@ -25,7 +25,7 @@ const { VIDEO_EXT, SUB_EXT } = require('../app/js/parser.js');
 
 const WANTED = new Set(VIDEO_EXT.concat(SUB_EXT));
 const MAX_FILES = 50000;
-const TOP = { movies: 'Movies', tv: 'TV Shows' };
+const TOP = { movies: 'Movies', tv: 'TV Shows', music: 'Music' };
 
 // ---- Is this file already named the way Plex likes? ----
 // Movies:  Title (Year)[ {id}]/Title (Year)…ext
@@ -154,7 +154,7 @@ function setup(ctx, api) {
     const c = cfg() || {};
     const libs = (c.libraries || []).filter((l) => l.folders && l.folders.length);
     if (libs.length) return libs;
-    return ['movies', 'tv'].filter((k) => c[k]).map((k) => ({ key: '', kind: k, title: TOP[k], folders: [c[k]] }));
+    return ['movies', 'tv', 'music'].filter((k) => c[k]).map((k) => ({ key: '', kind: k, title: TOP[k], folders: [c[k]] }));
   }
 
   // only: 'problems' (default: files Plex didn't match, didn't pick up, or that aren't named the
@@ -168,7 +168,7 @@ function setup(ctx, api) {
     const stopped = () => stopScan;
     const c = cfg();
     if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
-    const libs = libraries();
+    const libs = libraries().filter((l) => l.kind !== 'music'); // (videos: music has its own tools)
     if (!libs.length) throw S.problem('FOLDER', 'Connect Plex (or pick your Movies and TV Shows folders) first.');
     const token = getSecret('plex');
     const stats = { files: 0, unreadable: 0, truncated: false, matched: 0, unmatched: 0, missing: 0, named: 0, plex: !!token };
@@ -356,7 +356,8 @@ function setup(ctx, api) {
     await withSession(async (s) => {
       for (const root of roots) {
         if (stopped()) break;
-        await walk(s, root, (f) => out.push({ path: f.path, size: f.size, kind: SPARE.exec(f.path)[1] }), stats,
+        // (A lossless song's original, set aside when it was made smaller, is its own kind.)
+        await walk(s, root, (f) => out.push({ path: f.path, size: f.size, kind: /\.(flac|wav|aiff?|ape|wv|dsf)\.shelf-original$/i.test(f.path) ? 'music' : SPARE.exec(f.path)[1] }), stats,
           () => tell({ stage: 'walk', lib: '', index: 0, of: 1, folders: stats.folders || 0, files: stats.files }), stopped, (name) => SPARE.test(name));
       }
     });
@@ -384,6 +385,85 @@ function setup(ctx, api) {
     }
     if (gone.size) log('Plex library: deleted ' + gone.size + ' set-aside file(s) on the server');
     return { results };
+  });
+
+  // ---- Make Music Smaller: lossless songs in your Plex music folders → Ogg Vorbis (or Opus) next to them ----
+  // Each song is copied to this PC, made smaller there (desktop/convert.js: every tag and the cover go along),
+  // sent back next to the original and checked (SHA-256), and only then is the original renamed to
+  // "….shelf-original", which Plex ignores. Free Up Space deletes those once you're happy; Undo puts them back.
+  const LOSSLESS = /\.(flac|wav|aiff?|ape|wv|dsf)$/i;
+  const shrinkable = new Map(); // server path → { lib, root } (only these can be made smaller)
+  handle('shelf:plexShrinkList', async () => {
+    stopScan = false;
+    const stopped = () => stopScan;
+    const c = cfg();
+    if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
+    const libs = libraries().filter((l) => l.kind === 'music');
+    if (!libs.length) throw S.problem('FOLDER', 'Choose your Music folder on the server first (Server Settings), or connect Plex.');
+    const stats = { files: 0, unreadable: 0, truncated: false }, out = [];
+    tell({ stage: 'connect' }, true);
+    await withSession(async (s) => {
+      for (const lib of libs) {
+        for (const root of lib.folders.map((f) => S.cleanRoot(f)).filter(Boolean)) {
+          if (stopped()) break;
+          await walk(s, root, (f) => out.push({ path: f.path, size: f.size, rel: posix.relative(root, f.path), lib: lib.key, root }), stats,
+            () => tell({ stage: 'walk', lib: lib.title || 'Music', index: 0, of: 1, folders: stats.folders || 0, files: stats.files }), stopped, (name) => LOSSLESS.test(name));
+        }
+      }
+    });
+    shrinkable.clear();
+    out.forEach((f) => shrinkable.set(f.path, { lib: f.lib, root: f.root }));
+    return { files: out.map((f) => ({ path: f.path, size: f.size, rel: f.rel })), stopped: stopped(), unreadable: stats.unreadable, truncated: stats.truncated };
+  });
+  let stopShrink = false;
+  handle('shelf:plexShrinkStop', async () => { stopShrink = true; return true; });
+  handle('shelf:plexShrink', async (paths, format) => {
+    format = format === 'opus' ? 'opus' : 'vorbis';
+    const convert = require('./convert.js'), ext = convert.FORMATS[format].ext;
+    const list = Array.isArray(paths) ? [...new Set(paths.map(String))].filter((p) => shrinkable.has(p) && LOSSLESS.test(p)).slice(0, 20000) : [];
+    const results = [], done = [], touched = new Set();
+    if (!list.length) return { results, rescanned: 0 };
+    stopShrink = false;
+    const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'shelf-shrink-'));
+    try {
+      await withSession(async (s) => {
+        for (let i = 0; i < list.length && !stopShrink; i++) {
+          const from = list[i], info = shrinkable.get(from), r = { path: from };
+          results.push(r);
+          const to = from.replace(/\.[^./]+$/, '.' + ext), kept = from + '.shelf-original';
+          const local = path.join(tmp, 'song-' + i + posix.extname(from).toLowerCase()), out = path.join(tmp, 'small-' + i + '.' + ext);
+          const step = (what, frac) => tell({ stage: 'shrink', index: i, of: list.length, step: what, frac: frac || 0, file: posix.basename(from) }, !frac);
+          let sent = false;
+          try {
+            if (await s.stat(to)) { r.skipped = 'A smaller copy is already next to it'; continue; }
+            if (await s.stat(kept)) { r.skipped = 'It was made smaller before (its original is still kept there)'; continue; }
+            step('download');
+            const before = await s.download(from, local, (got, total) => step('download', got / Math.max(1, total)));
+            step('convert');
+            await convert.toSmaller(local, out, format);
+            step('upload');
+            const after = (await fsp.stat(out)).size;
+            await s.upload(out, to, { verify: true });
+            sent = true;
+            await s.rename(from, kept, false);
+            r.ok = true; r.to = to; r.before = before; r.after = after;
+            done.push({ from, to, split: [to], kept, shrunk: true });
+            shrinkable.delete(from);
+            touched.add(info.lib);
+          } catch (e) {
+            if (sent) await s.unlink(to).catch(() => {}); // never two copies with the original still in place
+            r.error = /different length|ffmpeg/i.test(String(e && e.message)) ? String(e.message) : S.friendly(e, (cfg() || {}).host || '').message;
+          } finally {
+            await fsp.rm(local, { force: true }).catch(() => {}); await fsp.rm(out, { force: true }).catch(() => {});
+          }
+        }
+        if (done.length) await writeJournal({ at: Date.now(), done });
+        results.rescanned = await rescan(s, touched);
+      });
+    } finally { await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {}); }
+    tell({ stage: 'done', files: results.length, stopped: stopShrink }, true);
+    if (done.length) log('Plex library: made ' + done.length + ' song(s) smaller on the server');
+    return { results, rescanned: results.rescanned || 0, stopped: stopShrink };
   });
 
   handle('shelf:plexLibraryCanUndo', async () => { const j = await readJournal(); return !!(j && j.done && j.done.length); });
