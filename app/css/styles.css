@@ -1462,3 +1462,27 @@ html.os-win32 .editor-sheet { margin-top: 56px; height: calc(100vh - 68px); }
 .as-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
 .as-fields .text { height: 32px; font-family: inherit; font-size: 13px; }
 @media (max-width: 620px) { .as-fields { grid-template-columns: 1fr; } .mx-option { grid-template-columns: 18px 1fr auto; } .mx-date, .mx-flag { display: none; } }
+
+/* ---------- Windows (sheets): one look for all of them, matching the main window ---------- */
+.sheet { --sheet-bg: var(--panel); overflow-y: auto; }
+.sheet-head h2, .sv-head h2, .sheet-head .sheet-title { font-family: var(--display); font-size: 21px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; font-variation-settings: "opsz" 48; }
+.sheet-head p, .sv-head p { font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.sheet-head, .sv-head { align-items: center; }
+/* A quiet tinted tile instead of a heavy gradient; red only for what deletes. */
+.sv-art { width: 46px; height: 46px; border-radius: 13px; background: color-mix(in srgb, var(--accent) 13%, var(--group)); color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent); }
+.sv-art svg { width: 24px; height: 24px; stroke-width: 1.8; }
+.sv-art.danger { background: color-mix(in srgb, var(--red-text) 11%, var(--group)); color: var(--red-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red-text) 24%, transparent); }
+/* The buttons stay in sight however long the list (they sit on the window's bottom edge). */
+.sheet:not(.editor-sheet) .sheet-actions { position: sticky; bottom: -26px; z-index: 2; margin: 2px -26px -26px; padding: 14px 26px 22px; background: var(--sheet-bg); border-top: 0.5px solid var(--sep); }
+/* Names in lists: plain words (folders and sizes quieter underneath); they may wrap, never cut off mid-word. */
+.dp-text { gap: 3px; }
+.dp-name { font: 600 13px/1.3 var(--ui); white-space: normal; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dp-text small { font-size: 11.5px; }
+.dp-head { font-size: 13.5px; }
+.dp-head b { font-weight: 650; }
+.dp-list { gap: 16px; }
+/* Fix My Plex Library: a show's name, and its details on the line under it. */
+.fp-row .fp-text, .fp-season .fp-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fp-row .fp-text b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-row .fp-text small, .fp-season .fp-text small { font-size: 11.5px; color: var(--text-2); }

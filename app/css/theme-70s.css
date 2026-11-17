@@ -363,3 +363,7 @@
 [data-theme="seventies"] .br-folder { background: var(--gold); }
 [data-theme="seventies"] .sv-more summary { font-weight: 800; }
 [data-theme="seventies"] .fp-card.changed { background: var(--orange-bg); box-shadow: 0 0 0 1.5px var(--orange); }
+
+/* Windows: the bottom edge with the buttons is cream paper too. */
+[data-theme="seventies"] .sheet { --sheet-bg: var(--paper); }
+[data-theme="seventies"] .sv-art { background: color-mix(in srgb, var(--orange) 14%, var(--paper-3)); color: var(--orange); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orange) 28%, transparent); }
