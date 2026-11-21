@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.4.0)
 - **Choose Shelf's icon**: Settings → Look → App icon has nine styles (Automatic, which matches the look, plus Amber,
   Walnut, Sage, Ocean, Sunset, Midnight, Graphite and Paper). The window, the taskbar button and installed Shelf's
   desktop, Start menu and pinned shortcuts all change to match; only shortcuts that open Shelf itself are touched.
