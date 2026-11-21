@@ -2,6 +2,21 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Shows without title cards are recognised by listening.** For Mythbusters, documentaries and preschool shows,
+  Read Title Cards now listens to the first minutes of each episode (whisper.cpp, on this PC; nothing is uploaded)
+  and matches what's said with every episode's description. In testing it found that a "Season 1" set of
+  Mythbusters is really Season 2 in the official list, which is why Plex showed the wrong episodes. Shows that turn
+  out to have no title cards are only listened to after the first couple of files, which is much quicker. A
+  one-episode-long show is read in one place, not four.
+- **Check All**: every episode of a show on one page, each with its proof: the title card Shelf read, or the
+  sentence it heard with the telling words marked, or a plain "known by its file name". Splits show the last frame
+  before each cut and the first after, with buttons to move the cut. Say "Right" to each (Enter), "Fix…" to open
+  Check Episodes (F), or Mark All Right.
+- **Plex showing the wrong episode**: Fix My Plex Library now also lists files whose name says one episode while
+  Plex shows another. When the name is right, Plex is using another episode order for the show, and Shelf can set
+  the show to the order it names files in (Plex's own Edit → Advanced → Episode ordering), in one click.
+
 ## Done (2.4.0)
 - **Choose Shelf's icon**: Settings → Look → App icon has nine styles (Automatic, which matches the look, plus Amber,
   Walnut, Sage, Ocean, Sunset, Midnight, Graphite and Paper). The window, the taskbar button and installed Shelf's

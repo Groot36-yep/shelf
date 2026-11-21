@@ -50,6 +50,8 @@ function looksRight(kind, rel) {
 const PLEX_PAGE = 1000;
 async function plexFiles(s, token, lib, progress, stopped) {
   const out = new Map();
+  // For episodes, also which one Plex shows each file as: file → { season, number, title, show (its key) }.
+  out.episodes = new Map();
   const type = lib.kind === 'movies' ? 1 : 4; // movies, or episodes
   const page = async (start) => {
     const body = await s.plex(token, '/library/sections/' + encodeURIComponent(lib.key) + '/all?type=' + type +
@@ -60,7 +62,13 @@ async function plexFiles(s, token, lib, progress, stopped) {
       // An episode is as matched as its show; Plex marks unmatched items with a local:// guid.
       const g = String(m.grandparentGuid || m.guid || '');
       const state = !g || /^local:\/\/|agents\.none/.test(g) ? 'unmatched' : 'matched';
-      for (const media of m.Media || []) for (const part of media.Part || []) if (part.file) out.set(String(part.file), state);
+      for (const media of m.Media || []) for (const part of media.Part || []) {
+        if (!part.file) continue;
+        out.set(String(part.file), state);
+        if (type === 4 && state === 'matched' && m.parentIndex != null && m.index != null) {
+          out.episodes.set(String(part.file), { season: Number(m.parentIndex), number: Number(m.index), title: String(m.title || '').slice(0, 200), show: String(m.grandparentRatingKey || '') });
+        }
+      }
     }
     return { n: list.length, total: Number(mc.totalSize) || 0 };
   };
@@ -171,7 +179,7 @@ function setup(ctx, api) {
     const libs = libraries().filter((l) => l.kind !== 'music'); // (videos: music has its own tools)
     if (!libs.length) throw S.problem('FOLDER', 'Connect Plex (or pick your Movies and TV Shows folders) first.');
     const token = getSecret('plex');
-    const stats = { files: 0, unreadable: 0, truncated: false, matched: 0, unmatched: 0, missing: 0, named: 0, plex: !!token };
+    const stats = { files: 0, unreadable: 0, truncated: false, matched: 0, unmatched: 0, missing: 0, named: 0, differs: 0, plex: !!token };
     const files = [];
     tell({ stage: 'connect' }, true);
     await withSession(async (s) => {
@@ -194,7 +202,13 @@ function setup(ctx, api) {
             const named = looksRight(lib.kind, rel);
             if (plex) stats[plex]++;
             if (named) stats.named++;
-            files.push({ path: f.path, size: f.size, rel, root: clean, kind: lib.kind, lib: lib.key, plex, named });
+            // Named the Plex way, matched, but Plex shows it as another episode than its name says: usually Plex
+            // using a different episode order for the show than the one the files were named in.
+            let says = null;
+            const ep = !isSub && known && known.episodes && known.episodes.get(f.path);
+            const nm = ep && named && /\bS(\d{2,})E(\d{2,})/i.exec(posix.basename(f.path));
+            if (nm && (+nm[1] !== ep.season || +nm[2] !== ep.number)) { says = ep; stats.differs++; }
+            files.push({ path: f.path, size: f.size, rel, root: clean, kind: lib.kind, lib: lib.key, plex, named, says });
           }, stats, () => tell({ stage: 'walk', lib: name, index: li, of: libs.length, folders: stats.folders || 0, files: stats.files }), stopped);
         }
       }
@@ -202,10 +216,11 @@ function setup(ctx, api) {
     // A subtitle needs a look when its video does (they're renamed together).
     const stem = (p) => p.replace(/\.[^./]+$/, '').replace(/(\.(?:[a-z]{2,3}|forced|sdh|cc|hi))+$/i, '').toLowerCase();
     const videoNeeds = new Map();
-    files.forEach((f) => { if (f.plex || !SUB_EXT.includes(posix.extname(f.path).slice(1).toLowerCase())) videoNeeds.set(stem(f.path), !(f.named && f.plex !== 'unmatched' && f.plex !== 'missing')); });
+    const fine = (f) => f.named && f.plex !== 'unmatched' && f.plex !== 'missing' && !f.says;
+    files.forEach((f) => { if (f.plex || !SUB_EXT.includes(posix.extname(f.path).slice(1).toLowerCase())) videoNeeds.set(stem(f.path), !fine(f)); });
     const pick = only === 'all' ? files : files.filter((f) => {
       const isSub = !f.plex && SUB_EXT.includes(posix.extname(f.path).slice(1).toLowerCase());
-      return isSub ? videoNeeds.get(stem(f.path)) === true : !(f.named && f.plex !== 'unmatched' && f.plex !== 'missing');
+      return isSub ? videoNeeds.get(stem(f.path)) === true : !fine(f);
     }).slice(0, 5000);
     listed.clear();
     files.forEach((f) => listed.set(f.path, { root: f.root, kind: f.kind, lib: f.lib }));
@@ -215,9 +230,34 @@ function setup(ctx, api) {
       files: pick.map((f) => ({
         remote: f.path, size: f.size, name: posix.basename(f.path),
         // Shelf reads the folders too ("TV Shows/Show/Season 1/x.mkv"), like files on this PC.
-        relPath: TOP[f.kind] + '/' + f.rel, plex: f.plex, named: f.named
+        relPath: TOP[f.kind] + '/' + f.rel, plex: f.plex, named: f.named,
+        // Which episode Plex shows it as, when that isn't the one its name says (and the show's key in Plex).
+        says: f.says ? { season: f.says.season, number: f.says.number, title: f.says.title } : null, plexShow: f.says ? f.says.show : ''
       }))
     };
+  });
+
+  // A show's episode order in Plex (its Edit → Advanced → Episode ordering): set to the one Shelf named the files
+  // in, so Plex shows the episodes the names say. want: 'tmdb' | 'tvdb' | 'tvdbdvd'. Plex lists its own choices
+  // (with their labels) in the show's settings, so the matching one is picked from those.
+  const ORDER_LABEL = { tmdb: /movie ?db|movie database/i, tvdb: /tvdb.*air|thetvdb \(aired\)/i, tvdbdvd: /dvd/i };
+  handle('shelf:plexShowOrder', async (showKey, want) => {
+    if (!/^\d{1,12}$/.test(String(showKey)) || !ORDER_LABEL[want]) throw new Error('Not a show Shelf knows.');
+    const token = getSecret('plex');
+    if (!token) throw S.problem('NO_PLEX', 'Connect Plex first (Server Settings).');
+    return withSession(async (s) => {
+      const base = '/library/metadata/' + showKey;
+      const mc = (JSON.parse(await s.plex(token, base + '/prefs')) || {}).MediaContainer || {};
+      const set = (mc.Setting || []).find((x) => x.id === 'showOrdering');
+      if (!set) throw S.problem('NO_PLEX', 'This Plex doesn’t let Shelf change the show’s episode order. Change it in Plex: the show → Edit → Advanced → Episode ordering.');
+      const choices = String(set.enumValues || '').split('|').map((x) => { const k = x.indexOf(':'); return { value: x.slice(0, k), label: x.slice(k + 1) }; }).filter((x) => x.value);
+      const pick = choices.find((x) => ORDER_LABEL[want].test(x.label));
+      if (!pick) throw S.problem('NO_PLEX', 'Plex doesn’t offer that episode order for this show.');
+      if (set.value !== pick.value) await s.plex(token, base + '/prefs?showOrdering=' + encodeURIComponent(pick.value), 'PUT');
+      try { await s.plex(token, base + '/refresh', 'PUT'); } catch (e) { /* Plex refreshes it on its own later */ }
+      log('Plex episode order set for a show (' + pick.label + ')');
+      return { label: pick.label, changed: set.value !== pick.value };
+    });
   });
 
   async function readJournal() { try { return JSON.parse(await fsp.readFile(journalFile(), 'utf8')); } catch (e) { return null; } }

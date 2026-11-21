@@ -250,11 +250,13 @@
   }
 
   // ---------- Episode lists (one shape for every service) ----------
-  // [{ season, number, name, aired, runtime }] — number is null for TVmaze's unnumbered specials.
+  // [{ season, number, name, aired, runtime, about }] — number is null for TVmaze's unnumbered specials.
+  // about: the episode's description (plain text, shortened), which listening to an episode is matched against.
+  function about(t) { return String(t || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 600); }
   function tvmazeEpisodes(showId) {
     return getJSON(TVMAZE + '/shows/' + parseInt(showId, 10) + '/episodes?specials=1').then(function (list) {
       return (list || []).map(function (e) {
-        return { season: e.number == null ? 0 : e.season, number: e.number == null ? null : e.number, name: String(e.name || ''), aired: e.airdate || '', runtime: e.runtime || null };
+        return { season: e.number == null ? 0 : e.season, number: e.number == null ? null : e.number, name: String(e.name || ''), aired: e.airdate || '', runtime: e.runtime || null, about: about(e.summary) };
       });
     });
   }
@@ -299,7 +301,7 @@
         Object.keys(j || {}).forEach(function (k) {
           if (!/^season\/\d+$/.test(k) || !j[k] || !j[k].episodes) return;
           j[k].episodes.forEach(function (e) {
-            out.push({ season: e.season_number, number: e.episode_number, name: String(e.name || ''), aired: e.air_date || '', runtime: e.runtime || null });
+            out.push({ season: e.season_number, number: e.episode_number, name: String(e.name || ''), aired: e.air_date || '', runtime: e.runtime || null, about: about(e.overview) });
           });
         });
       });
@@ -370,7 +372,7 @@
         var eps = (j && j.data && j.data.episodes) || [];
         eps.forEach(function (e) {
           if (e.number == null || e.seasonNumber == null) return;
-          out.push({ season: e.seasonNumber, number: e.number, name: String(e.name || ''), aired: e.aired || '', runtime: e.runtime || null });
+          out.push({ season: e.seasonNumber, number: e.number, name: String(e.name || ''), aired: e.aired || '', runtime: e.runtime || null, about: about(e.overview) });
         });
         var hasNext = (j && j.links && j.links.next) || eps.length >= 500;
         return hasNext && n < 20 ? page(n + 1, lang) : out;
@@ -389,7 +391,8 @@
    */
   function getEpisodeList(cand, keys, opts) {
     var id = parseInt(cand.id, 10), dvd = keys.order === 'tvdbdvd' ? 'dvd' : 'default';
-    var name = cand.source === 'TMDB' ? 'tmdb:episodes:' + id : cand.source === 'TheTVDB' ? 'tvdb:episodes:' + id + ':' + dvd : 'tvmaze:episodes:' + id;
+    // (":2": lists with each episode's description; ones remembered before are fetched again.)
+    var name = (cand.source === 'TMDB' ? 'tmdb:episodes:' + id : cand.source === 'TheTVDB' ? 'tvdb:episodes:' + id + ':' + dvd : 'tvmaze:episodes:' + id) + ':2';
     return remembered(name, episodeDays, function () {
       if (cand.source === 'TMDB') return tmdbEpisodes(id, keys.tmdb);
       if (cand.source === 'TheTVDB') return tvdbEpisodes(id, dvd, keys.tvdb, keys.tvdbPin);

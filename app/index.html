@@ -273,6 +273,30 @@
   </form>
 </dialog>
 
+<!-- Check All: every episode of a show on one page, each with how Shelf knows it (its title card, or what's said),
+     and every split's cut points, so you can check them all at a glance and say "right" in one go. -->
+<dialog class="sheet review-sheet" id="reviewSheet" aria-labelledby="rvTitle">
+  <div class="rv">
+    <header class="rv-head">
+      <div class="rv-titles">
+        <h2 id="rvTitle" class="sheet-title">Check All</h2>
+        <p class="muted" id="rvSub">Every episode, and how Shelf knows it.</p>
+      </div>
+      <div class="segmented small" role="group" aria-label="Show" id="rvFilter">
+        <button type="button" data-rv="all" aria-pressed="true">All <span class="count" id="rvAll">0</span></button>
+        <button type="button" data-rv="need" aria-pressed="false">Needs you <span class="count attn" id="rvNeed">0</span></button>
+      </div>
+    </header>
+    <div class="rv-body" id="rvBody" tabindex="-1"></div>
+    <footer class="sheet-actions rv-foot">
+      <span class="rv-keys muted">Arrow keys to move · <kbd>Enter</kbd> right · <kbd>F</kbd> fix</span>
+      <span class="rv-progress" id="rvProgress"></span>
+      <button class="pill" type="button" id="rvAllRight">Mark All Right</button>
+      <button class="pill pill-primary" type="button" id="rvDone">Done</button>
+    </footer>
+  </div>
+</dialog>
+
 <!-- Settings sheet: pages on the left (or along the top in a narrow window), a search that looks through all of them. -->
 <dialog class="sheet settings-sheet" id="settingsSheet" aria-labelledby="settingsTitle">
   <form method="dialog" class="set" id="setBox">
@@ -576,6 +600,7 @@
       <div class="fact"><span>Undo history</span><span>Where your last 50 renames came from, so Undo can put them back. Erase it below</span></div>
       <div class="fact"><span>Remembered lookups</span><span>What TMDB, TheTVDB, TVmaze or MusicBrainz answered, kept up to 30 days</span></div>
 <div class="fact"><span>Renaming your files</span><span>Done by Shelf, on your computer</span></div>
+      <div class="fact"><span>Listening to an episode’s first minutes</span><span>Done on your computer by Shelf’s own speech recognition. The sound and what’s heard are never sent anywhere</span></div>
       <div class="fact"><span>Your TMDB, TheTVDB and AcoustID keys</span><span>Encrypted with your computer account</span></div>
       <div class="fact"><span>Your Plex server login</span><span>Shelf’s own key, encrypted. Your password isn’t kept</span></div>
     </div>
@@ -588,6 +613,7 @@
       <div class="fact"><span>Album covers</span><span>from the Cover Art Archive</span></div>
       <div class="fact"><span>A code made from a song’s sound + its length</span><span>to AcoustID, only for songs it can’t find by name, and only with your key</span></div>
       <div class="fact"><span>Files you send to Plex</span><span>Only to your own server, encrypted (SSH)</span></div>
+      <div class="fact"><span>A show’s episode order, when you ask</span><span>Only to your own Plex server</span></div>
     </div>
     <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB, TVmaze and MusicBrainz can see your internet address when Shelf asks them something.</p>
     <span class="section-label">Never</span>

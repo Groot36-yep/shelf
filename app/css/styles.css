@@ -1593,3 +1593,57 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 [data-icon="midnight"] .app-icon { content: url("../assets/icons/midnight.svg"); }
 [data-icon="graphite"] .app-icon { content: url("../assets/icons/graphite.svg"); }
 [data-icon="paper"] .app-icon { content: url("../assets/icons/paper.svg"); }
+
+/* ---------- Check All: every episode of a show, with how Shelf knows it ---------- */
+.shelf-links { display: inline-flex; align-items: baseline; gap: 12px; }
+.shelf-check { flex: none; padding: 0 2px; font-size: 12.5px; font-weight: 650; white-space: nowrap; }
+.review-sheet { width: min(1180px, calc(100vw - 32px)); height: calc(100vh - 80px); padding: 0; overflow: hidden; }
+.review-sheet[open] { display: flex; }
+.rv { display: flex; flex-direction: column; width: 100%; min-height: 0; }
+.rv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px 26px 14px; border-bottom: 0.5px solid var(--sep); }
+.rv-head p { margin: 4px 0 0; font-size: 13px; }
+.rv-body { flex: 1; overflow-y: auto; padding: 18px 26px 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-content: start; gap: 14px; outline: none; }
+.review-sheet .sheet-actions.rv-foot { position: static; margin: 0; padding: 12px 26px 16px; align-items: center; background: transparent; border-top: 0.5px solid var(--sep); }
+.rv-keys { margin-right: auto; font-size: 12px; }
+.rv-keys kbd { font: inherit; font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--fill); }
+.rv-progress { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
+.rv-empty { grid-column: 1 / -1; margin: 60px auto; color: var(--text-2); font-size: 14px; }
+.rv-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; min-width: 0;
+  background: var(--group); box-shadow: 0 0 0 0.5px var(--hairline); outline: none; transition: box-shadow 0.15s; }
+.rv-card:focus-visible, .rv-card:focus { box-shadow: 0 0 0 2px var(--accent); }
+.rv-card.is-need { box-shadow: inset 0 3px 0 var(--orange), 0 0 0 0.5px var(--hairline); }
+.rv-card.is-need:focus { box-shadow: inset 0 3px 0 var(--orange), 0 0 0 2px var(--accent); }
+.rv-proofs { display: grid; gap: 8px; min-width: 0; }
+.rv-proofs.is-many { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.rv-card.is-wide { grid-column: span 2; }
+.rv-proof { margin: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rv-proof figcaption { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.rv-pic { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--fill); }
+.rv-pic img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; }
+.rv-pic.is-in img { opacity: 1; }
+.rv-pic.is-none::after { content: "No picture"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: var(--text-3); }
+.rv-quote { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--fill); font-size: 12.5px; line-height: 1.5; font-style: italic; color: var(--text); max-height: 7.5em; overflow: hidden; }
+.rv-quote::before { content: "\201C"; } .rv-quote::after { content: "\201D"; }
+.rv-quote mark { padding: 0 2px; border-radius: 3px; background: var(--select); color: var(--accent-text); font-style: normal; font-weight: 700; }
+.rv-noproof { display: grid; place-items: center; aspect-ratio: 16 / 9; padding: 12px; border-radius: 8px; border: 1px dashed var(--fill-strong); font-size: 12px; line-height: 1.4; color: var(--text-2); text-align: center; }
+.rv-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rv-eps { display: flex; flex-direction: column; gap: 3px; }
+.rv-ep { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 14px; }
+.rv-ep code { flex: none; font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--accent-text); }
+.rv-ep b { font-weight: 650; overflow-wrap: anywhere; }
+.rv-new { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.rv-new div::before { content: "\2192  "; color: var(--text-3); }
+.rv-was { font-size: 11.5px; color: var(--text-3); overflow-wrap: anywhere; }
+.rv-why { margin: 2px 0 0; padding: 7px 10px; border-radius: 8px; background: var(--needs-bg); color: var(--orange-text); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.rv-cut { margin-top: 6px; padding: 10px; border-radius: 10px; background: var(--fill); display: flex; flex-direction: column; gap: 8px; }
+.rv-cut-pics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rv-cut-pics .rv-pic:first-child { box-shadow: inset -2px 0 0 var(--accent); }
+.rv-cut-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rv-cut-at { font-size: 12px; font-weight: 650; }
+.rv-acts { display: flex; gap: 6px; margin-top: auto; }
+.rv-acts .pill { flex: 1; }
+.rv-right[aria-pressed="true"] { color: var(--green); }
+@media (max-width: 860px) {
+  .rv-card.is-wide { grid-column: auto; }
+  .rv-keys { display: none; }
+}

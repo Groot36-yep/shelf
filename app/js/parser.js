@@ -872,6 +872,88 @@
     return k;
   }
   // show: the show's own name, whose logo (at the end of the theme song) is no episode's title card.
+  // ---------- What was said in an episode → which episode it is ----------
+  // Listening to the start of an episode (desktop/listen.js) gives its words; each episode in the show's list
+  // has a title and a description. Words that few episodes share count most (a word in every description,
+  // like the show's own name, counts for almost nothing), whole titles and pairs of words ("exploding toilet")
+  // count extra. An answer is given only when one episode clearly beats the rest.
+  var HEARD_STOP = ('a an and are as at be been but by can could did do does for from get gets got had has have he her here him his how i if ' +
+    'in into is it its just like me my no not now of off on one or our out over she so some than that the their them then there these they ' +
+    'this those to too up us very was we were what when where which while who why will with would you your yeah okay oh hey well right gonna ' +
+    'want going know think let lets see look come go yes all about after again also back because before being both each even first ' +
+    'make many more most much new only other own same should still such take thing things through time two way also episode season show').split(' ');
+  var heardStop = {}; HEARD_STOP.forEach(function (w) { heardStop[w] = 1; });
+  function heardWords(s) {
+    return String(s || '').toLowerCase().replace(/[’']s\b/g, '').replace(/[^a-z0-9]+/g, ' ').split(' ').map(function (w) {
+      if (w.length > 5 && /ing$/.test(w)) w = w.slice(0, -3);
+      else if (w.length > 5 && /[^e]ed$/.test(w)) w = w.slice(0, -2);
+      else if (w.length > 3 && /ies$/.test(w)) w = w.slice(0, -3) + 'y';
+      else if (w.length > 4 && /[^su]s$/.test(w)) w = w.slice(0, -1);
+      return w;
+    }).filter(function (w) { return w.length >= 3 && !heardStop[w] && !/^\d+$/.test(w); });
+  }
+  /**
+   * heard: { text, lines: [{ t, text }] }; entries: the show's episodes [{ season, number, name, about }].
+   * opts.seasons: seasons the show's other files turned out to be in (their episodes get a little extra).
+   * opts.ignore: words said in most of the show's episodes (its opening: "who are the Mythbusters…"), left out.
+   * → { entry, score, margin, words: [the telling words, best first], line: the sentence that shows it } or null.
+   */
+  function matchHeard(heard, entries, opts) {
+    opts = opts || {};
+    var said = heardWords(heard && heard.text);
+    if (opts.ignore) said = said.filter(function (w) { return !opts.ignore[w]; });
+    if (said.length < 8 || !entries || !entries.length) return null;
+    var saidSet = {}, saidPairs = {}, at = {};
+    said.forEach(function (w, k) { saidSet[w] = 1; (at[w] = at[w] || []).push(k); if (k) saidPairs[said[k - 1] + ' ' + w] = 1; });
+    // Two words of a title said close together (within a few words): the title itself, not chance.
+    var close = function (a, b) { return (at[a] || []).some(function (i) { return (at[b] || []).some(function (j) { return i !== j && Math.abs(i - j) <= 4; }); }); };
+    var docs = entries.map(function (e) {
+      var name = heardWords(e.name), about = heardWords(e.about), set = {}, pairs = {};
+      about.forEach(function (w) { set[w] = Math.max(set[w] || 0, 1); });
+      // A word of the title counts double when another word of the title is said with it (or it's the whole title).
+      name.forEach(function (w) { set[w] = name.length === 1 || name.some(function (x) { return x !== w && close(w, x); }) ? 2 : Math.max(set[w] || 0, 1); });
+      [name, about].forEach(function (ws) { ws.forEach(function (w, k) { if (k) pairs[ws[k - 1] + ' ' + w] = 1; }); });
+      return { e: e, set: set, pairs: pairs, len: Object.keys(set).length };
+    });
+    var df = {};
+    docs.forEach(function (d) { Object.keys(d.set).forEach(function (w) { df[w] = (df[w] || 0) + 1; }); });
+    var N = docs.length, avg = docs.reduce(function (a, d) { return a + d.len; }, 0) / N || 1;
+    // How telling a word is: words in many of the show's descriptions (its hosts, "test", "myth") count for
+    // next to nothing, however often they're said.
+    var floor = 0.35 * Math.log(N + 1);
+    var idf = function (w) { return Math.max(0, Math.log((N + 1) / ((df[w] || 0) + 0.5)) - floor); };
+    var scored = docs.map(function (d) {
+      var sc = 0, hits = [];
+      Object.keys(d.set).forEach(function (w) {
+        if (!saidSet[w]) return;
+        var v = idf(w); if (v <= 0.05) return;
+        sc += v * d.set[w]; hits.push({ w: w, v: v * d.set[w] });
+      });
+      Object.keys(d.pairs).forEach(function (p) { if (saidPairs[p]) sc += 1.5 * (idf(p.split(' ')[0]) + idf(p.split(' ')[1])) / 2; });
+      // Long descriptions share more words by chance (short ones aren't helped: an episode with only a title
+      // would otherwise win on one or two common words).
+      sc = sc / Math.max(1, 0.6 + 0.4 * d.len / avg);
+      // The show's other files are in these seasons: this file very likely is too (or next to them).
+      if (opts.seasons && opts.seasons.length) sc *= opts.seasons.some(function (n) { return Math.abs(n - d.e.season) <= 1; }) ? 1.3 : 0.75;
+      return { d: d, score: sc, hits: hits.sort(function (a, b) { return b.v - a.v; }) };
+    }).sort(function (a, b) { return b.score - a.score; });
+    // (opts.explain: the best few with their scores and words, for tuning.)
+    if (opts.explain) return scored.slice(0, 4).map(function (x) { return { name: x.d.e.name, season: x.d.e.season, number: x.d.e.number, score: Math.round(x.score * 10) / 10, words: x.hits.slice(0, 8).map(function (h) { return h.w + ':' + h.v.toFixed(1); }) }; });
+    var best = scored[0], second = scored[1] || { score: 0 };
+    // A clear winner: well ahead of the next (a little less far ahead will do when the evidence is strong).
+    if (!best || best.score < 4 || best.hits.length < 2 || best.score < second.score * (best.score >= 15 ? 1.4 : 1.6)) return null;
+    var words = best.hits.slice(0, 8).map(function (h) { return h.w; });
+    // The sentence that shows it best.
+    var line = '', lineScore = 0;
+    ((heard && heard.lines) || []).forEach(function (l) {
+      var ws = heardWords(l.text), v = 0, seen = {};
+      // (Each word once; a word of the title counts double.)
+      ws.forEach(function (w) { if (best.d.set[w] && !seen[w]) { seen[w] = 1; v += idf(w) * best.d.set[w]; } });
+      if (v > lineScore) { lineScore = v; line = l; }
+    });
+    return { entry: best.d.e, score: Math.round(best.score * 10) / 10, margin: Math.round(best.score / Math.max(0.1, second.score) * 10) / 10, words: words, line: line ? { t: line.t, text: String(line.text).slice(0, 220) } : null };
+  }
+
   function matchCardText(texts, entries, near, show) {
     var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-') + '\u0002' + (show || '');
     if (cardMemo.has(key)) {
@@ -956,6 +1038,11 @@
     // Only a loose letter-for-letter likeness, and not one of the title's words seen: needs more
     // ("ae So ZENON ~¥) 0) TC" is not "As Seen on TV").
     if (!top.ws && isNear) need = Math.max(need, 0.6);
+    // ...and a title made of only a few different letters, repeated ("Choo Choo": c, h, o), all the more: those
+    // turn up in any jumble ("oo… Coup… hg oot" is 0.63 like it). Without one of its words read, it has to be
+    // close letter for letter.
+    var letters = {}; squash(top.entry.name).split('').forEach(function (c) { letters[c] = 1; });
+    if (!top.ws && Object.keys(letters).length <= 5) need = Math.max(need, 0.8);
     if (top.score < need) return null;
     if (rival && top.score - rival.score < margin && top.score < 0.9) return null;
     // Another title shares most of the words ("The Battle of Bikini Bottom", "The Curse of Bikini Bottom"): the
@@ -1019,7 +1106,7 @@
   // video's length is known, after Check Lengths or Read Title Cards, and the list gives every episode's length.)
   function lengthDoubt(r, ctx) {
     var mins = ctx.file && ctx.file.minutes, es = r && r.entries;
-    if (!r || !r.sure || !mins || r.how === 'card' || !es || !es.length || es.some(function (e) { return !e.runtime; })) return r;
+    if (!r || !r.sure || !mins || r.how === 'card' || r.how === 'heard' || !es || !es.length || es.some(function (e) { return !e.runtime; })) return r;
     var listed = es.reduce(function (t, e) { return t + e.runtime; }, 0);
     var loneCartoon = es.length === 1 && listed <= 15 && mins >= 20;
     if (!loneCartoon && !(mins >= listed * 1.5 && mins - listed >= 10)) return r;
@@ -1053,12 +1140,13 @@
       // A title card from another season than the name says (one the list has): a misnamed file is usually off by a
       // few episodes, not seasons, so that's likelier text on screen ("THE SAN FRANCISCO" in a 2003 Mythbusters).
       // A question, then, not an answer.
-      if (how === 'card' && r.sure && !noNumber && !parsed.airdate && r.season !== season &&
+      if ((how === 'card' || how === 'heard') && r.sure && !noNumber && !parsed.airdate && r.season !== season &&
         (list || []).some(function (e) { return e.season === season && e.number != null; })) {
         r.sure = false;
-        r.note = 'A title card reads as ' + now + ' (' + r.name + '), but the file’s name says ' + said + '. Check which it is.';
+        r.note = (how === 'heard' ? 'What’s said at the start fits ' + now + ' (' + r.name + ')' : 'A title card reads as ' + now + ' (' + r.name + ')') +
+          ', but the file’s name says ' + said + '. Check which it is.';
       }
-      if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'card' ? ' (read from its title cards)' : how === 'halfhour' ? ' (' + (hour ? 'an hour' : 'a half-hour') + ' holding ' + entries.length + ' cartoons)' : '') + '.';
+      if (!r.note && now !== said && how !== 'date') r.note = 'The file said ' + said + '; it is really ' + now + (how === 'title' ? ' (matched by episode title)' : how === 'card' ? ' (read from its title cards)' : how === 'heard' ? ' (heard at the start of the video)' : how === 'halfhour' ? ' (' + (hour ? 'an hour' : 'a half-hour') + ' holding ' + entries.length + ' cartoons)' : '') + '.';
       return r;
     }
     if (parsed.airdate) {
@@ -1092,6 +1180,8 @@
     if (file.cards && file.cards.length) {
       var exp = expected();
       var pool = (list || []).filter(function (e) { return e.number != null; });
+      // An episode recognised by listening (desktop/listen.js): its place in the list, "season x number".
+      var heardEntry = function (c) { var k = String(c.heard.key || '').split('x'); return pool.filter(function (e) { return e.season === +k[0] && e.number === +k[1]; })[0] || null; };
       var best = {};
       // Title cards you marked yourself each count on their own, and a reading near one (within two
       // minutes: two cartoons' cards are ~11 minutes apart) gives way to it.
@@ -1102,14 +1192,15 @@
       // video. (Reading the video allowed the same, so a card it stopped at is never thrown away here.)
       var anchors = exp.concat(noNumber ? [] : seasonList.filter(function (e) { return e.number === (parsed.episode || 1); }));
       cardsIn.forEach(function (c) {
-        var a0 = c.mark ? c.mark : (matchCardText(c.texts, pool, null, ctx.show || parsed.title) || {}).entry;
+        var a0 = c.mark ? c.mark : c.heard ? heardEntry(c) : (matchCardText(c.texts, pool, null, ctx.show || parsed.title) || {}).entry;
         if (a0) anchors.push(a0);
       });
       var near = seasonList.filter(function (e) { return anchors.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
       cardsIn.forEach(function (c, ci) {
         // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
         var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
-          : matchCardText(c.texts, pool, near, ctx.show || parsed.title);
+          : c.heard ? (heardEntry(c) ? { entry: heardEntry(c), score: 1.5, heard: true, hs: c.heard.score || 0, hm: c.heard.margin || 0 } : null)
+            : matchCardText(c.texts, pool, near, ctx.show || parsed.title);
         var slot = c.mark ? 'm' + ci : c.part;
         if (mm && (!best[slot] || mm.score > best[slot].score)) best[slot] = Object.assign({ t: c.t }, mm);
       });
@@ -1117,6 +1208,19 @@
       var found = Object.keys(best).sort(function (a, b) { return a - b; }).map(function (k) { return best[k].entry; })
         .filter(function (e, i, arr) { return arr.indexOf(e) === i; })
         .sort(function (a, b) { return a.season - b.season || a.number - b.number; });
+      // Known only from what was heard (no title card read): said so, as "heard".
+      var cardHow = Object.keys(best).length && Object.keys(best).every(function (k) { return best[k].heard; }) ? 'heard' : 'card';
+      // The file's name already gives an episode title, and the video says another episode: never overruled
+      // quietly. Clear evidence (a card, or words that fit far better than anything else) → asked, with both;
+      // a weak hearing ("flute" heard as "flu") → the title in the name stands.
+      var namedM = parsed.episodeTitle && !marks.length && found.length === 1 ? matchByTitle(parsed.episodeTitle, list, season) : null;
+      var namedE = namedM && namedM.entries && namedM.entries.length === 1 ? namedM.entries[0] : null;
+      if (namedE && !(namedE.season === found[0].season && namedE.number === found[0].number)) {
+        var b0 = best[Object.keys(best)[0]];
+        if (cardHow === 'heard' && !(b0.hm >= 2 && b0.hs >= 10)) found = [];
+        else return out(found, cardHow, false, 'The file’s name says “' + namedE.name + '”, but ' + (cardHow === 'heard' ? 'what’s said at the start fits ' : 'its title card reads ') +
+          'S' + pad2(found[0].season) + 'E' + pad2(found[0].number) + ' “' + found[0].name + '”. Check which it is.');
+      }
       if (found.length) {
         var parts = file.parts || found.length;
         var cnums = found.map(function (e) { return e.number; });
@@ -1133,21 +1237,21 @@
           !cardsIn.some(function (c) { return c.part >= 1 && c.boundary; });
         if (onlyFirst) {
           var long1 = found[0].runtime && found[0].runtime >= 18;
-          return out(found, 'card', !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
+          return out(found, cardHow, !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
         }
         // Only a later cartoon's card was read, and nothing listed aired with it: something comes before it in the
         // file (a first cartoon whose card couldn't be read), so it can't be the whole file.
         if (found.length === 1 && best[0] == null && !marks.length && (file.parts || 1) > 1 && !(g && g.length > 1)) {
-          return out(found, 'card', false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Check Episodes to add it, or pick it in the file’s details.');
+          return out(found, cardHow, false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Check Episodes to add it, or pick it in the file’s details.');
         }
         if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
           // Only trust that guess if the file's own number points at the same half-hour.
           var agrees = exp.length && exp.every(function (e) { return g.indexOf(e) >= 0; });
-          return out(g, 'card', !!agrees, 'Read ' + found.length + ' of ' + g.length + ' title cards (' + joinNames(found) + '); the rest is what aired with ' + (found.length === 1 ? 'it' : 'them') + '.' +
+          return out(g, cardHow, !!agrees, 'Read ' + found.length + ' of ' + g.length + ' title cards (' + joinNames(found) + '); the rest is what aired with ' + (found.length === 1 ? 'it' : 'them') + '.' +
             (agrees ? '' : noNumber ? ' Check the rest.' : ' The file’s number points somewhere else, so check this one.'));
         }
-        if (together) return out(found, 'card', true);
-        var apart = out([found[0]], 'card', false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so split it into one file per cartoon below.');
+        if (together) return out(found, cardHow, true);
+        var apart = out([found[0]], cardHow, false, 'The title cards show episodes that aren’t next to each other (' + found.map(function (e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number) + ' ' + e.name; }).join(', ') + '). Plex can only name a file as a run of episodes in a row, so split it into one file per cartoon below.');
         // In the order they play in the video.
         apart.entries = found.slice().sort(function (a, b) { return (cardAt[a.season + 'x' + a.number] || 0) - (cardAt[b.season + 'x' + b.number] || 0); })
           .map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: cardAt[e.season + 'x' + e.number] }; });
@@ -1263,6 +1367,8 @@
     resolveEpisode: resolveEpisode,
     matchByTitle: matchByTitle,
     matchCardText: matchCardText,
+    matchHeard: matchHeard,
+    heardWords: heardWords,
     joinNames: joinNames,
     detectNumbering: detectNumbering,
     halfHourGroups: halfHourGroups,

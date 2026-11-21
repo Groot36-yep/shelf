@@ -84,6 +84,9 @@ contextBridge.exposeInMainWorld('shelfNative', {
   musicSound: (paths) => ipcRenderer.invoke('shelf:musicSound', Array.isArray(paths) ? paths.map(String) : []),
   musicSoundReady: () => ipcRenderer.invoke('shelf:musicSoundReady').then((x) => x === true),
   readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
+  canListen: () => ipcRenderer.invoke('shelf:canListen'),
+  // A show's episode order in Plex (its key in Plex; 'tmdb' | 'tvdb' | 'tvdbdvd').
+  plexShowOrder: (showKey, want) => ipcRenderer.invoke('shelf:plexShowOrder', String(showKey), String(want)),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
   approveSplit: (paths) => ipcRenderer.invoke('shelf:approveSplit', paths),

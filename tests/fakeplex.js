@@ -68,6 +68,7 @@ const PLEX = {
   ]
 };
 const plexAsked = [];
+const showOrdering = {}; // show key → the episode order set in Plex
 const hostKey = utils.generateKeyPairSync('ed25519');
 const hostFp = S.fingerprint(utils.parseKey(hostKey.public).getPublicSSH());
 const PASS = 'right-' + crypto.randomBytes(3).toString('hex');
@@ -82,11 +83,14 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
     stream.on('data', (d) => {
       req += d;
       if (!req.includes('\r\n\r\n')) return;
-      const url = req.split(' ')[1];
-      plexAsked.push(url);
+      const method = req.split(' ')[0], url = req.split(' ')[1];
+      plexAsked.push(method === 'GET' ? url : method + ' ' + url);
       assert.ok(/X-Plex-Token: tok12345/i.test(req), 'the token goes to Plex');
       const m = /^\/library\/sections\/(\d+)\/all\?type=\d+&X-Plex-Container-Start=(\d+)/.exec(url);
-      const body = JSON.stringify({ MediaContainer: m ? { Metadata: +m[2] ? [] : PLEX[m[1]] || [] } : {} });
+      const pm = /^\/library\/metadata\/(\d+)\/prefs(\?showOrdering=([^&]*))?$/.exec(url);
+      if (pm && pm[3] != null) showOrdering[pm[1]] = decodeURIComponent(pm[3]);
+      const body = JSON.stringify({ MediaContainer: m ? { Metadata: +m[2] ? [] : (PLEX[m[1]] || []).concat(m[1] === '2' ? opts.plexEpisodes || [] : []) }
+        : pm ? { Setting: [{ id: 'showOrdering', value: showOrdering[pm[1]] || '', enumValues: ':Library default|tmdbAiring:The Movie Database (Aired)|aired:TheTVDB (Aired)|dvd:TheTVDB (DVD)|absolute:TheTVDB (Absolute)' }] } : {} });
       stream.end('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ' + Buffer.byteLength(body) + '\r\nConnection: close\r\n\r\n' + body);
     });
   });
@@ -171,7 +175,7 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
 });
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, writes, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
+return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, showOrdering, reads, writes, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
 }
 
 module.exports = { start };

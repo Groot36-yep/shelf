@@ -378,3 +378,8 @@
 [data-theme="seventies"] .icon-pick, [data-theme="seventies"] .name-preview, [data-theme="seventies"] .set-search { background: var(--paper-3); box-shadow: 0 0 0 1px var(--hairline); }
 [data-theme="seventies"] .np-row mark { background: var(--orange-bg); color: var(--text); }
 @media (prefers-color-scheme: dark) { [data-theme="seventies"] .set-nav { background: rgba(0, 0, 0, 0.18); } }
+
+/* Check All in the Living Room */
+[data-theme="seventies"] .rv-card { background: var(--paper-3); box-shadow: 0 0 0 1px var(--hairline); }
+[data-theme="seventies"] .rv-card.is-need { box-shadow: inset 0 4px 0 var(--orange), 0 0 0 1px var(--hairline); }
+[data-theme="seventies"] .rv-quote mark { background: var(--orange-bg); color: var(--text); }
