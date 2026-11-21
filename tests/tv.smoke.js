@@ -90,7 +90,7 @@ const EPISODES = {
 
   // Turn on "Add quality to file names".
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
-  await win.check('#optQuality');
+  await win.click('#setTabs [data-page=names]'); await win.check('#optQuality');
   await win.keyboard.press('Escape'); await sleep(300);
 
   const t0 = Date.now();

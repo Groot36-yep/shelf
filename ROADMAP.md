@@ -2,6 +2,15 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Choose Shelf's icon**: Settings → Look → App icon has nine styles (Automatic, which matches the look, plus Amber,
+  Walnut, Sage, Ocean, Sunset, Midnight, Graphite and Paper). The window, the taskbar button and installed Shelf's
+  desktop, Start menu and pinned shortcuts all change to match; only shortcuts that open Shelf itself are touched.
+- **A tidier Settings window**: pages down the side (Look, File Names, TV Shows, Music, Keys, Speed, Privacy & Data)
+  and a search box that finds any setting. Every setting says in a line what it does. File Names shows how your
+  files will be named as you flip the switches. All three keys sit together on one page, each saying whether it's
+  added, what it's for and where to get one free. A missing key is pointed out where it's needed.
+
 ## Done (2.3.1)
 - **Adding music is much faster.** Albums tagged by Picard (one edition named, with titles and track numbers) are
   matched from their own tags, with nothing to look up: a 1,466-song library is ready in about 8 seconds instead

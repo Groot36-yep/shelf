@@ -33,6 +33,7 @@
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
     musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
+    appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
 
@@ -46,6 +47,7 @@
   }
 
   function saveKey(key, name) {
+    setTimeout(syncKeyStates, 0);
     name = name || 'tmdb';
     if (name === 'tmdb') settings.tmdbKey = key; else if (name === 'tvdb') settings.tvdbKey = key; else if (name === 'acoustid') settings.acoustKey = key; else settings.tvdbPin = key;
     native.setKey(name, key).then(function (stored) {
@@ -939,7 +941,7 @@
         actions: [{ label: 'Take This One Off the List', run: function () { select(item.id); $('removeBtn').click(); } }].concat(twin ? [{ label: 'Show the Other One', link: true, run: function () { select(twin.id); } }] : []) };
     }
     if (item.status === 'error' && item.needsKey) return { title: 'Movies need a TMDB key', text: 'It’s free from themoviedb.org and takes a minute. Shelf keeps it encrypted on this PC and only ever sends it to TMDB.',
-      actions: [{ label: 'Add a Key…', run: function () { openSheet('settings'); setTimeout(function () { $('keyInput').focus(); }, 80); } }] };
+      actions: [{ label: 'Add a Key…', run: function () { openSettings('keys', 'keyInput'); } }] };
     if (item.status === 'error') return { title: 'Couldn’t look up “' + (item.parsed.title || item.name) + '”', text: 'Check that this PC is online, then try again.', actions: [{ label: 'Try Again', run: retryFailed }] };
     if (item.status === 'nomatch') return { title: 'Shelf couldn’t find “' + (item.parsed.title || item.name) + '”', text: 'Search for it by name. A typo or an extra word in the file name is the usual reason.',
       actions: [{ label: 'Search by Name…', run: drawer(true) }] };
@@ -1093,7 +1095,7 @@
     }
     if (item.needsKey) {
       errBox.appendChild(document.createTextNode(' '));
-      errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Open Settings', onclick: function () { openSheet('settings'); } }));
+      errBox.appendChild(el('button', { type: 'button', class: 'link-btn', style: 'padding:0', text: 'Add a Key…', onclick: function () { openSettings('keys', 'keyInput'); } }));
     }
 
     var note = $('inspNote');
@@ -1392,7 +1394,10 @@
       syncOrderHelp();
       $('optPosters').checked = settings.posters;
       syncGpu();
-      $('keyStatus').textContent = 'Stored encrypted with your computer account. Only ever sent to TMDB.';
+      $('keyStatus').textContent = 'Only ever sent to TMDB.';
+      $('setSearch').value = ''; findSetting('');
+      showSetPage(setPage);
+      syncKeyStates(); syncNames(); syncIconPicker();
     }
     if (d.showModal) d.showModal(); else d.setAttribute('open', '');
   }
@@ -1751,6 +1756,9 @@
     var k = e.target.value.trim(); saveKey(k, 'acoustid');
     $('acoustStatus').textContent = k ? 'Saved. Songs Shelf can’t find by name are recognised by their sound.' : 'Key removed from this computer.';
   });
+  on('forgetAcoust', 'click', function () {
+    saveKey('', 'acoustid'); $('acoustInput').value = ''; $('acoustStatus').textContent = 'Key removed from this computer.';
+  });
   on('optShrinkFormat', 'change', function (e) { settings.musicShrinkFormat = e.target.value === 'opus' ? 'opus' : 'vorbis'; save('musicShrinkFormat', settings.musicShrinkFormat); render(); });
   on('renameShrink', 'change', function (e) { settings.musicShrink = e.target.checked; save('musicShrink', settings.musicShrink); render(); prepareRename(); });
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
@@ -1959,9 +1967,8 @@
   function syncOrderHelp() {
     var svc = tvService();
     var want = settings.order === 'tmdb' ? 'The Movie Database' : 'TheTVDB';
-    $('orderHelp').textContent = (svc === 'TVmaze'
-      ? 'Add your ' + (settings.order === 'tmdb' ? 'TMDB' : 'TheTVDB') + ' key to use this order. Until then TV shows are looked up on TVmaze, which follows TheTVDB’s aired order. '
-      : '') + (settings.order === 'tmdb'
+    // (A missing key is said in the box below it; see syncKeyStates.)
+    $('orderHelp').textContent = (settings.order === 'tmdb'
       ? 'Plex uses The Movie Database unless you change it in Plex (open the show → Edit → Advanced → Episode ordering).'
       : 'In Plex, set the show (or the library, under Advanced) to Episode ordering → ' + (settings.order === 'tvdbdvd' ? 'TheTVDB (DVD)' : 'TheTVDB (Aired)') + '.');
   }
@@ -2541,6 +2548,7 @@
     var changed = document.documentElement.dataset.theme !== name;
     settings.theme = name; save('theme', name); syncThemePicker();
     if (native.setTheme) native.setTheme(name);
+    if (ICON_STYLES && settings.appIcon === 'auto') setAppIcon('auto', false);
     if (!changed) return;
     var apply = function () { document.documentElement.dataset.theme = name; };
     var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2567,6 +2575,186 @@
     setTheme(name); var b = document.querySelector('[data-theme-pick="' + name + '"]'); if (b) b.focus();
   });
   setTheme(settings.theme, true);
+
+  // ---------- The Settings window: pages, search, and what each part says ----------
+  var SET_PAGES = ['look', 'names', 'tv', 'music', 'keys', 'cards', 'privacy'];
+  var setPage = load('settingsPage', 'look');
+  if (SET_PAGES.indexOf(setPage) < 0) setPage = 'look';
+  function showSetPage(name, focusId) {
+    if (SET_PAGES.indexOf(name) < 0) name = 'look';
+    if ($('setSearch').value) { $('setSearch').value = ''; findSetting(''); }
+    setPage = name; save('settingsPage', name);
+    document.querySelectorAll('#setTabs .set-tab').forEach(function (t) {
+      var on = t.dataset.page === name;
+      t.setAttribute('aria-selected', on ? 'true' : 'false'); t.tabIndex = on ? 0 : -1;
+    });
+    document.querySelectorAll('#setBody .set-page').forEach(function (p) { p.hidden = p.dataset.page !== name; });
+    $('setBody').scrollTop = 0;
+    if (focusId) setTimeout(function () { var f = $(focusId); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); } }, 60);
+  }
+  function openSettings(page, focusId) { openSheet('settings'); showSetPage(page, focusId); }
+  document.querySelectorAll('#setTabs .set-tab').forEach(function (t) {
+    t.addEventListener('click', function () { showSetPage(t.dataset.page); });
+  });
+  $('setTabs').addEventListener('keydown', function (e) {
+    var keys = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+    if (!keys[e.key] && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    var i = e.key === 'Home' ? 0 : e.key === 'End' ? SET_PAGES.length - 1 : (SET_PAGES.indexOf(setPage) + keys[e.key] + SET_PAGES.length) % SET_PAGES.length;
+    showSetPage(SET_PAGES[i]);
+    document.querySelector('#setTabs [data-page="' + SET_PAGES[i] + '"]').focus();
+  });
+  $('settingsSheet').addEventListener('click', function (e) {
+    var g = e.target.closest('[data-goto]');
+    if (g) showSetPage(g.dataset.goto, g.dataset.focus || '');
+  });
+  // Search: every page at once, only the settings whose words match (all the words typed).
+  function findSetting(q) {
+    var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    var box = $('setBox'), any = false;
+    box.classList.toggle('is-finding', words.length > 0);
+    document.querySelectorAll('#setBody .set-page').forEach(function (p) {
+      var shown = 0;
+      var has = function (hay) { hay = hay.toLowerCase(); return words.every(function (w) { return hay.indexOf(w) >= 0; }); };
+      p.querySelectorAll('.set-item').forEach(function (it) {
+        // A box of switches is searched switch by switch (each with its own words).
+        var rows = it.querySelectorAll('.group > .row[data-find]'), ok;
+        if (rows.length) {
+          ok = false;
+          rows.forEach(function (r) { var hit = has(r.dataset.find + ' ' + r.textContent); r.hidden = words.length > 0 && !hit; if (hit) ok = true; });
+        } else ok = has((it.dataset.find || '') + ' ' + it.textContent);
+        it.hidden = words.length > 0 && !ok;
+        if (ok) shown++;
+      });
+      p.hidden = words.length ? !shown : p.dataset.page !== setPage;
+      if (words.length && shown) any = true;
+    });
+    $('setNone').hidden = !words.length || any;
+    $('setNoneQ').textContent = q;
+    document.querySelectorAll('#setTabs .set-tab').forEach(function (t) {
+      t.classList.toggle('is-hit', words.length > 0 && !$(t.getAttribute('aria-controls')).hidden);
+    });
+  }
+  on('setSearch', 'input', function (e) { findSetting(e.target.value.trim()); $('setBody').scrollTop = 0; });
+  on('setSearch', 'keydown', function (e) {
+    if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; findSetting(''); }
+  });
+  // Which keys are added: on the Keys page, the dot on its tab, and where a key is needed.
+  function syncKeyStates() {
+    var st = function (id, has, extra) {
+      var n = $(id); n.textContent = has ? 'Added' : extra || 'Not added';
+      n.classList.toggle('is-on', !!has);
+    };
+    st('tmdbState', settings.tmdbKey, 'Not added: movies can’t be matched');
+    st('tvdbState', settings.tvdbKey);
+    st('acoustState', settings.acoustKey);
+    $('keysDot').hidden = !!settings.tmdbKey;
+    $('soundState').textContent = settings.acoustKey ? 'On: songs with no useful tags or names are recognised by their sound.' : 'For songs with no useful tags or names. Needs a free AcoustID key.';
+    $('soundBtn').textContent = settings.acoustKey ? 'Change Key' : 'Set Up';
+    var needTvdb = settings.order !== 'tmdb' && !settings.tvdbKey, needTmdb = settings.order === 'tmdb' && !settings.tmdbKey;
+    $('orderNeed').hidden = !needTvdb && !needTmdb;
+    $('orderNeedText').textContent = 'This order needs a ' + (needTvdb ? 'TheTVDB' : 'TMDB') + ' key. Until it’s added, shows are looked up on TVmaze (TheTVDB’s aired order).';
+  }
+  // How the switches change the names, shown as you flip them (the added parts are highlighted).
+  function syncNames() {
+    var esc = function (t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var show = function (id, p, extras) {
+      var html = esc(p.folder.concat(p.file).join(' / '));
+      extras.forEach(function (x) { if (x) html = html.split(esc(x)).join(' <mark>' + esc(x.trim()) + '</mark>'); });
+      $(id).innerHTML = html;
+    };
+    var q = settings.quality;
+    show('npMovie', P.plexName({ ext: 'mkv' }, { type: 'movie', title: 'Charade', year: 1963, id: 4808 }, { movieIds: settings.movieIds, quality: q ? '1080p BluRay' : '' }),
+      [settings.movieIds && ' {tmdb-4808}', q && ' - 1080p BluRay']);
+    show('npTv', P.plexName({ ext: 'mkv' }, { type: 'episode', show: 'Doctor Who', showYear: 2005, season: 1, episode: 1, episodeTitle: 'Rose', idTag: settings.showIds ? 'tmdb-57243' : '' }, { showYear: settings.showYear, quality: q ? '1080p' : '' }),
+      [settings.showIds && ' {tmdb-57243}', settings.showYear && ' (2005)', q && ' [1080p]']);
+    show('npSong', ShelfMusic.plexName({ title: 'Gold - Greatest Hits', artist: 'ABBA', year: 1992 }, { position: 1, title: 'Dancing Queen', discTotal: 1 }, 'flac', { year: settings.musicYear !== false, safeName: P.safeName }),
+      [settings.musicYear !== false && ' (1992)']);
+  }
+  ['optIds', 'optQuality', 'optShowIds', 'optShowYear', 'optMusicYear'].forEach(function (id) { on(id, 'change', syncNames); });
+  on('optOrder', 'change', syncKeyStates);
+  // Privacy & Data: the full list lives in its own window.
+  function toPrivacy(focusId) {
+    $('settingsSheet').close(); openSheet('privacy');
+    if (focusId) setTimeout(function () { $(focusId).focus(); }, 60);
+  }
+  on('setOpenPrivacy', 'click', function () { toPrivacy(); });
+  on('setForgetLookups', 'click', function () { $('forgetLookups').click(); });
+  on('setErase', 'click', function () { toPrivacy('eraseAll'); });
+
+  // ---------- The app icon's style ----------
+  // Drawn as SVGs here; Shelf's window, taskbar button and shortcuts get the same picture (see appicon.js).
+  var ICON_STYLES = [
+    { id: 'auto', name: 'Automatic', note: 'Matches the look' },
+    { id: 'amber', name: 'Amber', src: 'assets/icon.svg' },
+    { id: 'walnut', name: 'Walnut', src: 'assets/icon-70s.svg' },
+    { id: 'sage', name: 'Sage', src: 'assets/icons/sage.svg' },
+    { id: 'ocean', name: 'Ocean', src: 'assets/icons/ocean.svg' },
+    { id: 'sunset', name: 'Sunset', src: 'assets/icons/sunset.svg' },
+    { id: 'midnight', name: 'Midnight', src: 'assets/icons/midnight.svg' },
+    { id: 'graphite', name: 'Graphite', src: 'assets/icons/graphite.svg' },
+    { id: 'paper', name: 'Paper', src: 'assets/icons/paper.svg' }
+  ];
+  var ICON_SIZES = [16, 24, 32, 48, 64, 256];
+  function iconStyle(id) { return ICON_STYLES.filter(function (x) { return x.id === id; })[0]; }
+  if (!iconStyle(settings.appIcon)) settings.appIcon = 'auto';
+  function iconUsed() { return settings.appIcon === 'auto' ? (settings.theme === 'seventies' ? 'walnut' : 'amber') : settings.appIcon; }
+  (function buildIconPicker() {
+    var box = $('iconPicker');
+    ICON_STYLES.forEach(function (x) {
+      var pic = x.id === 'auto'
+        ? el('span', { class: 'ip-pic ip-auto', 'aria-hidden': 'true' }, [el('img', { src: 'assets/icon.svg', alt: '' }), el('img', { src: 'assets/icon-70s.svg', alt: '' })])
+        : el('span', { class: 'ip-pic', 'aria-hidden': 'true' }, [el('img', { src: x.src, alt: '' })]);
+      box.appendChild(el('button', { type: 'button', class: 'icon-pick', role: 'radio', 'data-icon-pick': x.id, 'aria-checked': 'false', title: x.note || '' },
+        [pic, el('span', { class: 'ip-name', text: x.name })]));
+    });
+    box.addEventListener('click', function (e) { var b = e.target.closest('[data-icon-pick]'); if (b) setAppIcon(b.dataset.iconPick, true); });
+    box.addEventListener('keydown', function (e) {
+      var d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!d) return;
+      e.preventDefault();
+      var ids = ICON_STYLES.map(function (x) { return x.id; });
+      var next = ids[(ids.indexOf(settings.appIcon) + d + ids.length) % ids.length];
+      setAppIcon(next, true); box.querySelector('[data-icon-pick="' + next + '"]').focus();
+    });
+  })();
+  function syncIconPicker() {
+    document.querySelectorAll('[data-icon-pick]').forEach(function (b) {
+      var on = b.dataset.iconPick === settings.appIcon;
+      b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1;
+    });
+  }
+  // The same picture as PNGs (for Windows), drawn from the SVG.
+  function iconPngs(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () {
+        Promise.all(ICON_SIZES.map(function (n) {
+          var c = document.createElement('canvas'); c.width = c.height = n;
+          var g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, n, n);
+          return new Promise(function (r) { c.toBlob(function (b) { b.arrayBuffer().then(function (ab) { r([n, new Uint8Array(ab)]); }); }, 'image/png'); });
+        })).then(function (list) { var o = {}; list.forEach(function (x) { o[x[0]] = x[1]; }); resolve(o); }, reject);
+      };
+      img.onerror = function () { reject(new Error('Couldn’t draw the icon.')); };
+      img.width = img.height = 256; img.src = src;
+    });
+  }
+  var iconSent = load('appIconSent', 'amber'); // what Windows was last given (Amber is Shelf's own icon)
+  function setAppIcon(id, fromUser) {
+    if (!iconStyle(id)) id = 'auto';
+    settings.appIcon = id; save('appIcon', id); syncIconPicker();
+    var used = iconUsed();
+    document.documentElement.dataset.icon = used;
+    if (!native.setAppIcon || (used === iconSent && !fromUser)) return;
+    var help = $('iconHelp');
+    iconPngs(iconStyle(used).src).then(function (pngs) { return native.setAppIcon(id, used, pngs); }).then(function (r) {
+      iconSent = used; save('appIconSent', used);
+      if (fromUser) help.textContent = r && r.shortcuts ? 'Done: Shelf’s window, taskbar button and shortcuts use it now. (A pinned taskbar icon may update after you restart Windows.)'
+        : r && r.canShortcuts ? 'Shown in Shelf’s window, on the taskbar and on Shelf’s desktop and Start menu shortcuts.'
+          : 'Shown in Shelf’s window and on the taskbar while Shelf is open.';
+    }).catch(function (e) { if (fromUser) help.textContent = 'Couldn’t change Windows’ icon: ' + e.message; });
+  }
+  setAppIcon(settings.appIcon, false);
   // ---------- Windows: the window's buttons blend into whatever is under them ----------
   // (They're drawn by Windows on a flat colour; Shelf tells it which colour, including the dimming
   // behind an open window, so they never sit on a mismatched box.)

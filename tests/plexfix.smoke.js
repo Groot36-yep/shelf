@@ -54,13 +54,13 @@ const EPS = [[1, 'Stanley S. SquarePants'], [2, 'Spy Buddies'], [3, 'Rise and Sh
   });
   await win.waitForLoadState();
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
-  await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
+  await win.click('#setTabs [data-page=keys]'); await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
   await sleep(300);
   // The graphics card setting.
   const gpu = await win.evaluate(() => ({ value: document.getElementById('optGpu').value, help: document.getElementById('gpuHelp').textContent }));
   assert.strictEqual(gpu.value, 'auto');
   assert.ok(gpu.help.length > 20, gpu.help);
-  await win.evaluate(() => document.getElementById('optGpu').scrollIntoView());
+  await win.click('#setTabs [data-page=cards]'); await sleep(200);
   await shot(win, '1-settings-gpu');
   console.log('  ✓ Settings has the graphics card choice (' + gpu.help.replace(/^.*\. /, '') + ')');
   await win.keyboard.press('Escape'); await sleep(300);

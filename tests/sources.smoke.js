@@ -73,11 +73,11 @@ const SB = F.spongebob.map(([season, number, name, aired, runtime], i) => ({ id:
 
   // 1. TheTVDB: wrong key is refused, right key works; choose TheTVDB (Aired).
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
-  await win.fill('#tvdbInput', 'wrong'); await win.click('#testTvdb'); await sleep(400);
+  await win.click('#setTabs [data-page=keys]'); await win.fill('#tvdbInput', 'wrong'); await win.click('#testTvdb'); await sleep(400);
   assert.match(await win.textContent('#tvdbStatusText'), /didn’t accept/);
   await win.fill('#tvdbInput', 'tvdb-test-key'); await win.click('#testTvdb'); await sleep(400);
   assert.match(await win.textContent('#tvdbStatusText'), /It works/);
-  await win.selectOption('#optOrder', 'tvdb');
+  await win.click('#setTabs [data-page=tv]'); await win.selectOption('#optOrder', 'tvdb');
   await win.keyboard.press('Escape'); await sleep(300);
   assert.doesNotMatch(await win.textContent('#orderHelp'), /Add your/, 'TheTVDB is in use');
 
@@ -100,8 +100,8 @@ const SB = F.spongebob.map(([season, number, name, aired, runtime], i) => ({ id:
   // 2. Switch to The Movie Database order (Plex's default): re-matches with TMDB.
   log.length = 0;
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
-  await win.fill('#keyInput', 'tmdb-key'); await win.dispatchEvent('#keyInput', 'change');
-  await win.selectOption('#optOrder', 'tmdb');
+  await win.click('#setTabs [data-page=keys]'); await win.fill('#keyInput', 'tmdb-key'); await win.dispatchEvent('#keyInput', 'change');
+  await win.click('#setTabs [data-page=tv]'); await win.selectOption('#optOrder', 'tmdb');
   await win.keyboard.press('Escape'); await sleep(300);
   for (let i = 0; i < 60 && !(await settled()); i++) await sleep(100);
   await sleep(300);

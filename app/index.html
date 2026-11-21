@@ -273,138 +273,289 @@
   </form>
 </dialog>
 
-<!-- Settings sheet -->
-<dialog class="sheet" id="settingsSheet" aria-labelledby="settingsTitle">
-  <form method="dialog">
-    <h2 id="settingsTitle" class="sheet-title">Settings</h2>
-    <span class="section-label">Look</span>
-    <div class="themes" role="radiogroup" aria-label="Look" id="themePicker">
-      <button type="button" class="theme-tile" role="radio" data-theme-pick="studio" aria-checked="true">
-        <span class="tp tp-studio" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
-        <span class="theme-name">Studio</span>
-        <span class="theme-note">Clean and quiet</span>
-      </button>
-      <button type="button" class="theme-tile" role="radio" data-theme-pick="seventies" aria-checked="false">
-        <span class="tp tp-70s" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
-        <span class="theme-name">Living Room</span>
-        <span class="theme-note">Warm walnut and 1970s type</span>
-      </button>
-    </div>
-    <p class="row-help flush">Both follow Windows light or dark mode.</p>
-    <div class="group">
-      <label class="row">
-        <span>Show posters and title cards<br><small class="muted">Off: no pictures are downloaded at all</small></span>
-        <input type="checkbox" class="switch" id="optPosters">
+<!-- Settings sheet: pages on the left (or along the top in a narrow window), a search that looks through all of them. -->
+<dialog class="sheet settings-sheet" id="settingsSheet" aria-labelledby="settingsTitle">
+  <form method="dialog" class="set" id="setBox">
+    <nav class="set-nav" aria-label="Settings pages">
+      <h2 id="settingsTitle" class="sheet-title">Settings</h2>
+      <label class="set-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input type="search" id="setSearch" placeholder="Search settings" autocomplete="off" spellcheck="false" aria-label="Search settings">
       </label>
-    </div>
-    <span class="section-label">Movies: your free TMDB key</span>
-    <div class="group">
-      <div class="row stack">
-        <label for="keyInput">API Key or API Read Access Token</label>
-        <div class="key-row">
-          <input id="keyInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Paste from themoviedb.org → Settings → API">
-          <button class="pill" type="button" id="testKey">Test</button>
-        </div>
-        <span class="row-help" id="keyStatus">Only ever sent to TMDB.</span>
-        <span class="row-help">Tip: use the long <b>API Read Access Token</b>. It's sent privately in a header instead of in the web address.</span>
+      <div class="set-tabs" role="tablist" aria-orientation="vertical" id="setTabs">
+        <button type="button" role="tab" class="set-tab" data-page="look" aria-controls="setLook">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" class="fill"/></svg><span>Look</span></button>
+        <button type="button" role="tab" class="set-tab" data-page="names" aria-controls="setNames">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h5l1.5 2H20v11H4z"/><path d="M8 13h8"/></svg><span>File Names</span></button>
+        <button type="button" role="tab" class="set-tab" data-page="tv" aria-controls="setTv">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8.5 20.5h7"/></svg><span>TV Shows</span></button>
+        <button type="button" role="tab" class="set-tab" data-page="music" aria-controls="setMusic">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5V6l10-2v11.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg><span>Music</span></button>
+        <button type="button" role="tab" class="set-tab" data-page="keys" aria-controls="setKeys">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 7l2.5 2.5M14.5 9l2 2"/></svg><span>Keys</span><i class="set-dot" id="keysDot" hidden title="No TMDB key yet: movies can’t be matched"></i></button>
+        <button type="button" role="tab" class="set-tab" data-page="cards" aria-controls="setCards">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5.5 13.5h5.5L10 21l8-10.5h-5.5z"/></svg><span>Speed</span></button>
+        <button type="button" role="tab" class="set-tab" data-page="privacy" aria-controls="setPrivacy">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg><span>Privacy &amp; Data</span></button>
       </div>
-<div class="row">
-        <span class="muted">Remove the key from this computer</span>
-        <button class="pill" type="button" id="forgetKey">Forget Key</button>
+    </nav>
+
+    <div class="set-main">
+      <div class="set-body" id="setBody">
+        <p class="set-none" id="setNone" hidden>No settings match “<span id="setNoneQ"></span>”. Try a word like <i>key</i>, <i>cover</i>, <i>year</i> or <i>icon</i>.</p>
+
+        <!-- Look -->
+        <section class="set-page" id="setLook" data-page="look" role="tabpanel" aria-labelledby="setLookTitle">
+          <header class="set-head"><h3 id="setLookTitle">Look</h3><p>How Shelf looks. Both looks follow Windows’ light or dark mode.</p></header>
+          <div class="set-item" data-find="look theme style studio living room walnut 1970s colours colors dark light mode">
+            <div class="themes" role="radiogroup" aria-label="Look" id="themePicker">
+              <button type="button" class="theme-tile" role="radio" data-theme-pick="studio" aria-checked="true">
+                <span class="tp tp-studio" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
+                <span class="theme-name">Studio</span>
+                <span class="theme-note">Clean and quiet</span>
+              </button>
+              <button type="button" class="theme-tile" role="radio" data-theme-pick="seventies" aria-checked="false">
+                <span class="tp tp-70s" aria-hidden="true"><i class="tp-side"></i><i class="tp-main"><b></b><b></b><b></b></i></span>
+                <span class="theme-name">Living Room</span>
+                <span class="theme-note">Warm walnut and 1970s type</span>
+              </button>
+            </div>
+          </div>
+          <div class="set-item" data-find="app icon logo style colour color taskbar shortcut desktop start menu">
+            <h4 class="set-sub">App icon</h4>
+            <div class="icon-picks" role="radiogroup" aria-label="App icon" id="iconPicker"></div>
+            <p class="set-help" id="iconHelp">Shown in Shelf’s window and on the taskbar, and on Shelf’s desktop and Start menu shortcuts.</p>
+          </div>
+          <div class="set-item" data-find="posters pictures title cards images download artwork">
+            <div class="group">
+              <label class="row">
+                <span class="row-text"><b>Show posters</b><small>Pictures of each movie and show in the list. Off: no pictures are downloaded at all.</small></span>
+                <input type="checkbox" class="switch" id="optPosters">
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- File names -->
+        <section class="set-page" id="setNames" data-page="names" role="tabpanel" aria-labelledby="setNamesTitle">
+          <header class="set-head"><h3 id="setNamesTitle">File Names</h3><p>What Shelf names your files. Plex reads these names to know what each file is.</p></header>
+          <div class="set-item name-preview" aria-live="polite" data-find="file names preview example folder movie episode song">
+            <span class="np-k">Your files will be named like this</span>
+            <div class="np-row"><span class="np-kind">Movie</span><code id="npMovie"></code></div>
+            <div class="np-row"><span class="np-kind">TV episode</span><code id="npTv"></code></div>
+            <div class="np-row"><span class="np-kind">Song</span><code id="npSong"></code></div>
+          </div>
+          <div class="set-item" data-find="file names movie tmdb id number mismatch">
+            <h4 class="set-sub">Movies</h4>
+            <div class="group">
+              <label class="row" data-find="tmdb id number movie mismatch">
+                <span class="row-text"><b>Add the movie’s TMDB number</b><small>Adds {tmdb-4808}, so Plex never mixes the movie up with another of the same name.</small></span>
+                <input type="checkbox" class="switch" id="optIds">
+              </label>
+              <label class="row" data-find="quality 1080p 4k bluray resolution">
+                <span class="row-text"><b>Add the quality</b><small>Adds “1080p BluRay” to movie and episode names, so you can see it. Plex ignores it.</small></span>
+                <input type="checkbox" class="switch" id="optQuality">
+              </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="file names tv shows show folder id year remakes">
+            <h4 class="set-sub">TV shows</h4>
+            <div class="group">
+              <label class="row" data-find="show id number folder tmdb tvdb">
+                <span class="row-text"><b>Add the show’s number to its folder</b><small>Adds {tmdb-57243}, so Plex always picks the right show. Recommended.</small></span>
+                <input type="checkbox" class="switch" id="optShowIds">
+              </label>
+              <label class="row" data-find="year show remakes">
+                <span class="row-text"><b>Add the year to show names</b><small>“Doctor Who (2005)”: tells remakes and old shows of the same name apart.</small></span>
+                <input type="checkbox" class="switch" id="optShowYear">
+              </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="file names music album folder year editions">
+            <h4 class="set-sub">Music</h4>
+            <div class="group">
+              <label class="row" data-find="year album folder music editions">
+                <span class="row-text"><b>Add the year to album folders</b><small>“Gold - Greatest Hits (1992)”: keeps editions and albums with the same name apart.</small></span>
+                <input type="checkbox" class="switch" id="optMusicYear">
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- TV shows -->
+        <section class="set-page" id="setTv" data-page="tv" role="tabpanel" aria-labelledby="setTvTitle">
+          <header class="set-head"><h3 id="setTvTitle">TV Shows</h3><p>Shows can number their episodes differently. Pick the numbering your Plex uses, so every episode gets the right name.</p></header>
+          <div class="set-item" data-find="tv episode order numbering plex tvdb dvd aired movie database">
+            <div class="group">
+              <div class="row stack">
+                <label for="optOrder"><b>Episode order</b></label>
+                <select id="optOrder" class="text">
+                  <option value="tmdb">The Movie Database (Plex’s default)</option>
+                  <option value="tvdb">TheTVDB (Aired)</option>
+                  <option value="tvdbdvd">TheTVDB (DVD)</option>
+                </select>
+                <span class="set-help" id="orderHelp">Plex uses The Movie Database unless you change it in Plex: open the show → Edit → Advanced → Episode ordering.</span>
+                <span class="set-need" id="orderNeed" hidden><span id="orderNeedText"></span> <button type="button" class="link-btn" data-goto="keys">Add It in Keys</button></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Music -->
+        <section class="set-page" id="setMusic" data-page="music" role="tabpanel" aria-labelledby="setMusicTitle">
+          <header class="set-head"><h3 id="setMusicTitle">Music</h3><p>What Shelf writes into your songs when it renames them. Songs are looked up on MusicBrainz.</p></header>
+          <div class="set-item" data-find="music album covers art picture cover.jpg folder embed">
+            <div class="group">
+              <div class="row stack">
+                <label for="optCover"><b>Album covers</b></label>
+                <select id="optCover" class="text">
+                  <option value="both">In each song and as cover.jpg in the album folder</option>
+                  <option value="embed">In each song only</option>
+                  <option value="folder">As cover.jpg in the album folder only</option>
+                  <option value="none">Leave covers as they are</option>
+                </select>
+                <span class="set-help">From the Cover Art Archive. Plex shows either; phone music players usually read the one inside each song.</span>
+              </div>
+            </div>
+          </div>
+          <div class="set-item" data-find="music smaller lossless flac wav aiff alac ogg vorbis opus convert space size">
+            <div class="group">
+              <div class="row stack">
+                <label for="optShrinkFormat"><b>Making FLAC and other lossless songs smaller</b></label>
+                <select id="optShrinkFormat" class="text">
+                  <option value="vorbis">Ogg Vorbis, quality 6 (about 190 kbps): plays on almost everything</option>
+                  <option value="opus">Opus, 160 kbps: the smallest; a few older devices make Plex convert it</option>
+                </select>
+                <span class="set-help">Both sound the same as the original to practically everyone, at about a sixth of the size. You switch it on in Rename Now.</span>
+              </div>
+            </div>
+          </div>
+          <div class="set-item" data-find="music genres musicbrainz tags">
+            <div class="group">
+              <label class="row">
+                <span class="row-text"><b>Write genres</b><small>Up to three, the ones most voted for on MusicBrainz. Off: your songs keep the genres they have.</small></span>
+                <input type="checkbox" class="switch" id="optGenres">
+              </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="music recognise recognize sound acoustid fingerprint untagged key">
+            <div class="group">
+              <div class="row">
+                <span class="row-text"><b>Recognise songs by their sound</b><small id="soundState">For songs with no useful tags or names. Needs a free AcoustID key.</small></span>
+                <button type="button" class="pill" data-goto="keys" data-focus="acoustInput" id="soundBtn">Set Up</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Keys -->
+        <section class="set-page" id="setKeys" data-page="keys" role="tabpanel" aria-labelledby="setKeysTitle">
+          <header class="set-head"><h3 id="setKeysTitle">Keys</h3><p>Free keys that let Shelf ask these services about your files. Each is stored encrypted with your Windows account, and only ever sent to its own service.</p></header>
+          <div class="set-item key-card" data-find="keys tmdb movie database api token movies">
+            <div class="group">
+              <div class="kc-head">
+                <span class="row-text"><b>The Movie Database (TMDB)</b><small>Needed for movies, and for TV shows in Plex’s default order.</small></span>
+                <span class="key-state" id="tmdbState">Not added</span>
+              </div>
+              <div class="row stack">
+                <label for="keyInput" class="sr">TMDB key</label>
+                <div class="key-row">
+                  <input id="keyInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Paste your API Read Access Token">
+                  <button class="pill" type="button" id="testKey">Test</button>
+                </div>
+                <span class="set-help" id="keyStatus">Only ever sent to TMDB.</span>
+              </div>
+              <div class="row kc-foot">
+                <a class="link-btn" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Get a free key ↗</a>
+                <span class="set-help">Use the long <b>API Read Access Token</b>: it’s sent privately, not in the web address.</span>
+                <button class="pill" type="button" id="forgetKey">Forget</button>
+              </div>
+            </div>
+          </div>
+          <div class="set-item key-card" data-find="keys thetvdb tvdb tv shows dvd aired pin subscriber">
+            <div class="group">
+              <div class="kc-head">
+                <span class="row-text"><b>TheTVDB</b><small>Only for TheTVDB’s episode orders (TV Shows → Episode order).</small></span>
+                <span class="key-state" id="tvdbState">Not added</span>
+              </div>
+              <div class="row stack">
+                <label for="tvdbInput" class="sr">TheTVDB key</label>
+                <div class="key-row">
+                  <input id="tvdbInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Paste your API key">
+                  <button class="pill" type="button" id="testTvdb">Test</button>
+                </div>
+                <input id="tvdbPinInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Subscriber PIN (only if your key needs one)" aria-label="TheTVDB subscriber PIN">
+                <span class="set-help" id="tvdbStatusText">Only ever sent to TheTVDB.</span>
+              </div>
+              <div class="row kc-foot">
+                <a class="link-btn" href="https://thetvdb.com/dashboard/account/apikey" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+                <span class="set-help"></span>
+                <button class="pill" type="button" id="forgetTvdb">Forget</button>
+              </div>
+            </div>
+          </div>
+          <div class="set-item key-card" data-find="keys acoustid sound recognise recognize music songs fingerprint">
+            <div class="group">
+              <div class="kc-head">
+                <span class="row-text"><b>AcoustID</b><small>Recognises songs by their sound when their tags and names don’t say what they are.</small></span>
+                <span class="key-state" id="acoustState">Not added</span>
+              </div>
+              <div class="row stack">
+                <label for="acoustInput" class="sr">AcoustID key</label>
+                <input id="acoustInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Paste your API key">
+                <span class="set-help" id="acoustStatus">Shelf listens to the song on this PC and sends only a code made from the sound (and its length).</span>
+              </div>
+              <div class="row kc-foot">
+                <a class="link-btn" href="https://acoustid.org/api-key" target="_blank" rel="noopener noreferrer">Get a free key ↗</a>
+                <span class="set-help"></span>
+                <button class="pill" type="button" id="forgetAcoust">Forget</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Speed -->
+        <section class="set-page" id="setCards" data-page="cards" role="tabpanel" aria-labelledby="setCardsTitle">
+          <header class="set-head"><h3 id="setCardsTitle">Speed</h3><p>How Shelf reads title cards: the names shown at the start of episodes, used when files are numbered wrong.</p></header>
+          <div class="set-item" data-find="speed graphics card gpu title cards nvidia cuda processor hevc 4k av1">
+            <div class="group">
+              <div class="row stack">
+                <label for="optGpu"><b>Use the graphics card</b></label>
+                <select id="optGpu" class="text">
+                  <option value="auto">Auto: only for heavy video (HEVC, AV1, 4K)</option>
+                  <option value="on">Always, when it can</option>
+                  <option value="off">Never: the processor does it all</option>
+                </select>
+                <span class="set-help" id="gpuHelp">Most TV files (H.264, up to 1080p) read faster on the processor. HEVC and 4K read up to twice as fast on the graphics card.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Privacy & data -->
+        <section class="set-page" id="setPrivacy" data-page="privacy" role="tabpanel" aria-labelledby="setPrivacyTitle">
+          <header class="set-head"><h3 id="setPrivacyTitle">Privacy &amp; Data</h3><p>Your files never leave your computer (except to your own Plex server, when you send them). Only titles are looked up.</p></header>
+          <div class="set-item" data-find="privacy data shared what leaves erase forget lookups remembered delete everything">
+            <div class="group">
+              <div class="row" data-find="privacy shared sent what leaves">
+                <span class="row-text"><b>What Shelf shares, and with whom</b><small>Everything that’s sent, and everything that stays.</small></span>
+                <button type="button" class="pill" id="setOpenPrivacy">Show</button>
+              </div>
+              <div class="row" data-find="forget lookups remembered cache">
+                <span class="row-text"><b>Remembered lookups</b><small>Answers from TMDB, TheTVDB, TVmaze and MusicBrainz, kept up to 30 days so Shelf is quick.</small></span>
+                <button type="button" class="pill" id="setForgetLookups">Forget</button>
+              </div>
+              <div class="row" data-find="erase delete everything reset">
+                <span class="row-text"><b>Erase all Shelf data</b><small>Keys, settings, undo history and lookups: Shelf starts fresh. Your files aren’t touched.</small></span>
+                <button type="button" class="pill danger-pill" id="setErase">Erase…</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
-    <span class="section-label">TV shows</span>
-    <div class="group">
-      <div class="row stack">
-        <label for="optOrder">Episode order: pick the one your Plex uses</label>
-        <select id="optOrder" class="text">
-          <option value="tmdb">The Movie Database (Plex’s default)</option>
-          <option value="tvdb">TheTVDB (Aired)</option>
-          <option value="tvdbdvd">TheTVDB (DVD)</option>
-        </select>
-        <span class="row-help" id="orderHelp">Plex uses The Movie Database unless you change it in Plex: open the show → Edit → Advanced → Episode ordering.</span>
+      <div class="sheet-actions set-actions">
+        <button class="pill pill-primary" type="submit" value="done">Done</button>
       </div>
-      <div class="row stack">
-        <label for="tvdbInput">TheTVDB key (only for TheTVDB’s orders)</label>
-        <div class="key-row">
-          <input id="tvdbInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From thetvdb.com → Dashboard → API Keys">
-          <button class="pill" type="button" id="testTvdb">Test</button>
-        </div>
-        <input id="tvdbPinInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="Subscriber PIN (only if your key needs one)">
-        <span class="row-help" id="tvdbStatusText">Stored encrypted with your computer account. Only ever sent to TheTVDB.</span>
-      </div>
-      <div class="row">
-        <span class="muted">Remove TheTVDB key from this computer</span>
-        <button class="pill" type="button" id="forgetTvdb">Forget Key</button>
-      </div>
-      <label class="row">
-        <span>Add show ID to folder names<br><small class="muted">SpongeBob SquarePants {tmdb-387} — Plex always picks the right show</small></span>
-        <input type="checkbox" class="switch" id="optShowIds">
-      </label>
-    </div>
-    <span class="section-label">File names</span>
-    <div class="group">
-      <label class="row">
-        <span>Add TMDB ID to movie names<br><small class="muted">Charade (1963) {tmdb-4808}.mkv — helps Plex never mismatch</small></span>
-        <input type="checkbox" class="switch" id="optIds">
-      </label>
-      <label class="row">
-        <span>Add quality to file names<br><small class="muted">Charade (1963) - 1080p BluRay.mkv — Plex ignores it, you can see it</small></span>
-        <input type="checkbox" class="switch" id="optQuality">
-      </label>
-      <label class="row">
-        <span>Add year to show names<br><small class="muted">Doctor Who (2005) — useful for remakes</small></span>
-        <input type="checkbox" class="switch" id="optShowYear">
-      </label>
-    </div>
-    <span class="section-label">Music</span>
-    <div class="group">
-      <div class="row stack">
-        <label for="optCover">Album covers (from the Cover Art Archive)</label>
-        <select id="optCover" class="text">
-          <option value="both">In each song and as cover.jpg in the album folder</option>
-          <option value="embed">In each song only</option>
-          <option value="folder">As cover.jpg in the album folder only</option>
-          <option value="none">Leave covers as they are</option>
-        </select>
-        <span class="row-help">Plex shows either; music players on phones usually read the one inside each song.</span>
-      </div>
-      <div class="row stack">
-        <label for="optShrinkFormat">Making lossless songs smaller (FLAC, WAV, AIFF, ALAC)</label>
-        <select id="optShrinkFormat" class="text">
-          <option value="vorbis">Ogg Vorbis, quality 6 (about 190 kbps): plays on almost everything</option>
-          <option value="opus">Opus, 160 kbps: the smallest, a few older devices make Plex convert it</option>
-        </select>
-        <span class="row-help">Both sound the same as the original to practically everyone, at about a sixth of the size. Offered in Rename Now.</span>
-      </div>
-      <label class="row">
-        <span>Add the year to album folders<br><small class="muted">Music / ABBA / Gold - Greatest Hits (1992) — keeps editions and same-named albums apart</small></span>
-        <input type="checkbox" class="switch" id="optMusicYear">
-      </label>
-      <div class="row stack">
-        <label for="acoustInput">Recognise songs by their sound: your free AcoustID key</label>
-        <input id="acoustInput" class="text" type="password" spellcheck="false" autocomplete="off" placeholder="From acoustid.org → Sign in → Your API key">
-        <span class="row-help" id="acoustStatus">For songs with no useful tags or names. Shelf listens to them on this PC and sends only a code made from the sound (and its length) to AcoustID.</span>
-      </div>
-      <label class="row">
-        <span>Write genres<br><small class="muted">From MusicBrainz’s most-voted genres (up to three). Off: the genres your files have stay.</small></span>
-        <input type="checkbox" class="switch" id="optGenres">
-      </label>
-    </div>
-    <span class="section-label">Reading title cards</span>
-    <div class="group">
-      <div class="row stack">
-        <label for="optGpu">Use the graphics card</label>
-        <select id="optGpu" class="text">
-          <option value="auto">Auto: only for heavy video (HEVC, AV1, 4K)</option>
-          <option value="on">Always, when it can</option>
-          <option value="off">Never: the processor does it all</option>
-        </select>
-        <span class="row-help" id="gpuHelp">Most TV files (H.264, up to 1080p) read faster on the processor. HEVC and 4K read up to twice as fast on the graphics card.</span>
-      </div>
-    </div>
-    <div class="sheet-actions">
-      <button class="pill pill-primary" type="submit" value="done">Done</button>
     </div>
   </form>
 </dialog>

@@ -71,6 +71,7 @@ jobs:
           node tests/musicops.test.js
           node tests/musicbrainz.test.js
           node tests/acoustid.test.js
+          node tests/appicon.test.js
 
       # The shipped app has Electron's RunAsNode fuse off, so nothing can run its own scripts through Shelf.exe.
       # The packaged checks below need that switch, so they run on a test copy built the same way with it on.
