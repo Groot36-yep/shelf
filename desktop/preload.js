@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('shelfNative', {
   getKey: (name) => ipcRenderer.invoke('shelf:getKey', String(name || 'tmdb')),
   setKey: (name, k) => ipcRenderer.invoke('shelf:setKey', String(name || 'tmdb'), k),
   eraseAll: () => ipcRenderer.invoke('shelf:eraseAll'),
+  // The app icon style: choice (auto or a style), the style it comes to, and its pictures { size: Uint8Array of a PNG }.
+  setAppIcon: (choice, name, pngs) => ipcRenderer.invoke('shelf:setAppIcon', String(choice), String(name), pngs && typeof pngs === 'object' ? pngs : {}),
   openSplit: (p, also) => ipcRenderer.invoke('shelf:openSplit', p, also),
   mediaFrame: (token, t, w) => ipcRenderer.invoke('shelf:mediaFrame', token, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   closeSplit: (token, endBatch) => ipcRenderer.invoke('shelf:closeSplit', token, endBatch),

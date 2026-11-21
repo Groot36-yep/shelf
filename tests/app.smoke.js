@@ -44,7 +44,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('url:', win.url(), '| native:', await win.evaluate(() => document.documentElement.classList.contains('native')),
     '| page can use Node:', await win.evaluate(() => typeof require !== 'undefined' || typeof process !== 'undefined'));
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
-  await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
+  await win.click('#setTabs [data-page=keys]'); await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
   await win.keyboard.press('Escape'); await sleep(300);
   await win.click('#chooseFolder');
   for (let i = 0; i < 40; i++) {

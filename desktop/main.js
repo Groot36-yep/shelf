@@ -13,6 +13,7 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const crypto = require('crypto');
 const fileops = require('./fileops');
+const appicon = require('./appicon');
 const probe = require('./probe');
 const P = require('../app/js/parser.js');
 // Title-card reading (and its text readers) is loaded the first time you use it.
@@ -95,6 +96,19 @@ const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] ||
 
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
 function writePrefs(p) { fs.mkdirSync(path.dirname(prefsPath()), { recursive: true }); fs.writeFileSync(prefsPath(), JSON.stringify(p)); }
+// The app icon styles (see appicon.js). Shortcuts are changed only for installed Shelf (or a test's own).
+function shortcutsOk() {
+  if (process.platform !== 'win32') return false;
+  if (!app.isPackaged) return !!(global.__shelfShortcutLinks);
+  return !process.env.PORTABLE_EXECUTABLE_DIR;
+}
+let appIconsMade = null;
+function appIcons() {
+  return appIconsMade || (appIconsMade = appicon.create({
+    shell, nativeImage, dir: app.getPath('userData'), exe: () => process.execPath, canShortcuts: shortcutsOk,
+    links: () => (!app.isPackaged && global.__shelfShortcutLinks) || appicon.shortcutPaths(app)
+  }));
+}
 
 // The look you chose (Studio or Living Room), remembered so the window opens in it.
 let theme = 'studio';
@@ -162,6 +176,8 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => log('Page loaded'));
   if (isWin) nativeTheme.on('updated', () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(overlayNow()); });
   win.loadURL(ORIGIN + '/index.html').catch((e) => log('loadURL: ' + e.message));
+  // The icon style you chose (Settings → Look): on the window, and on the shortcuts again in case an update reset them.
+  try { const used = readPrefs().appIconUsed; if (used) appIcons().apply(used, win); } catch (e) { log('App icon: ' + e.message); }
 
   // Never navigate away; open approved web links in the normal browser instead.
   const OK_LINKS = /^https:\/\/(www\.)?(themoviedb\.org|tvmaze\.com|thetvdb\.com|creativecommons\.org|github\.com|support\.plex\.tv|musicbrainz\.org|acoustid\.org)\//;
@@ -942,7 +958,15 @@ if (gotLock) app.whenReady().then(() => {
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
 
+  // Settings → Look → App icon. choice: auto | a style; name: the style it comes to; pngs: { size: bytes }.
+  handle('shelf:setAppIcon', async (choice, name, pngs) => {
+    if (choice !== 'auto' && !appicon.STYLES.includes(choice)) throw new Error('Unknown icon style.');
+    const used = appIcons().save(name, pngs);
+    const p = readPrefs(); p.appIcon = choice; p.appIconUsed = used; writePrefs(p);
+    return { shortcuts: appIcons().apply(used, win), canShortcuts: shortcutsOk() };
+  });
   handle('shelf:eraseAll', async () => {
+    try { appIcons().reset(); } catch (e) { /* nothing to put back */ }
     if (scanLoaded) await scanLoaded.stopOcr();
     plexSend.forgetAll();
     plexFix.forget();
