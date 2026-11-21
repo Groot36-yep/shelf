@@ -8,7 +8,11 @@ Where things stand, and what's left to do. Newest first.
   and matches what's said with every episode's description. In testing it found that a "Season 1" set of
   Mythbusters is really Season 2 in the official list, which is why Plex showed the wrong episodes. Shows that turn
   out to have no title cards are only listened to after the first couple of files, which is much quicker. A
-  one-episode-long show is read in one place, not four.
+  one-episode-long show is read in one place, not four. Shelf doesn't listen where the episode list has nothing to
+  match words with (TVmaze describes only 1 of SpongeBob's 35 seventh-season cartoons; TMDB describes them).
+- **Splits happen by themselves** when every cartoon's title card in a file was read clearly but they aren't next
+  to each other in the list (so Plex needs a file each): no more "Split into 2 Files" on each one. Check All shows
+  every cut to check.
 - **Check All**: every episode of a show on one page, each with its proof: the title card Shelf read, or the
   sentence it heard with the telling words marked, or a plain "known by its file name". Splits show the last frame
   before each cut and the first after, with buttons to move the cut. Say "Right" to each (Enter), "Fix…" to open

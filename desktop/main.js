@@ -648,6 +648,7 @@ if (gotLock) app.whenReady().then(() => {
     // Each title's description and its place in the list (season x number), for matching what's heard.
     const aboutsFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.abouts) ? j.abouts.slice(0, 3000).map((a) => String(a || '').slice(0, 600)) : []]));
     const keysFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.keys) ? j.keys.slice(0, 3000).map(String) : []]));
+    const seasonFor = new Map(jobs.map((j) => [j.key, Number.isInteger(j.season) ? j.season : null]));
     const runtimesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.runtimes) ? j.runtimes.slice(0, 3000).map((m) => Math.max(0, Math.min(600, Number(m) || 0))) : []]));
     const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
     const showFor = new Map(jobs.map((j) => [j.key, String(j.show || '').slice(0, 200)]));
@@ -732,7 +733,7 @@ if (gotLock) app.whenReady().then(() => {
         let last = 0;
         const seen = showSeen.get(showFor.get(f)) || { files: 0, cards: 0, heard: 0, seasons: [], words: new Map(), listened: 0 };
         showSeen.set(showFor.get(f), seen);
-        const foundParts = new Set();
+        const foundParts = new Set(), foundSeasons = new Set();
         // Two videos of this show in, no title card read, but listening worked: just listen.
         const skipCards = canListen && !deep && seen.files >= 2 && seen.cards === 0 && seen.heard > 0;
         try {
@@ -752,14 +753,27 @@ if (gotLock) app.whenReady().then(() => {
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
-            onFound: (fd) => { foundParts.add(fd.part); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
+            onFound: (fd) => { foundParts.add(fd.part); const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
           let parts = r.parts || scan.windowsFor(secs, oneEp ? 1 : 0).length;
           seen.files++; if (foundParts.size) seen.cards++;
           // Parts without a title card: listen to their start.
           const titles = titlesFor.get(f), abouts = aboutsFor.get(f), keys = keysFor.get(f);
-          if (canListen && !cardCancel && titles.some((x, k) => abouts[k])) {
+          // (Only when the list describes the episodes around this one: there's nothing to match words with otherwise,
+          // as for SpongeBob's seventh season on TVmaze, and listening would only take time.)
+          const nearSet = nearFor.get(f), sn = seasonFor.get(f), all = titles.map((x, k) => k);
+          // Which episodes to judge by: the season a title card in this file named; else those near the file's
+          // number; else the best-described of its season and the ones either side (a misnumbered file's episodes
+          // are usually close by).
+          const share = (ks) => ks.filter((k) => abouts[k]).length / Math.max(1, ks.length);
+          const seasonOf = (k) => +String(keys[k]).split('x')[0];
+          let described;
+          if (foundSeasons.size) described = share(all.filter((k) => foundSeasons.has(seasonOf(k))));
+          else if (nearSet.size) described = share(all.filter((k) => nearSet.has(titles[k])));
+          else if (sn != null) described = Math.max(0, ...[sn - 1, sn, sn + 1].map((x) => all.filter((k) => seasonOf(k) === x)).filter((ks) => ks.length).map(share));
+          else described = share(all);
+          if (canListen && !cardCancel && described >= 0.3) {
             const lp = listenPlan(secs, usual, skipCards ? 1 : parts, foundParts);
             const hearList = titles.map((name, k) => ({ name, about: abouts[k] || '', key: keys[k] || '', season: +String(keys[k] || '').split('x')[0] || 0, number: k + 1 }));
             for (const p of lp.plan) {

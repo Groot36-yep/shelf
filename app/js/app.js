@@ -33,6 +33,7 @@
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
     musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
+    autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
     appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
@@ -1570,6 +1571,7 @@
       $('optCover').value = settings.musicCover; $('optShrinkFormat').value = settings.musicShrinkFormat; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
+      $('optAutoSplit').checked = settings.autoSplit !== false;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
       $('tvdbPinInput').value = settings.tvdbPin;
@@ -1946,6 +1948,7 @@
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
+  on('optAutoSplit', 'change', function (e) { settings.autoSplit = e.target.checked; save('autoSplit', settings.autoSplit); });
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
   var scanning = false;
@@ -2141,7 +2144,8 @@
         // special like "SpongeBob's Last Stand"), Shelf stops looking for a second one.
         var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list), show: (current(i) || {}).title || '',
           // For listening: what each episode is about, and where it is in the list.
-          abouts: named.map(function (e) { return e.about || ''; }), keys: named.map(function (e) { return e.season + 'x' + e.number; }) };
+          abouts: named.map(function (e) { return e.about || ''; }), keys: named.map(function (e) { return e.season + 'x' + e.number; }),
+          season: i.parsed.season != null ? i.parsed.season : null };
         if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
         return job;
       }), { deep: !!deepNext });
@@ -2151,9 +2155,28 @@
     }).then(function (res) {
       if (!res) { reader.hide(); toast('Cancelled. No videos were read.'); return; }
       setScanStatus('Working out the episodes…');
-      return Promise.all(shows.map(resolveShow));
+      return Promise.all(shows.map(resolveShow)).then(function () { return splitClearOnes(files); });
     }).catch(function (e) { toast('Couldn’t read the title cards: ' + e.message); })
       .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); });
+  }
+  // A file whose cartoons' title cards were all read clearly, but which aren't next to each other in the list (so
+  // Plex needs a file each): split straight away, at the black, silent moment before each card. Nothing is cut
+  // until Rename Now, and Check All shows each cut to check (and move).
+  // (Videos on this computer only: one on your Plex server would need another OK to read around each gap.)
+  function splitClearOnes(files) {
+    if (!settings.autoSplit) return null;
+    var todo = files.filter(function (v) {
+      var ep = v.episode, es = ep && ep.entries;
+      return ep && ep.needsSplit && !v.split && !v.manualEp && v.fullPath && es && es.length > 1 && es.every(function (e) { return e.card != null; });
+    });
+    if (!todo.length) return null;
+    var done = 0;
+    setScanStatus('Finding where to split ' + todo.length + (todo.length === 1 ? ' video…' : ' videos…'));
+    return todo.reduce(function (p, v) {
+      return p.then(function () { return autoSplit(v, v.episode.entries, true).then(function (ok) { if (ok) done++; }, function () {}); });
+    }, Promise.resolve()).then(function () {
+      if (done) toast('Split ' + done + (done === 1 ? ' video' : ' videos') + ' into one file per cartoon (their title cards were read clearly). Check All shows each cut.');
+    });
   }
   on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
   on('readerStop', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });

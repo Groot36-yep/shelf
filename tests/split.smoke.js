@@ -68,7 +68,8 @@ function fakeSingle(file) {
   const ed = () => win.evaluate(() => { const s = ShelfEditor._state(); return s && { t: s.t, cuts: s.cuts.slice(), mode: s.mode, view: s.view, zoom: s.zoom, sel: s.sel, parts: s.parts.map((p) => p.entry && p.entry.number), one: s.oneEntries.map((e) => e.number), cards: s.cards.length, playable: s.playable }; });
   const pick = (n) => win.evaluate((n) => { const it = window.Shelf.items().find((i) => i.name === n); document.querySelector('[data-id="' + it.id + '"]').click(); }, n);
 
-  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await win.keyboard.press('Escape'); await sleep(200);
+  // (This test goes through the questions step by step: splitting by itself is switched off.)
+  await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]'); await win.click('#setTabs [data-page=tv]'); await win.uncheck('#optAutoSplit'); await win.keyboard.press('Escape'); await sleep(200);
   await win.click('#chooseFolder');
   for (let i = 0; i < 60; i++) { await sleep(100); if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break; }
 
