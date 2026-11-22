@@ -2,6 +2,10 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Shelf's own key for your server is always a good one.** The SSH library spoiled about one new key in 256 (the
+  server then turned it away); Shelf now checks each key it makes and makes another if needed.
+
 ## Done (2.6.0)
 - **Server Files**: copy between your Plex server and this PC, like FileZilla (Menu → Server Files…). Two sides,
   drag or Copy, pause and resume, files already there asked once.
