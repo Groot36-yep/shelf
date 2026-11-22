@@ -33,6 +33,7 @@
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
     musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
+    autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
     appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
@@ -284,7 +285,11 @@
       if (items.some(function (i) { return (i.fullPath || i.remote || i.relPath) === keyOf; })) return;
       var it = makeItem(f.name, f.relPath, f.size, f.fullPath, f.parents);
       // A file already on your Plex server (Fix My Plex Library): renamed there, never copied here.
-      if (f.remote) { it.remote = f.remote; it.plexState = f.plex || ''; }
+      if (f.remote) {
+        it.remote = f.remote; it.plexState = f.plex || '';
+        // Plex shows it as another episode than its name says (and the show's key in Plex, to fix its order).
+        if (f.says && f.says.season != null) { it.plexSays = { season: +f.says.season, number: +f.says.number, title: String(f.says.title || '') }; it.plexShow = String(f.plexShow || ''); }
+      }
       if (it.status === 'skipped' && !/\.(nfo|txt|jpg|jpeg|png|url)$/i.test(f.name)) { items.push(it); added++; return; }
       if (it.status === 'skipped') return; // quietly ignore artwork / nfo files
       items.push(it); added++;
@@ -494,7 +499,8 @@
 
   function applyStatus(item) {
     if (['error', 'nomatch', 'skipped', 'done', 'pending'].indexOf(item.status) >= 0) return;
-    var problem = item.epProblem || '';
+    // (A file Plex shows wrongly only waits for you when Plex's order is to blame; a rename fixes the rest.)
+    var problem = item.epProblem || (plexOrderIsWrong(linkedVideo(item) || item) ? plexDiffers(item) : '');
     if (item.showAmbiguous && !item.confirmed) { item.status = 'review'; item.error = item.showError; return; }
     if (item.confirmed) { item.status = 'review'; item.error = item.epBlock ? problem : ''; return; }
     item.status = item.showStatus === 'matched' && !problem ? 'matched' : 'review';
@@ -661,6 +667,7 @@
     if (item.parsed.isSubtitle && item.linkTo) return k('', ['Its video'], 'Named to go with its video');
     var how = v.kind === 'episode' ? (v.episode ? v.episode.how : '') : '';
     if (how === 'card') return k('card', ['Title cards'], 'Read from the title cards inside the video');
+    if (how === 'heard') return k('card', ['Heard'], 'Recognised from what’s said at the start of the video');
     if (how === 'manual' || item.handPicked || (v.kind === 'movie' && item.confirmed)) return k('you', ['You chose']);
     if (how === 'date') return k('', ['Air date'], 'From the air date in the file name');
     var c = current(v);
@@ -788,7 +795,8 @@
     var n = sh.items.length, check = sh.items.filter(needsReview).length;
     var busy = sh.items.filter(function (i) { return i.status === 'matching' || i.status === 'pending'; }).length;
     var cards = tv ? sh.items.filter(function (i) { return !i.linkTo && i.episode && i.episode.how === 'card'; }).length : 0;
-    var bits = [tv && c && c.year, n + (n === 1 ? ' file' : ' files'), cards ? cards + ' read from title cards' : '', busy ? 'looking up ' + busy + '…' : ''].filter(Boolean);
+    var heard = tv ? sh.items.filter(function (i) { return !i.linkTo && i.episode && i.episode.how === 'heard'; }).length : 0;
+    var bits = [tv && c && c.year, n + (n === 1 ? ' file' : ' files'), cards ? cards + ' read from title cards' : '', heard ? heard + ' recognised by listening' : '', busy ? 'looking up ' + busy + '…' : ''].filter(Boolean);
     var meta = el('span', { class: 'shelf-meta' }, [bits.join(' · ')].concat(check ? [' · ', el('b', { text: check + (check === 1 ? ' needs you' : ' need you') })] : busy ? [] : [' · all ready']));
     // How this show's files are numbered (cartoon shows only): asked once, here, and always yours to change.
     var ask = null;
@@ -805,8 +813,180 @@
     var toSplit = tv ? sh.items.filter(function (i) { return !i.linkTo && splittable(i); }) : [];
     var splitBtn = toSplit.length > 1 ? el('button', { type: 'button', class: 'link-btn shelf-split', text: 'Split All (' + toSplit.length + ')', disabled: scanning ? 'disabled' : null,
       title: 'Give every episode in these ' + toSplit.length + ' files its own file. Shelf finds the gaps; nothing is cut until Rename Now.', onclick: function () { splitAll(toSplit); } }) : null;
-    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta, splitBtn]), ask]);
+    // Check All: every episode of this show with how Shelf knows it, on one page.
+    var checkBtn = tv && c && !busy ? el('button', { type: 'button', class: 'link-btn shelf-check', text: 'Check All' + (check ? ' (' + check + ')' : ''),
+      title: 'See every episode of ' + title + ' with its title card or what was heard, and say they’re right', onclick: function () { openReview(showIdKey(c)); } }) : null;
+    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta, el('div', { class: 'shelf-links' }, [checkBtn, splitBtn])]), ask]);
   }
+  // ---------- Check All: every episode of a show at a glance, with how Shelf knows it ----------
+  // Each file gets a card: the title card Shelf read (its picture), or the words it heard (the quote, the telling
+  // words marked), or a plain "known by its file name"; the name it will get; and for a split, the moment of each
+  // cut (the last frame before and the first after), which you can move earlier or later. "Right" settles a file,
+  // "Fix…" opens Check Episodes, "Mark All Right" settles every one that can be. All keyboard-friendly.
+  var rv = { ids: [], filter: 'all', lists: {}, focus: null };
+  function rvVideos(showKey) {
+    var vids = items.filter(function (i) { return i.kind === 'episode' && !i.linkTo && i.parsed.isVideo && current(i) && ['done', 'skipped'].indexOf(i.status) < 0; });
+    if (showKey) vids = vids.filter(function (i) { return showIdKey(current(i)) === showKey; });
+    var seen = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []);
+    return vids.sort(function (a, b) { return seen.indexOf(a) - seen.indexOf(b); });
+  }
+  function openReview(showKey) {
+    var vids = rvVideos(showKey);
+    if (!vids.length) { toast('No TV episodes to check.'); return; }
+    rv.ids = vids.map(function (v) { return v.id; }); rv.show = showKey || null; rv.filter = vids.some(needsReview) && vids.filter(needsReview).length < vids.length ? rv.filter : 'all';
+    var shows = {}; vids.forEach(function (v) { var c = current(v); shows[showIdKey(c)] = c; });
+    work('Getting the episodes ready…', function () {
+      return Promise.all(Object.keys(shows).map(function (k) { return listFor(shows[k]).then(function (l) { rv.lists[k] = l; }, function () { rv.lists[k] = []; }); }));
+    }).then(function () {
+      var c0 = current(vids[0]);
+      $('rvTitle').textContent = 'Check All';
+      $('rvSub').textContent = (Object.keys(shows).length === 1 ? c0.title + ': ' : '') + 'every episode, and how Shelf knows it. Look them over, then say they’re right.';
+      renderReview();
+      var d = $('reviewSheet'); if (!d.open) d.showModal();
+      setTimeout(function () { var first = $('rvBody').querySelector('.rv-card.is-need') || $('rvBody').querySelector('.rv-card'); if (first) first.focus(); }, 60);
+    });
+  }
+  function rvList(v) { var c = current(v); return (c && rv.lists[showIdKey(c)]) || []; }
+  // A picture from the video (only for videos on this computer that Shelf may look inside).
+  function rvFrame(v, t, w, alt) {
+    var img = el('img', { class: 'rv-img', alt: alt || '', loading: 'lazy' });
+    var box = el('div', { class: 'rv-pic' }, [img]);
+    if (!v.fullPath) { box.classList.add('is-none'); return box; }
+    cardFrame(v, t, w).then(function (u) { if (u) { img.src = u; box.classList.add('is-in'); } else box.classList.add('is-none'); });
+    return box;
+  }
+  function rvQuote(text, words) {
+    var out = el('blockquote', { class: 'rv-quote' });
+    var ws = (words || []).filter(Boolean);
+    String(text || '').split(/(\s+)/).forEach(function (tok) {
+      var w = P.heardWords(tok)[0];
+      out.appendChild(w && ws.indexOf(w) >= 0 ? el('mark', { text: tok }) : document.createTextNode(tok));
+    });
+    return out;
+  }
+  // How Shelf knows one episode of this file: → a figure.
+  function rvProof(v, e, proofs) {
+    var p = proofs.filter(function (x) { return x.key === e.season + 'x' + e.number; })[0];
+    if (p && p.heard) return el('figure', { class: 'rv-proof is-heard' }, [rvQuote(p.text, p.words), el('figcaption', { text: 'Heard at ' + fmtClock(p.t) })]);
+    if (p) return el('figure', { class: 'rv-proof is-card' }, [rvFrame(v, p.t, 480, 'Title card of ' + e.name), el('figcaption', { text: (p.manual ? 'Title card you marked' : 'Title card') + ' · ' + fmtClock(p.t) })]);
+    var how = v.episode ? v.episode.how : '';
+    var said = how === 'manual' ? 'You chose this episode.' : how === 'title' ? 'Matched by the episode title in its file name.' : how === 'date' ? 'Matched by the air date in its file name.'
+      : how === 'card' || how === 'heard' ? 'Goes with the episode Shelf recognised next to it.' : 'Known only by its file name. Read Title Cards can check it.';
+    return el('figure', { class: 'rv-proof is-none' }, [el('div', { class: 'rv-noproof', text: said })]);
+  }
+  function rvNames(v) { return (splitOf(v) ? pieceNames(v) : [plexFor(v)]).filter(Boolean).map(function (p) { return p.file; }); }
+  // A split's cut: the last frame before it and the first after, and buttons to move it.
+  function rvCut(v, k) {
+    var pcs = v.split.pieces, at = pcs[k].end;
+    var move = function (d) {
+      var lo = pcs[k].start + 30, hi = pcs[k + 1].end - 30, t = Math.max(lo, Math.min(hi, pcs[k].end + d));
+      pcs[k].end = t; pcs[k + 1].start = t; v.confirmed = true; renderReview(v.id); scheduleRender();
+    };
+    return el('div', { class: 'rv-cut' }, [
+      el('div', { class: 'rv-cut-pics' }, [rvFrame(v, Math.max(0, at - 1), 320, 'Just before the cut'), rvFrame(v, at + 1, 320, 'Just after the cut')]),
+      el('div', { class: 'rv-cut-row' }, [
+        el('span', { class: 'rv-cut-at', text: 'Cut ' + (k + 1) + ' at ' + fmtClock(at) }),
+        el('span', { class: 'flex' }),
+        el('button', { type: 'button', class: 'pill small-pill', text: '◂ 2 s', title: 'Move the cut 2 seconds earlier', onclick: function () { move(-2); } }),
+        el('button', { type: 'button', class: 'pill small-pill', text: '◂ ½ s', title: 'Move the cut half a second earlier', onclick: function () { move(-0.5); } }),
+        el('button', { type: 'button', class: 'pill small-pill', text: '½ s ▸', title: 'Move the cut half a second later', onclick: function () { move(0.5); } }),
+        el('button', { type: 'button', class: 'pill small-pill', text: '2 s ▸', title: 'Move the cut 2 seconds later', onclick: function () { move(2); } })
+      ])
+    ]);
+  }
+  // Settles one file as it's shown. → true when it changed something that needs the show worked out again.
+  // Whether "Right" can settle it: not when Shelf has no episode for it, or it must be split first.
+  function rvCanRight(v) { return !!(v.episode && !(v.episode.needsSplit && !v.split) && !v.showAmbiguous); }
+  function rvRight(v) {
+    var ep = v.episode;
+    if (!rvCanRight(v)) return false;
+    v.checked = true;
+    if (!needsReview(v)) return false;
+    if (ep && v.epBlock && !v.split) {
+      var es = ep.entries && ep.entries.length ? ep.entries : [{ season: ep.season, number: ep.number, name: ep.name }];
+      var last = es[es.length - 1];
+      v.manualEp = { season: es[0].season, number: es[0].number, end: inRow(es) && last.number > es[0].number ? last.number : null, name: P.joinNames(es), entries: es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; }) };
+    }
+    v.confirmed = true;
+    return true;
+  }
+  function rvSettle(vs) {
+    var shows = {}, again = false;
+    vs.forEach(function (v) { if (rvRight(v)) { again = true; var c = current(v); if (c) shows[showIdKey(c)] = c; } });
+    var p = again ? Promise.all(Object.keys(shows).map(function (k) { return resolveShow(shows[k]); })) : Promise.resolve();
+    return p.then(function () { render(); renderReview(); });
+  }
+  function rvCard(v) {
+    var proofs = cardsForCached(v, rvList(v));
+    var rows = episodeRows(v), need = needsReview(v), iss = issueFor(v);
+    var names = rvNames(v);
+    var eps = el('div', { class: 'rv-eps' }, rows.map(function (e) {
+      return el('div', { class: 'rv-ep' }, [el('code', { text: epCode(e) }), el('b', { text: e.name || '' })]);
+    }));
+    var info = [eps,
+      el('div', { class: 'rv-new' }, names.map(function (n) { return el('div', { text: n }); })),
+      el('div', { class: 'rv-was', text: 'Now: ' + v.name })];
+    if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Fix… opens it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
+    if (v.split) v.split.pieces.slice(0, -1).forEach(function (pc, k) { info.push(rvCut(v, k)); });
+    var acts = [];
+    if (iss && iss.kind === 'apart' && !v.split) iss.actions.forEach(function (a) {
+      acts.push(el('button', { type: 'button', class: 'pill small-pill' + (acts.length ? '' : ' pill-primary'), text: a.label, onclick: function () { Promise.resolve(a.run()).then(function () { renderReview(v.id); }); } }));
+    });
+    else if (rvCanRight(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-right' + (need ? ' pill-primary' : ''), 'aria-pressed': !need && v.checked ? 'true' : 'false',
+      text: !need && v.checked ? '✓ Right' : 'Right', title: 'This is right (Enter)', onclick: function () { rvSettle([v]).then(function () { rvNext(v.id); }); } }));
+    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill' + (acts.length ? '' : ' pill-primary'), text: 'Fix…', title: 'Open it in Check Episodes (F)', onclick: function () { rvFix(v); } }));
+    var proofsBox = el('div', { class: 'rv-proofs' + (rows.length > 1 ? ' is-many' : '') }, rows.map(function (e) { return rvProof(v, e, proofs); }));
+    return el('article', { class: 'rv-card' + (need ? ' is-need' : ' is-ok') + (rows.length > 1 || v.split ? ' is-wide' : ''), tabindex: '0', 'data-id': v.id, 'aria-label': rows.map(function (e) { return epCode(e) + ' ' + e.name; }).join(', ') + (need ? ', needs you' : ', ready') }, [
+      proofsBox, el('div', { class: 'rv-info' }, info), el('div', { class: 'rv-acts' }, acts)
+    ]);
+  }
+  function renderReview(onlyId) {
+    var vids = rv.ids.map(itemById).filter(function (v) { return v && v.status !== 'done' && v.status !== 'skipped'; });
+    var body = $('rvBody'), need = vids.filter(needsReview);
+    $('rvAll').textContent = vids.length; $('rvNeed').textContent = need.length;
+    document.querySelectorAll('#rvFilter [data-rv]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.rv === rv.filter ? 'true' : 'false'); });
+    var settleable = vids.filter(function (v) { return needsReview(v) && rvCanRight(v); });
+    $('rvAllRight').textContent = settleable.length ? 'Mark All Right (' + settleable.length + ')' : 'All Right';
+    $('rvAllRight').disabled = !settleable.length;
+    $('rvProgress').textContent = need.length ? need.length + (need.length === 1 ? ' needs you' : ' need you') : '✓ All ' + vids.length + ' ready';
+    if (onlyId != null) {
+      var old = body.querySelector('[data-id="' + onlyId + '"]'), v1 = itemById(onlyId);
+      if (old && v1) { var fresh = rvCard(v1); old.replaceWith(fresh); return; }
+    }
+    var shown = rv.filter === 'need' ? need : vids;
+    var keep = document.activeElement && document.activeElement.closest && document.activeElement.closest('.rv-card');
+    var keepId = keep ? keep.dataset.id : null, top = body.scrollTop;
+    body.replaceChildren.apply(body, shown.length ? shown.map(rvCard) : [el('p', { class: 'rv-empty', text: 'Nothing needs you here. ✓' })]);
+    body.scrollTop = top;
+    if (keepId) { var again = body.querySelector('[data-id="' + keepId + '"]'); if (again) again.focus({ preventScroll: true }); }
+  }
+  function rvNext(id) {
+    var cards = Array.prototype.slice.call($('rvBody').querySelectorAll('.rv-card'));
+    var k = cards.findIndex(function (c) { return c.dataset.id === String(id); });
+    var next = cards.slice(k + 1).filter(function (c) { return c.classList.contains('is-need'); })[0] || cards[k + 1];
+    if (next) { next.focus(); next.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  }
+  function rvFix(v) { $('reviewSheet').close(); openEditor(v); }
+  on('rvDone', 'click', function () { $('reviewSheet').close(); });
+  on('rvAllRight', 'click', function () {
+    var vids = rv.ids.map(itemById).filter(function (v) { return v && needsReview(v) && rvCanRight(v); });
+    rvSettle(vids).then(function () { toast('Marked ' + vids.length + ' right.'); });
+  });
+  document.querySelectorAll('#rvFilter [data-rv]').forEach(function (b) { b.addEventListener('click', function () { rv.filter = b.dataset.rv; renderReview(); }); });
+  $('rvBody').addEventListener('keydown', function (e) {
+    var card = e.target.closest && e.target.closest('.rv-card');
+    if (!card || e.target !== card) return;
+    var cards = Array.prototype.slice.call($('rvBody').querySelectorAll('.rv-card')), k = cards.indexOf(card);
+    var go = function (n) { var c = cards[Math.max(0, Math.min(cards.length - 1, n))]; if (c) { c.focus(); c.scrollIntoView({ block: 'nearest' }); } };
+    // Across a row of the grid with ← →, down a column with ↑ ↓.
+    var cols = Math.max(1, Math.round($('rvBody').clientWidth / (card.offsetWidth + 14)));
+    if (e.key === 'ArrowRight' || e.key === 'j') { e.preventDefault(); go(k + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'k') { e.preventDefault(); go(k - 1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); go(k + cols); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); go(k - cols); }
+    else if (e.key === 'Enter' || e.key === 'y') { e.preventDefault(); var b = card.querySelector('.rv-right, .rv-acts .pill-primary'); if (b) b.click(); }
+    else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); var v = itemById(card.dataset.id); if (v && canLook(v)) rvFix(v); }
+  });
   function setNumbering(c, mode) { numbering[showIdKey(c)] = mode; work('Working out the episodes…', function () { return resolveShow(c); }).then(render); }
 
   // ---------- Shows on the left: pick one to see just its files ----------
@@ -1189,10 +1369,13 @@
     }
     var src = linkedVideo(item) || item;
     if (src.minutes) fact('Length', Math.round(src.minutes) + ' min');
+    if (src.plexSays) fact('In Plex', 'Shown as ' + plexSaysCode(src) + (src.plexSays.title ? ' “' + src.plexSays.title + '”' : '') + (src.plexFixed ? ' (order changed)' : ''));
     if (src.cards) {
       var ep1 = src.episode;
       var readNames = ep1 && ep1.how === 'card' ? (ep1.entries && ep1.entries.length ? ep1.entries.filter(function (e) { return e.card != null; }).map(function (e) { return e.name; }).join(', ') || ep1.name : ep1.name) : '';
-      fact('Title cards', readNames ? 'Read: ' + readNames : src.cards.length ? 'Couldn’t read them clearly' : 'None found');
+      var heardOnes = src.cards.filter(function (c) { return c.heard; });
+      if (!heardOnes.length || readNames) fact('Title cards', readNames ? 'Read: ' + readNames : src.cards.some(function (c) { return !c.heard; }) ? 'Couldn’t read them clearly' : 'None found');
+      heardOnes.forEach(function (c) { fact('Heard at ' + fmtClock(c.t), '“' + c.heard.quote + '”'); });
     }
     var ql = P.qualityLabel(linkedVideo(item) ? linkedVideo(item).parsed : item.parsed);
     if (ql) fact('Quality', ql);
@@ -1388,6 +1571,7 @@
       $('optCover').value = settings.musicCover; $('optShrinkFormat').value = settings.musicShrinkFormat; $('optMusicYear').checked = settings.musicYear !== false; $('optGenres').checked = !!settings.musicGenres;
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
+      $('optAutoSplit').checked = settings.autoSplit !== false;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
       $('tvdbPinInput').value = settings.tvdbPin;
@@ -1764,6 +1948,7 @@
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
+  on('optAutoSplit', 'change', function (e) { settings.autoSplit = e.target.checked; save('autoSplit', settings.autoSplit); });
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
   var scanning = false;
@@ -1848,11 +2033,19 @@
         if (Date.now() < holdUntil) { queued = p; later(function () { if (queued) { var q = queued; queued = null; draw(q); } }); return; }
         draw(p);
       },
+      listen: function () {
+        var go = function () {
+          box.classList.remove('has-frame', 'is-reading'); cv.forEach(function (c) { c.classList.remove('on'); });
+          box.dataset.state = 'listen'; $('readerTime').textContent = '';
+          step('No title card to read. Listening to the start…');
+        };
+        if (Date.now() < holdUntil) later(go); else go();
+      },
       found: function (p) {
         queued = null;
         box.classList.remove('is-reading'); box.dataset.state = 'found';
         $('readerTime').textContent = clock(p.t);
-        step('Found a title card at ' + clock(p.t));
+        step(p.heard ? 'Recognised it from what’s said at ' + clock(p.t) : 'Found a title card at ' + clock(p.t));
         var chips = $('readerFound');
         chips.appendChild(el('span', { class: 'reader-chip', title: p.title }, [el('b', { text: '✓' }), p.title]));
         while (chips.children.length > 4) chips.removeChild(chips.firstChild);
@@ -1911,6 +2104,7 @@
       if (p.kind === 'step' && it) it.scanFrac = p.frac;
       if (p.kind === 'peek') { reader.peek(p); return; }
       if (p.kind === 'found') { titlesFound++; reader.found(p); return; }
+      if (p.kind === 'listen') { reader.listen(p); return; }
       if (p.kind === 'start' || p.kind === 'step') {
         reader.progress((p.index + (p.kind === 'step' ? p.frac : 0)) / p.total);
         setScanStatus((deepNext ? 'Deep scan' : 'Reading') + ' ' + (p.index + 1) + ' of ' + p.total + '…');
@@ -1929,8 +2123,8 @@
       }
       if (p.kind === 'end') {
         items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
-        var nTitles = titlesFound + ' title card' + (titlesFound === 1 ? '' : 's');
-        reader.end(titlesFound ? 'Found ' + nTitles + '. Click a file to see what was read.' : 'No title cards could be read. Shelf will go by name and length.',
+        var nTitles = titlesFound + ' episode' + (titlesFound === 1 ? '' : 's');
+        reader.end(titlesFound ? 'Recognised ' + nTitles + '. Check All shows what each was known by.' : 'No episodes could be recognised. Shelf will go by name and length.',
           p.stopped ? 'Stopped' : 'Finished reading', read + ' of ' + p.total + ' video' + (p.total === 1 ? '' : 's'));
         ended();
       }
@@ -1948,7 +2142,10 @@
         var named = list.filter(function (e) { return e.number != null && e.name; });
         // Each title's length too: once a card names an episode that fills the whole video (a double-length
         // special like "SpongeBob's Last Stand"), Shelf stops looking for a second one.
-        var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list), show: (current(i) || {}).title || '' };
+        var job = { titles: named.map(function (e) { return e.name; }), runtimes: named.map(function (e) { return e.runtime || 0; }), near: nearFor(i, list), show: (current(i) || {}).title || '',
+          // For listening: what each episode is about, and where it is in the list.
+          abouts: named.map(function (e) { return e.about || ''; }), keys: named.map(function (e) { return e.season + 'x' + e.number; }),
+          season: i.parsed.season != null ? i.parsed.season : null };
         if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
         return job;
       }), { deep: !!deepNext });
@@ -1958,9 +2155,28 @@
     }).then(function (res) {
       if (!res) { reader.hide(); toast('Cancelled. No videos were read.'); return; }
       setScanStatus('Working out the episodes…');
-      return Promise.all(shows.map(resolveShow));
+      return Promise.all(shows.map(resolveShow)).then(function () { return splitClearOnes(files); });
     }).catch(function (e) { toast('Couldn’t read the title cards: ' + e.message); })
       .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); });
+  }
+  // A file whose cartoons' title cards were all read clearly, but which aren't next to each other in the list (so
+  // Plex needs a file each): split straight away, at the black, silent moment before each card. Nothing is cut
+  // until Rename Now, and Check All shows each cut to check (and move).
+  // (Videos on this computer only: one on your Plex server would need another OK to read around each gap.)
+  function splitClearOnes(files) {
+    if (!settings.autoSplit) return null;
+    var todo = files.filter(function (v) {
+      var ep = v.episode, es = ep && ep.entries;
+      return ep && ep.needsSplit && !v.split && !v.manualEp && v.fullPath && es && es.length > 1 && es.every(function (e) { return e.card != null; });
+    });
+    if (!todo.length) return null;
+    var done = 0;
+    setScanStatus('Finding where to split ' + todo.length + (todo.length === 1 ? ' video…' : ' videos…'));
+    return todo.reduce(function (p, v) {
+      return p.then(function () { return autoSplit(v, v.episode.entries, true).then(function (ok) { if (ok) done++; }, function () {}); });
+    }, Promise.resolve()).then(function () {
+      if (done) toast('Split ' + done + (done === 1 ? ' video' : ' videos') + ' into one file per cartoon (their title cards were read clearly). Check All shows each cut.');
+    });
   }
   on('scanBarStop', 'click', function () { native.cancelCards(); scanBar('Stopping after this video…', 1); });
   on('readerStop', 'click', function () { native.cancelCards(); reader.stopping(); setScanStatus('Stopping…'); });
@@ -2204,6 +2420,12 @@
     var rows = episodeRows(v);
     var near = list.filter(function (e) { return e.number != null && rows.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
     (v.cards || []).forEach(function (r) {
+      if (r.heard) {
+        var hk = String(r.heard.key || '').split('x'), he = list.filter(function (e) { return e.season === +hk[0] && e.number === +hk[1]; })[0];
+        var kk = he && he.season + 'x' + he.number;
+        if (he && !(out[kk] && out[kk].manual) && !out[kk]) out[kk] = { t: r.t, start: r.start != null ? r.start : r.t, key: kk, name: he.name, text: r.heard.quote, score: 1, heard: true, words: r.heard.words || [] };
+        return;
+      }
       var m = P.matchCardText(r.texts, list, near, show);
       if (!m) return;
       var k = m.entry.season + 'x' + m.entry.number;
@@ -2259,10 +2481,43 @@
     }
     return v._frames[key];
   }
+  // Plex shows a file (on your server) as another episode than its name says. Said in words, or '' when it doesn't
+  // (or you've dealt with it). When Shelf agrees with the name, Plex is using a different episode order for the show.
+  function plexSaysCode(v) { return 'S' + pad2(v.plexSays.season) + 'E' + pad2(v.plexSays.number); }
+  function plexDiffers(item) {
+    var v = linkedVideo(item) || item;
+    if (!v.plexSays || v.plexFixed || !v.episode || v.confirmed) return '';
+    var said = 'Plex shows this file as ' + plexSaysCode(v) + (v.plexSays.title ? ' “' + v.plexSays.title + '”' : '');
+    return plexOrderIsWrong(v) ? said + ', but its name is right: Plex is using a different episode order for this show.'
+      : said + '. Rename Now gives it the right name.';
+  }
+  function plexOrderIsWrong(v) {
+    var ep = v.episode, p = v.parsed;
+    return !!(ep && p && p.season === ep.season && p.episode === ep.number);
+  }
+  function plexOrderWanted() { return tvService() === 'TVmaze' ? 'tvdb' : settings.order; }
+  var ORDER_NAMES = { tmdb: 'The Movie Database', tvdb: 'TheTVDB (Aired)', tvdbdvd: 'TheTVDB (DVD)' };
+  function fixPlexOrder(v) {
+    var want = plexOrderWanted(), show = (current(v) || {}).title || 'this show';
+    return work('Changing ' + show + '’s episode order in Plex…', function () { return native.plexShowOrder(v.plexShow, want); }).then(function (r) {
+      items.forEach(function (i) { if (i.plexShow === v.plexShow) { i.plexFixed = true; applyStatus(i); } });
+      render();
+      toast('Plex now uses ' + (r && r.label ? r.label : ORDER_NAMES[want]) + ' for ' + show + ', the order Shelf names its files in. Plex is refreshing it.');
+    }, function (e) { toast('Couldn’t change it: ' + (e && e.message ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : 'Plex didn’t answer') + '.'); });
+  }
+
   // A problem with a file's episodes, in plain words, and what you can do about it.
   function issueFor(item) {
     var v = linkedVideo(item) || item, ep = v.episode;
     if (!ep || v.split || item.status === 'done' || item.kind !== 'episode') return null;
+    if (plexDiffers(v) && plexOrderIsWrong(v) && v.plexShow && !item.epBlock) {
+      var showName = (current(v) || {}).title || 'this show';
+      return { kind: 'plexorder', title: 'Plex shows this as ' + plexSaysCode(v),
+        text: 'Its name says ' + epCode(ep) + ' “' + ep.name + '”, which is right in ' + ORDER_NAMES[plexOrderWanted()] + '’s order. Plex is using another order for ' + showName +
+          ', so its episodes come out shifted. Shelf can set ' + showName + ' to ' + ORDER_NAMES[plexOrderWanted()] + ' in Plex (its Edit → Advanced → Episode ordering).',
+        actions: [{ label: 'Use ' + ORDER_NAMES[plexOrderWanted()] + ' in Plex', run: function () { return fixPlexOrder(v); } },
+          { label: 'Leave Plex As It Is', link: true, run: function () { v.plexFixed = true; applyStatus(v); render(); } }] };
+    }
     var names = function (es) { return es.map(function (e) { return epCode(e) + ' “' + e.name + '”'; }); };
     var look = canLook(v) ? [{ label: 'Check Episodes…', title: 'Open the video to see for yourself', run: function () { openEditor(item); } }] : [];
     if (ep.needsSplit) {

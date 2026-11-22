@@ -455,9 +455,10 @@ async function cleanStale() {
  * secs: running time (or null). Returns [{ from, len, likely }] — `likely` is where its
  * title card most often is (after the theme song for the first cartoon), tried first.
  */
-function windowsFor(secs) {
+function windowsFor(secs, maxParts) {
   const d = secs || 1320;
-  const parts = Math.max(1, Math.min(4, Math.round(d / 660)));
+  // maxParts: 1 for a show whose episodes are as long as the video (one episode, not several cartoons).
+  const parts = Math.max(1, Math.min(maxParts || 4, 4, Math.round(d / 660)));
   const out = [];
   for (let i = 0; i < parts; i++) {
     const start = (d * i) / parts;
@@ -480,8 +481,8 @@ const CREDITS = /story ?board|written|directors?\b|director|animation|supervisin
 
 // Every part's thumbnails are made at once (each on its own core), so the later parts are
 // usually ready by the time the first part's cards have been read.
-function prepareStills(file, secs) {
-  const all = windowsFor(secs).map((w) => stills(file, w.from, w.len));
+function prepareStills(file, secs, maxParts) {
+  const all = windowsFor(secs, maxParts).map((w) => stills(file, w.from, w.len));
   all.forEach((pr) => pr.catch(() => {})); // a part never reached (stopped) mustn't complain
   return all;
 }
@@ -496,11 +497,11 @@ async function scanFile(file, secs, opts) {
   await cleanStale();
   const texts = [];
   let frames = 0;
-  const wins = windowsFor(secs);
+  const wins = windowsFor(secs, opts.maxParts);
   let parts = wins.length; // fewer when the first card names an episode that fills the video
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
-  const allStills = prepareStills(file, secs);
+  const allStills = prepareStills(file, secs, opts.maxParts);
   // One still moment, read for part i. likely: one of the few likeliest (or straight after a black moment),
   // which get every version of the picture; the rest only the quick ones. strict: the title must also be
   // named by one reading on its own (not only by many noisy readings pooled). → the match, or null.

@@ -340,14 +340,14 @@ class Session {
   }
 
   // ---- Talking to Plex on the server, through this same encrypted connection ----
-  plex(token, pathAndQuery) {
+  plex(token, pathAndQuery, method) {
     return new Promise((resolve, reject) => {
       this.conn.forwardOut('127.0.0.1', 0, '127.0.0.1', 32400, (err, stream) => {
         if (err) return reject(problem('NO_PLEX', 'Couldn’t reach Plex on the server.'));
         ['setTimeout', 'setNoDelay', 'setKeepAlive', 'ref', 'unref'].forEach((f) => { if (typeof stream[f] !== 'function') stream[f] = () => stream; });
         const req = http.request({
           // No agent: with one (even agent: false), Node ignores createConnection and dials this PC's own port 32400.
-          host: '127.0.0.1', port: 32400, path: pathAndQuery, method: 'GET', createConnection: () => stream,
+          host: '127.0.0.1', port: 32400, path: pathAndQuery, method: method === 'PUT' ? 'PUT' : 'GET', createConnection: () => stream,
           headers: { 'X-Plex-Token': token, Accept: 'application/json', 'X-Plex-Product': 'Shelf', 'X-Plex-Client-Identifier': 'shelf-desktop', Connection: 'close' }
         }, (res) => {
           let body = '';

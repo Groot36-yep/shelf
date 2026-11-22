@@ -554,6 +554,7 @@
       if (s.plex) {
         if (s.unmatched) bits.push(s.unmatched + ' Plex couldn’t match');
         if (s.missing) bits.push(s.missing + ' Plex hasn’t added');
+        if (s.differs) bits.push(s.differs + ' Plex shows as a different episode');
       }
       var oddly = r.files.filter(function (f) { return !f.named; }).length;
       if (oddly) bits.push(oddly + ' not named the Plex way');
@@ -562,7 +563,7 @@
         : all ? 'Checked ' + n(r.total) + ' files on your server, listing them all' + (bits.length ? ' (' + bits.join(', ') + ')' : '') + '.'
         : (r.stopped ? 'Stopped after ' : 'Checked ') + n(r.total) + ' files on your server: ' + (bits.join(', ') || r.files.length + ' to look at') + (s.truncated ? ' (stopped at 50,000 files)' : '') + '.';
       var add = function (files) {
-        shelf().addFiles(files.map(function (f) { return { name: f.name, relPath: f.relPath, size: f.size, remote: f.remote, plex: f.plex }; }));
+        shelf().addFiles(files.map(function (f) { return { name: f.name, relPath: f.relPath, size: f.size, remote: f.remote, plex: f.plex, says: f.says, plexShow: f.plexShow }; }));
         toast(said + ' Check the list, then Rename fixes them on the server.');
       };
       // You pick which shows (and seasons) to fix now, and whether files that already look right are listed too.
@@ -592,7 +593,7 @@
       var key = movie ? 'movies' : segs.length > 2 ? 'tv:' + segs[1] : 'tv:';
       if (!map[key]) {
         var name = movie ? 'Movies' : segs.length > 2 ? segs[1].replace(/\s*[{\[](?:tmdb|tvdb|imdb)-[^}\]]*[}\]]/gi, '').trim() || segs[1] : 'TV files not in a show’s folder';
-        map[key] = { key: key, name: name, movie: movie, files: [], unmatched: 0, missing: 0, odd: 0, seasons: {} };
+        map[key] = { key: key, name: name, movie: movie, files: [], unmatched: 0, missing: 0, odd: 0, differs: 0, seasons: {} };
         order.push(key);
       }
       var g = map[key];
@@ -600,6 +601,7 @@
       if (f.plex === 'unmatched') g.unmatched++;
       else if (f.plex === 'missing') g.missing++;
       else if (f.plex && !f.named) g.odd++;
+      else if (f.says) g.differs++;
       var sn = movie ? null : seasonOf(f, segs), sk = sn == null ? 'other' : 's' + sn;
       if (!g.seasons[sk]) g.seasons[sk] = { key: sk, n: sn, name: sn == null ? (movie ? 'Movies' : 'Other files') : sn === 0 ? 'Specials' : 'Season ' + sn, files: [] };
       g.seasons[sk].files.push(f);
@@ -629,7 +631,8 @@
     $('fpLead').textContent = !groups.length ? said + ' To rename some files again anyway (to redo a show, say), include the files that already look right.'
       : said + ' They’re in ' + plural(nShows, 'show', 'shows') + (groups.some(function (g) { return g.movie; }) ? ' and your movies' : '') + '. Pick the ones to fix now (open a show to pick its seasons); the rest stay as they are.';
     var shows = groups.map(function (g) {
-      var why = [g.unmatched ? g.unmatched + ' Plex couldn’t match' : '', g.missing ? g.missing + ' Plex hasn’t added' : '', g.odd ? g.odd + ' not named the Plex way' : ''].filter(Boolean).join(' · ');
+      var why = [g.unmatched ? g.unmatched + ' Plex couldn’t match' : '', g.missing ? g.missing + ' Plex hasn’t added' : '', g.odd ? g.odd + ' not named the Plex way' : '',
+        g.differs ? g.differs + ' Plex shows as another episode' : ''].filter(Boolean).join(' · ');
       var many = g.seasons.length > 1;
       var box = el('input', { type: 'checkbox', class: 'switch', 'aria-label': 'Fix ' + g.name });
       box.addEventListener('change', function () { g.seasons.forEach(function (s) { picked[sk(g, s)] = box.checked; }); sync(); });

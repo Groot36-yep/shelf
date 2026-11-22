@@ -625,7 +625,12 @@ if (gotLock) app.whenReady().then(() => {
     return true;
   });
   let cardCancel = false;
-  handle('shelf:cancelCards', async () => { cardCancel = true; return true; });
+  handle('shelf:cancelCards', async () => { cardCancel = true; if (listenerMade) listenerMade.stop(); return true; });
+  // Listening to an episode (whisper.cpp, shipped with Shelf): for shows whose episodes don't show their name.
+  let listenerMade = null;
+  const whisperDir = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin', 'whisper') : (global.__shelfWhisperDir || path.join(__dirname, '..', 'build', 'bin', 'whisper')));
+  const listener = () => listenerMade || (listenerMade = require('./listen').create({ whisperDir: whisperDir(), ffmpeg: scanner().ffmpegPath() }));
+  handle('shelf:canListen', async () => listener().ready());
   // jobs: [{ path, titles: [episode titles of that show] }]. A video on your Plex server (listed by Fix My
   // Plex Library) comes as { remote: its path there, titles } and is read over the SSH connection (remoteread.js).
   handle('shelf:readCards', async (jobs, how) => {
@@ -640,6 +645,10 @@ if (gotLock) app.whenReady().then(() => {
     };
     jobs = jobs.filter((j) => j && (typeof j.path === 'string' || typeof j.remote === 'string')).map((j) => Object.assign({}, j, { key: keyOf(j) })).filter((j) => j.key);
     const titlesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.titles) ? j.titles.map(String).slice(0, 3000) : []]));
+    // Each title's description and its place in the list (season x number), for matching what's heard.
+    const aboutsFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.abouts) ? j.abouts.slice(0, 3000).map((a) => String(a || '').slice(0, 600)) : []]));
+    const keysFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.keys) ? j.keys.slice(0, 3000).map(String) : []]));
+    const seasonFor = new Map(jobs.map((j) => [j.key, Number.isInteger(j.season) ? j.season : null]));
     const runtimesFor = new Map(jobs.map((j) => [j.key, Array.isArray(j.runtimes) ? j.runtimes.slice(0, 3000).map((m) => Math.max(0, Math.min(600, Number(m) || 0))) : []]));
     const nearFor = new Map(jobs.map((j) => [j.key, new Set(Array.isArray(j.near) ? j.near.map(String).slice(0, 200) : [])]));
     const showFor = new Map(jobs.map((j) => [j.key, String(j.show || '').slice(0, 200)]));
@@ -649,7 +658,7 @@ if (gotLock) app.whenReady().then(() => {
     const someOnServer = files.some((f) => onServer.has(f));
     const where = someOnServer
       ? [{ icon: 'lock', text: 'Videos on your Plex server: only the minutes Shelf needs are read, over your SSH connection' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }]
-      : [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames are deleted straight away' }];
+      : [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames and sound are deleted straight away' }];
     const yes = deep
       ? await askFirst(files, {
         kind: 'deep', ok: 'Deep Scan', title: n(files, 'Deep scan this video?', 'Deep scan these # videos?'),
@@ -658,8 +667,8 @@ if (gotLock) app.whenReady().then(() => {
       })
       : await askFirst(files, {
         kind: 'cards', ok: 'Read Title Cards', title: n(files, 'Read this video’s title cards?', 'Read the title cards of # videos?'),
-        lead: 'Shelf looks at a few still frames and reads the words on them, to find out which episodes ' + n(files, 'it holds.', 'they hold.'),
-        points: where.concat([{ icon: 'clock', text: 'About 5–30 seconds per video' }])
+        lead: 'Shelf reads the words on a few still frames, and for shows that don’t show the episode’s name it listens to the first minutes, to find out which episodes ' + n(files, 'it holds.', 'they hold.'),
+        points: where.concat([{ icon: 'clock', text: 'About 10–40 seconds per video' }])
       });
     if (!yes) return null;
     files.forEach((f) => { if (!onServer.has(f)) lookApproved.add(f); }); // you said yes to Shelf looking inside these
@@ -667,6 +676,38 @@ if (gotLock) app.whenReady().then(() => {
     cardCancel = false;
     const send = (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:cardProgress', msg); };
     const out = {};
+    // What Shelf learns about each show as it goes: a show whose first videos have no readable title card but
+    // whose episodes were recognised by listening is only listened to from then on (much quicker).
+    const showSeen = new Map(); // show → { files, cards, heard }
+    const canListen = listener().ready();
+    // The stretches to listen to: the start of each part without a title card read. One episode as long as the
+    // video (Mythbusters, Dora): just its start. Several cartoons in one video: the start of each.
+    function listenPlan(secs, usualMins, parts, found) {
+      const d = secs || 1320;
+      const one = !parts || parts <= 1 || (usualMins && usualMins * 60 >= d * 0.6);
+      const n = one ? 1 : parts;
+      const plan = [];
+      for (let k = 0; k < n; k++) if (!found.has(k)) plan.push({ part: k, from: k ? Math.max(0, (d * k) / n - 20) : 0 });
+      return { n, plan };
+    }
+    // Listen to the first two minutes (where a show says what's in this episode); not sure yet, the next two too
+    // (up to six minutes). → the match, or null.
+    async function hear(src, from, entries, limit, seasons, seen) {
+      let heard = { text: '', lines: [] }, m = null;
+      // Words said in most of this show's episodes so far (its opening, its hosts' names) don't tell them apart.
+      const ignore = {};
+      if (seen && seen.listened >= 3) for (const [w, n] of seen.words) if (n >= seen.listened * 0.5) ignore[w] = 1;
+      for (let k = 0; k < 3 && !cardCancel; k++) {
+        const at = from + k * 120;
+        if (limit && at >= limit - 30) break;
+        const h = await listener().listen(src, at, 120);
+        heard = { text: (heard.text + ' ' + h.text).trim(), lines: heard.lines.concat(h.lines) };
+        m = P.matchHeard(heard, entries, { seasons, ignore });
+        if (m && m.margin >= 2) break;
+      }
+      if (seen && heard.text) { seen.listened++; for (const w of new Set(P.heardWords(heard.text.slice(0, 2500)))) seen.words.set(w, (seen.words.get(w) || 0) + 1); }
+      return m;
+    }
     // proxy: the reader for videos on the server (null when there are none, or the server couldn't be reached: why).
     async function readAll(proxy, why) {
       for (let i = 0; i < files.length && !cardCancel; i++) {
@@ -690,9 +731,16 @@ if (gotLock) app.whenReady().then(() => {
         }
         send({ kind: 'start', path: f, index: i, total: files.length, file: remote ? path.posix.basename(f) : path.basename(f) });
         let last = 0;
+        const seen = showSeen.get(showFor.get(f)) || { files: 0, cards: 0, heard: 0, seasons: [], words: new Map(), listened: 0 };
+        showSeen.set(showFor.get(f), seen);
+        const foundParts = new Set(), foundSeasons = new Set();
+        // Two videos of this show in, no title card read, but listening worked: just listen.
+        const skipCards = canListen && !deep && seen.files >= 2 && seen.cards === 0 && seen.heard > 0;
         try {
-          const r = await scan.scanFile(src ? src.url : f, secs, {
-            deep,
+          // The show's episodes are about as long as this video: one episode, so only its start has a title card.
+          const oneEp = !!(usual && secs && usual * 60 >= secs * 0.6);
+          const r = skipCards ? { texts: [], parts: 0 } : await scan.scanFile(src ? src.url : f, secs, {
+            deep, maxParts: oneEp ? 1 : 0,
             isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f)),
             // An episode as long as the video (give or take the credits), and clearly longer than the show's usual one:
             // it's the only one in there. Online lists get lengths wrong (TVmaze has 11-minute "Squid's Day Off" at
@@ -705,10 +753,42 @@ if (gotLock) app.whenReady().then(() => {
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
-            onFound: (fd) => send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }),
+            onFound: (fd) => { foundParts.add(fd.part); const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
-          out[f] = { secs, parts: r.parts || scan.windowsFor(secs).length, texts: r.texts };
+          let parts = r.parts || scan.windowsFor(secs, oneEp ? 1 : 0).length;
+          seen.files++; if (foundParts.size) seen.cards++;
+          // Parts without a title card: listen to their start.
+          const titles = titlesFor.get(f), abouts = aboutsFor.get(f), keys = keysFor.get(f);
+          // (Only when the list describes the episodes around this one: there's nothing to match words with otherwise,
+          // as for SpongeBob's seventh season on TVmaze, and listening would only take time.)
+          const nearSet = nearFor.get(f), sn = seasonFor.get(f), all = titles.map((x, k) => k);
+          // Which episodes to judge by: the season a title card in this file named; else those near the file's
+          // number; else the best-described of its season and the ones either side (a misnumbered file's episodes
+          // are usually close by).
+          const share = (ks) => ks.filter((k) => abouts[k]).length / Math.max(1, ks.length);
+          const seasonOf = (k) => +String(keys[k]).split('x')[0];
+          let described;
+          if (foundSeasons.size) described = share(all.filter((k) => foundSeasons.has(seasonOf(k))));
+          else if (nearSet.size) described = share(all.filter((k) => nearSet.has(titles[k])));
+          else if (sn != null) described = Math.max(0, ...[sn - 1, sn, sn + 1].map((x) => all.filter((k) => seasonOf(k) === x)).filter((ks) => ks.length).map(share));
+          else described = share(all);
+          if (canListen && !cardCancel && described >= 0.3) {
+            const lp = listenPlan(secs, usual, skipCards ? 1 : parts, foundParts);
+            const hearList = titles.map((name, k) => ({ name, about: abouts[k] || '', key: keys[k] || '', season: +String(keys[k] || '').split('x')[0] || 0, number: k + 1 }));
+            for (const p of lp.plan) {
+              if (cardCancel) break;
+              send({ kind: 'listen', path: f, index: i, total: files.length, part: p.part });
+              // Once two of the show's files are recognised, the seasons they're in count a little extra.
+              const m = await hear(src ? src.url : f, p.from, hearList, secs, seen.heard >= 2 ? seen.seasons : null, seen);
+              if (!m) continue;
+              seen.heard++; seen.seasons.push(m.entry.season);
+              r.texts.push({ part: p.part, t: m.line ? m.line.t : Math.round(p.from), start: Math.round(p.from), texts: [], heard: { name: m.entry.name, key: m.entry.key, quote: m.line ? m.line.text : '', words: m.words, score: m.score, margin: m.margin } });
+              send({ kind: 'found', path: f, index: i, total: files.length, t: m.line ? m.line.t : p.from, part: p.part, title: m.entry.name, heard: true });
+            }
+            if (lp.n === 1 && r.texts.some((x) => x.heard) && !foundParts.size) parts = 1; // one episode, heard
+          }
+          out[f] = { secs, parts, texts: r.texts };
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
         } finally {

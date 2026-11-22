@@ -50,6 +50,11 @@ jobs:
       # unless it's byte-for-byte the file checked when the version was chosen.
       - name: Get fpcalc (checked)
         run: node scripts/get-fpcalc.js
+      # whisper.cpp and its small English voice model (listening to the start of an episode to tell which one it
+      # is), from the whisper.cpp project's own release and its author's Hugging Face page, refused unless every
+      # file is byte-for-byte the one pinned in the script.
+      - name: Get whisper.cpp (checked)
+        run: node scripts/get-whisper.js
 
       # bash stops at the first test that fails. (A PowerShell step only goes by the last line's exit code, so a
       # failing test earlier in the list used to pass unnoticed.)
@@ -72,6 +77,8 @@ jobs:
           node tests/musicbrainz.test.js
           node tests/acoustid.test.js
           node tests/appicon.test.js
+          node tests/heard.test.js
+          node tests/listen.test.js
 
       # The shipped app has Electron's RunAsNode fuse off, so nothing can run its own scripts through Shelf.exe.
       # The packaged checks below need that switch, so they run on a test copy built the same way with it on.
