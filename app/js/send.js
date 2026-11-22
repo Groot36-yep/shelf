@@ -75,7 +75,7 @@
       var running = st.sending && st.sending.running;
       var folders = st.movies || st.tv || st.music;
       dot.className = 'dot ' + (!st.set ? 'dot-off' : !st.hasLogin || !folders ? 'dot-warn' : running ? 'dot-busy' : 'dot-ok');
-      $('serverName').textContent = st.set ? st.host : 'Not set up';
+      $('serverName').textContent = st.set ? st.host : 'Plex server';
       $('serverNote').textContent = !st.set ? 'Set Up' : !st.hasLogin ? 'Log In' : !folders ? 'Pick Folders' : running ? Math.round(100 * (st.sending.bytesDone || 0) / Math.max(1, st.sending.bytesTotal)) + '%' : 'Ready';
     }
     var btn = $('sendBtn');

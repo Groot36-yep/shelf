@@ -3,6 +3,11 @@
 Where things stand, and what's left to do. Newest first.
 
 ## Next release (not released yet)
+- **A more refined look.** The list is calmer: a match by file name is said quietly, one read from a title card
+  shows a tiny picture of the card. The Needs You card is compact. A show's Check All and Split All are matching
+  buttons, Add says what it does, and the details pane makes the next step (Split into 2 Files) the dark button.
+  Check Episodes now belongs to the light looks too: Shelf's own window around a dark video screen. Rename Now leads
+  with choosing your library folder when there isn't one yet. Many small fixes to fit and wording.
 - **Shows without title cards are recognised by listening.** For Mythbusters, documentaries and preschool shows,
   Read Title Cards now listens to the first minutes of each episode (whisper.cpp, on this PC; nothing is uploaded)
   and matches what's said with every episode's description. In testing it found that a "Season 1" set of

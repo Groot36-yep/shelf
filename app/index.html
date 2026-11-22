@@ -39,8 +39,8 @@
     <button class="tool" type="button" id="retryBtn" hidden title="Look up the files that failed again">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg><span class="lbl">Try Again</span>
     </button>
-    <button class="tool icon" type="button" id="addBtn" title="Add files (Ctrl+O)" aria-label="Add files" hidden>
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    <button class="tool add" type="button" id="addBtn" title="Add files (Ctrl+O)" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Add</span>
     </button>
     <button class="tool server" type="button" id="serverStatus" title="Your Plex server: where Send to Plex puts your files">
       <span class="dot dot-off"></span><span class="lbl" id="serverName">Plex server</span><span class="src-note" id="serverNote">Set Up</span>
@@ -628,7 +628,7 @@
     <div class="group">
       <div class="fact"><span>Accounts, cookies, tracking or analytics</span><span>None</span></div>
       <div class="fact"><span>Code or fonts from other websites</span><span>None, blocked by the page</span></div>
-      <div class="fact"><span>Update checks</span><span>Only when you click Updates</span></div>
+      <div class="fact"><span>Update checks</span><span>Only when you click Check for Updates</span></div>
     </div>
     <div class="sheet-actions">
       <button class="pill" type="button" id="forgetLookups">Forget Remembered Lookups</button>
@@ -673,7 +673,7 @@
     <div class="about">
       <img class="app-icon" src="assets/icon.svg" alt="" width="72" height="72">
       <h2 id="aboutTitle">Shelf</h2>
-      <p class="muted">Renames your videos for Plex</p>
+      <p class="muted">Renames your movies, shows and music for Plex</p>
       <p class="muted small"><span id="appVersion">Version</span> · <button type="button" class="link-btn" id="checkUpdates">Check for Updates</button></p>
     </div>
     <div class="group credits">
