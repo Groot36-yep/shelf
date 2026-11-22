@@ -22,7 +22,7 @@ const { OPEN_MODE, STATUS_CODE } = utils.sftp;
 // ---- An SSH + SFTP server that keeps files in memory ----
 const files = new Map(), dirs = new Set(['/', '/home', '/home/me']);
 const PASS = 'right-' + crypto.randomBytes(3).toString('hex');
-const hostKey = utils.generateKeyPairSync('ed25519');
+const hostKey = S.ed25519Pair();
 const hostFp = S.fingerprint(utils.parseKey(hostKey.public).getPublicSSH());
 let sawPassword = false;
 function attrs(p) {
@@ -110,6 +110,12 @@ const server = new Server({ hostKeys: [hostKey.private] }, (client) => {
   assert.match(k.public, /^ssh-ed25519 \S+ shelf@test$/);
   assert.ok(utils.parseKey(k.private).sign(Buffer.from('x')).length > 0);
   ok('Shelf can make and use its own key');
+  // The SSH library makes a broken key about one time in 256: Shelf never hands one out.
+  for (let i = 0; i < 1500; i++) {
+    const kk = S.makeKey('shelf@test');
+    assert.ok(!(utils.parseKey(kk.public) instanceof Error) && !(utils.parseKey(kk.private) instanceof Error), 'a broken key: ' + kk.public);
+  }
+  ok('1,500 new keys, every one readable');
   fs.rmSync(tmp, { recursive: true, force: true });
   server.close();
   console.log(n + ' loopback SSH checks passed' + (base !== ROOT ? ' (packaged app)' : ''));

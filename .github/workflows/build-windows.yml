@@ -43,8 +43,14 @@ jobs:
           if ($new -eq 'false') { Write-Host "::notice::Shelf $v is already released: this run builds and tests only." }
           exit 0
 
+      # Packages' own install scripts are skipped: two of them only compile optional speed-ups for the SSH library
+      # (slow to build on Windows) that the shipped app leaves out anyway, so the tests now check the same SSH code
+      # that ships. The one that's needed, ffmpeg's download, runs by itself after. (bash stops if either fails.)
       - name: Install
-        run: npm ci
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node node_modules/ffmpeg-static/install.js
 
       # Chromaprint's fpcalc (recognising songs by their sound), from the official AcoustID project, refused
       # unless it's byte-for-byte the file checked when the version was chosen.
@@ -56,29 +62,10 @@ jobs:
       - name: Get whisper.cpp (checked)
         run: node scripts/get-whisper.js
 
-      # bash stops at the first test that fails. (A PowerShell step only goes by the last line's exit code, so a
-      # failing test earlier in the list used to pass unnoticed.)
+      # Every test in package.json's list (npm test stops at the first one that fails), so a new test is checked
+      # here as soon as it's added there.
       - name: Safety tests on real Windows
-        shell: bash
-        run: |
-          node tests/parser.test.js
-          node tests/fixes.test.js
-          node tests/plexwalk.test.js
-          node tests/remember.test.js
-          node tests/fileops.test.js
-          node tests/scan.test.js
-          node tests/subs.test.js
-          node tests/cards-real.test.js
-          node tests/updates.test.js
-          node tests/ssh-loopback.test.js
-          node tests/music.test.js
-          node tests/tags.test.js
-          node tests/musicops.test.js
-          node tests/musicbrainz.test.js
-          node tests/acoustid.test.js
-          node tests/appicon.test.js
-          node tests/heard.test.js
-          node tests/listen.test.js
+        run: npm test
 
       # The shipped app has Electron's RunAsNode fuse off, so nothing can run its own scripts through Shelf.exe.
       # The packaged checks below need that switch, so they run on a test copy built the same way with it on.
@@ -168,6 +155,8 @@ jobs:
         with:
           name: Shelf-Windows
           path: dist/*.exe
+          # The installers are already compressed: zipping them again only takes time.
+          compression-level: 0
 
   release:
     needs: build

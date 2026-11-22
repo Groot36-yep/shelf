@@ -19,7 +19,7 @@ let passed = 0;
 const ok = (m) => { passed++; console.log('  ✓ ' + m); };
 
 function server(behaviour) {
-  const keys = utils.generateKeyPairSync('ed25519');
+  const keys = S.ed25519Pair();
   const files = new Map(), dirs = new Set(['/', '/tv']);
   const state = { writes: 0, conns: 0 };
   const srv = new Server({ hostKeys: [keys.private] }, (client) => {
