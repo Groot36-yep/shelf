@@ -76,7 +76,7 @@ const PLEX = {
 };
 const plexAsked = [];
 const showOrdering = {}; // show key → the episode order set in Plex
-const hostKey = utils.generateKeyPairSync('ed25519');
+const hostKey = S.ed25519Pair();
 const hostFp = S.fingerprint(utils.parseKey(hostKey.public).getPublicSSH());
 const PASS = 'right-' + crypto.randomBytes(3).toString('hex');
 

@@ -438,9 +438,19 @@ function remoteFor(rel, roots) {
 }
 
 // ---- Shelf's own key (instead of your password) ----
-function makeKey(comment) {
+/** A new ed25519 key pair. The SSH library drops the public key's first byte when it happens to be zero (about one
+ *  key in 256), which leaves a key no server can read: such a pair is thrown away and another one made. */
+function ed25519Pair(opts) {
   const { utils } = require('ssh2');
-  const k = utils.generateKeyPairSync('ed25519', { comment: String(comment || 'shelf').replace(/[^\w@.\-]/g, '').slice(0, 60) });
+  for (let i = 0; i < 50; i++) {
+    const k = utils.generateKeyPairSync('ed25519', opts);
+    const pub = utils.parseKey(k.public), priv = utils.parseKey(k.private);
+    if (!(pub instanceof Error) && !(priv instanceof Error) && pub.getPublicSSH().equals(priv.getPublicSSH())) return k;
+  }
+  throw new Error('Shelf couldn’t make a key for your server');
+}
+function makeKey(comment) {
+  const k = ed25519Pair({ comment: String(comment || 'shelf').replace(/[^\w@.\-]/g, '').slice(0, 60) });
   return { private: k.private, public: k.public.trim() };
 }
 const blobOf = (line) => (String(line).trim().split(/\s+/)[1] || '');
@@ -502,4 +512,4 @@ function parseFileZilla(xml) {
   return out.filter((s) => { const k = s.host + ':' + s.port + ':' + s.user; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
-module.exports = { connect, fingerprint, remoteFor, cleanRoot, makeKey, installKey, removeKey, findPlexToken, plexLibraries, plexRefresh, parseFileZilla, quote, ALGORITHMS, problem, friendly };
+module.exports = { connect, fingerprint, remoteFor, cleanRoot, ed25519Pair, makeKey, installKey, removeKey, findPlexToken, plexLibraries, plexRefresh, parseFileZilla, quote, ALGORITHMS, problem, friendly };
