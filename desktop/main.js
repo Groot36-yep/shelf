@@ -1037,6 +1037,9 @@ if (gotLock) app.whenReady().then(() => {
   app.on('before-quit', () => { plexSend.close(); if (scanLoaded) scanLoaded.stopOcr(); });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
+  // ---- Server Files (copy between your Plex server and this PC, over the same SSH login) ----
+  const xfer = require('./transfer').setup({ app, log, readPrefs, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:xferProgress', msg); } }, plexSend);
+  app.on('before-quit', () => xfer.close());
 
   // Settings → Look → App icon. choice: auto | a style; name: the style it comes to; pngs: { size: bytes }.
   handle('shelf:setAppIcon', async (choice, name, pngs) => {
@@ -1050,6 +1053,7 @@ if (gotLock) app.whenReady().then(() => {
     if (scanLoaded) await scanLoaded.stopOcr();
     plexSend.forgetAll();
     plexFix.forget();
+    xfer.forget();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
     fs.rmSync(historyDir(), { recursive: true, force: true });
     fs.rmSync(path.join(app.getPath('userData'), 'lookups'), { recursive: true, force: true });

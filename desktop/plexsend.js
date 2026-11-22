@@ -71,13 +71,17 @@ function setup(ctx) {
     if (session && !session.closed) return session;
     // Two jobs asking at once (sending while the library is checked) share one connection.
     if (opening) return opening;
+    opening = dial();
+    try { session = await opening; } finally { opening = null; }
+    return session;
+  }
+  /** A new connection of its own to your saved server (Server Files copies on one, so browsing never waits). */
+  async function dial() {
     const c = cfg();
     if (!c || !c.fingerprint) throw S.problem('NO_SERVER', 'Set up your Plex server first.');
     const key = c.auth === 'key' ? getSecret('key') : '', password = c.auth === 'key' ? '' : getSecret('password');
     if (!key && !password) throw S.problem('NO_LOGIN', 'Shelf needs your server password again.');
-    opening = S.connect({ host: c.host, port: c.port, username: c.user, privateKey: key || undefined, password: password || undefined, pinned: c.fingerprint });
-    try { session = await opening; } finally { opening = null; }
-    return session;
+    return S.connect({ host: c.host, port: c.port, username: c.user, privateKey: key || undefined, password: password || undefined, pinned: c.fingerprint });
   }
   function later() {
     clearTimeout(idle);
@@ -473,7 +477,7 @@ function setup(ctx) {
   });
   handle('shelf:sendStop', async () => { queue.stop(); return true; });
 
-  return { forgetAll, close: () => { queue.stop(); if (session) session.close(); }, withSession, cfg, getSecret, handle };
+  return { forgetAll, close: () => { queue.stop(); if (session) session.close(); }, withSession, connect: dial, cfg, getSecret, handle };
 }
 
 module.exports = { setup, SECRET_FILES };

@@ -6,11 +6,15 @@
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-let dropListener = null;
+let dropListener = null, xferDropListener = null;
 window.addEventListener('drop', (e) => {
   const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-  if (!files.length || !dropListener) return;
+  if (!files.length) return;
   const paths = files.map((f) => { try { return webUtils.getPathForFile(f); } catch (err) { return ''; } }).filter(Boolean);
+  // Dropped on the Server Files window: they're for it (copied to your server), not for Shelf's list.
+  const into = e.target && e.target.closest ? e.target.closest('[data-shelf-drop]') : null;
+  if (into) { if (xferDropListener) xferDropListener({ paths, where: String(into.getAttribute('data-shelf-drop') || '') }); return; }
+  if (!dropListener) return;
   const fn = dropListener;
   fn({ state: 'start', count: files.length });
   ipcRenderer.invoke('shelf:expandDropped', paths)
@@ -149,6 +153,28 @@ contextBridge.exposeInMainWorld('shelfNative', {
     ipcRenderer.on('shelf:fixProgress', listener);
     return () => ipcRenderer.removeListener('shelf:fixProgress', listener);
   },
+  // Server Files: browse your server and this PC side by side, and copy either way (desktop/transfer.js).
+  xferStart: () => ipcRenderer.invoke('shelf:xferStart'),
+  xferListServer: (where) => ipcRenderer.invoke('shelf:xferListServer', String(where || '')),
+  xferListPC: (where) => ipcRenderer.invoke('shelf:xferListPC', String(where || '')),
+  xferMkdir: (side, where, name) => ipcRenderer.invoke('shelf:xferMkdir', side === 'pc' ? 'pc' : 'server', String(where || ''), String(name || '')),
+  xferRename: (where, from, to) => ipcRenderer.invoke('shelf:xferRename', String(where || ''), String(from || ''), String(to || '')),
+  xferDelete: (paths) => ipcRenderer.invoke('shelf:xferDelete', Array.isArray(paths) ? paths.map(String) : []),
+  xferPlan: (direction, sources, dest) => ipcRenderer.invoke('shelf:xferPlan', direction === 'up' ? 'up' : 'down', Array.isArray(sources) ? sources.map(String) : [], String(dest || '')),
+  xferGo: (id, policy) => ipcRenderer.invoke('shelf:xferGo', Number(id) || 0, {
+    same: policy && policy.same === 'ask' ? 'ask' : 'skip', other: policy && ['replace', 'both'].includes(policy.other) ? policy.other : 'skip'
+  }),
+  xferQueue: () => ipcRenderer.invoke('shelf:xferQueue'),
+  xferAction: (id, what) => ipcRenderer.invoke('shelf:xferAction', Number(id) || 0, ['pause', 'resume', 'retry', 'cancel'].includes(what) ? what : ''),
+  xferClear: () => ipcRenderer.invoke('shelf:xferClear'),
+  xferPauseAll: (on) => ipcRenderer.invoke('shelf:xferPauseAll', !!on),
+  onXfer: (fn) => {
+    const listener = (e, m) => fn(m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : {});
+    ipcRenderer.on('shelf:xferProgress', listener);
+    return () => ipcRenderer.removeListener('shelf:xferProgress', listener);
+  },
+  // Files dropped from File Explorer onto the Server Files window: { paths, where }.
+  onXferDrop: (fn) => { xferDropListener = typeof fn === 'function' ? fn : null; },
   plexLibraryCanUndo: () => ipcRenderer.invoke('shelf:plexLibraryCanUndo'),
   plexLibraryUndo: () => ipcRenderer.invoke('shelf:plexLibraryUndo'),
   onSend: (fn) => {

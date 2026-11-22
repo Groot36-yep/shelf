@@ -77,6 +77,11 @@ Shelf's prompt listing those files, where you choose OK or Cancel.
   server folders you chose.
 - **Forget This Server…** and **Erase All Shelf Data** delete everything Shelf saved about your
   server. Forget can also take Shelf's key back off the server.
+- **Server Files** copies files and folders you pick between your own server and this PC, over the
+  same SSH connection and login. Nothing goes anywhere else, and nothing about what you copy is
+  kept (the startup log only notes that a copy failed, never a name or path). Copies arrive under a
+  temporary name and only get their real name once complete. Delete on the server asks first and
+  can't be undone.
 
 ## Your TMDB key
 

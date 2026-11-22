@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="css/styles.css">
 <link rel="stylesheet" href="css/theme-70s.css">
 <link rel="stylesheet" href="css/motion.css">
+<link rel="stylesheet" href="css/transfer.css">
 <script src="js/theme-boot.js"></script>
 </head>
 <body>
@@ -53,6 +54,7 @@
   <div class="menu" id="mainMenu" role="menu" aria-label="Settings and more" hidden>
     <button type="button" role="menuitem" data-open="settings"><span>Settings</span><kbd>Ctrl+,</kbd></button>
     <button type="button" role="menuitem" id="fixLibBtn" hidden title="Find files on your Plex server that need renaming, and fix them there"><span>Fix My Plex Library…</span></button>
+    <button type="button" role="menuitem" id="filesBtn" hidden title="Browse your Plex server and this PC side by side, and copy files and folders either way"><span>Server Files…</span></button>
     <button type="button" role="menuitem" id="spaceBtn" hidden title="Delete the files Shelf set aside on your Plex server (originals of split videos, duplicate episodes) to get the space back"><span>Free Up Space on Server…</span></button>
     <button type="button" role="menuitem" id="shrinkBtn" hidden title="Find FLAC and other lossless songs in your Plex music folder and make them about a sixth of the size (Ogg Vorbis), sounding the same"><span>Make Music Smaller…</span></button>
     <button type="button" role="menuitem" id="dupesBtn" hidden title="Find episodes that are in more than one file on your Plex server (one file and separate files, or two copies), and keep one of each"><span>Find Duplicate Episodes…</span></button>
@@ -622,6 +624,7 @@
       <div class="fact"><span>A code made from a song’s sound + its length</span><span>to AcoustID, only for songs it can’t find by name, and only with your key</span></div>
       <div class="fact"><span>Files you send to Plex</span><span>Only to your own server, encrypted (SSH)</span></div>
       <div class="fact"><span>A show’s episode order, when you ask</span><span>Only to your own Plex server</span></div>
+      <div class="fact"><span>Files you copy in Server Files</span><span>Only between your own server and this PC, encrypted (SSH)</span></div>
     </div>
     <p class="row-help flush">Each file's details show exactly what was shared for it. Like any website, TMDB, TVmaze and MusicBrainz can see your internet address when Shelf asks them something.</p>
     <span class="section-label">Never</span>
@@ -1151,5 +1154,6 @@
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>
 <script src="js/send.js"></script>
+<script src="js/transfer.js"></script>
 </body>
 </html>
