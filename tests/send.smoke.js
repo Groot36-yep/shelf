@@ -65,7 +65,7 @@ async function until(fn, ms, what) {
 
     // Before setup: the button is there, and leads to setup.
     assert.ok(await visible('#sendBtn'), 'Send to Plex is always in the toolbar');
-    assert.strictEqual(await win.textContent('#serverName'), 'Not set up');
+    assert.strictEqual(await win.textContent('#serverName'), 'Plex server');
     await win.click('#chooseFolder');
     await until(() => win.evaluate(() => window.Shelf.items().length === 2 && window.Shelf.items().every((i) => i.status !== 'pending' && i.status !== 'matching')), 15000, 'matching');
     await win.click('#sendBtn');
@@ -204,7 +204,7 @@ async function until(fn, ms, what) {
     assert.ok(!/shelf@/.test(srv.authorizedKeys()), 'key removed from the server');
     assert.ok(!fs.existsSync(keyFile));
     assert.ok(!JSON.parse(fs.readFileSync(path.join(profile, 'shelf-prefs.json'), 'utf8')).server);
-    assert.strictEqual(await win.textContent('#serverName'), 'Not set up');
+    assert.strictEqual(await win.textContent('#serverName'), 'Plex server');
     assert.deepStrictEqual(errors, []);
     console.log('send smoke test passed');
   } catch (e) {
