@@ -1174,7 +1174,7 @@
       });
       if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Open the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Check Episodes…' }), el('kbd', { text: 'E' })]));
       actions.replaceChildren.apply(actions, btns);
-      box.classList.toggle('is-wide', btns.length > 3);
+      box.classList.toggle('is-wide', btns.length > 3 || answers.reduce(function (n, a) { return n + a.label.length; }, 0) > 34);
     };
     var thumb = el('div', { class: 'needs-thumb', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
     var card = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
@@ -1606,7 +1606,7 @@
     var songs = r.filter(function (i) { return i.kind === 'track'; }).length;
     var eps = r.length - movies - songs;
     var waiting = items.filter(needsReview).length;
-    $('renameTitle').textContent = 'Rename ' + r.length + ' item' + (r.length === 1 ? '' : 's') + '?';
+    $('renameTitle').textContent = 'Rename ' + r.length + ' file' + (r.length === 1 ? '' : 's') + '?';
     $('renameSummary').textContent =
       [movies ? movies + ' movie file' + (movies === 1 ? '' : 's') : '', eps ? eps + ' TV file' + (eps === 1 ? '' : 's') : '', songs ? songs + ' music file' + (songs === 1 ? '' : 's') : ''].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1') +
       ' will get Plex names.' + (waiting ? ' ' + waiting + ' still need' + (waiting === 1 ? 's' : '') + ' a look and will be left alone.' : '') +
@@ -1636,7 +1636,7 @@
       $('renameShrinkLabel').textContent = 'Make ' + sh.count + ' lossless song' + (sh.count === 1 ? '' : 's') + ' smaller (' + fmt + ')';
       $('renameShrinkHelp').textContent = 'About ' + fmtSize(sh.before) + ' → ' + fmtSize(sh.after) + '. Sounds the same. ' + (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
     }
-    native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('renameNow').disabled = !r.length || (!lib && local > 0); });
+    native.getLibrary().then(function (lib) { $('libPath').textContent = lib || (local ? 'Not chosen yet' : 'Not needed for files on your server'); $('libPath').classList.toggle('is-empty', !lib); $('openLib').hidden = !lib; $('renameNow').disabled = !r.length || (!lib && local > 0); });
     canUndoAny().then(function (yes) { $('undoNow').hidden = !yes; });
     $('renameNow').textContent = 'Rename ' + r.length + ' Now';
     if (window.ShelfSend) {
@@ -1661,7 +1661,7 @@
   on('chooseFolder', 'click', pickFolder);
   {
     on('pickLib', 'click', function () {
-      native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('renameNow').disabled = !readyItems().length; libPath = lib; paintDest(); } });
+      native.pickLibrary().then(function (lib) { if (lib) { $('libPath').textContent = lib; $('libPath').classList.remove('is-empty'); $('openLib').hidden = false; $('renameNow').disabled = !readyItems().length; libPath = lib; paintDest(); } });
     });
     on('renameNow', 'click', function () {
       var ready = readyItems();
@@ -2904,6 +2904,8 @@
     st('tvdbState', settings.tvdbKey);
     st('acoustState', settings.acoustKey);
     $('keysDot').hidden = !!settings.tmdbKey;
+    // Forget only shows when there's a key to forget.
+    $('forgetKey').hidden = !settings.tmdbKey; $('forgetTvdb').hidden = !settings.tvdbKey; $('forgetAcoust').hidden = !settings.acoustKey;
     $('soundState').textContent = settings.acoustKey ? 'On: songs with no useful tags or names are recognised by their sound.' : 'For songs with no useful tags or names. Needs a free AcoustID key.';
     $('soundBtn').textContent = settings.acoustKey ? 'Change Key' : 'Set Up';
     var needTvdb = settings.order !== 'tmdb' && !settings.tvdbKey, needTmdb = settings.order === 'tmdb' && !settings.tmdbKey;
