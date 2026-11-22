@@ -27,19 +27,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      # The big downloads (ffmpeg, Electron, and the tools that make the installer) are kept between runs, so a
-      # build only fetches them again when package-lock.json changes. (A copy kept by another branch's run is never
-      # used on main: GitHub keeps each branch's copies apart, and main's runs only see main's.)
-      - name: Keep downloads between builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~\AppData\Local\ffmpeg-static\Cache
-            ~\AppData\Local\electron\Cache
-            ~\AppData\Local\electron-builder\Cache
-          key: downloads-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: downloads-${{ runner.os }}-
-
       - name: Read version
         id: ver
         shell: pwsh
