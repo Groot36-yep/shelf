@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.6.0)
 - **Server Files**: copy between your Plex server and this PC, like FileZilla (Menu → Server Files…). Two sides,
   drag or Copy, pause and resume, files already there asked once.
 - **A better splitter** (Check Episodes → Split Into Files): each part shows a picture of itself, the likeliest
