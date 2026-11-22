@@ -1,0 +1,169 @@
+/*
+ * Shelf — Server Files: your Plex server and this PC side by side, the transfers underneath.
+ * Built from the same colours as every other window, so it follows Studio and Living Room, light and dark.
+ */
+
+/* ---------- The window: nearly as big as Shelf's, like Check Episodes ---------- */
+.sheet.xf-sheet {
+  width: min(1480px, calc(100vw - 24px)); height: calc(100vh - 24px); max-width: none; max-height: none; margin: 12px auto auto;
+  padding: 0; overflow: hidden; display: none; border-radius: 18px; --xf-pad: 18px;
+}
+html.os-win32 .sheet.xf-sheet { margin-top: 56px; height: calc(100vh - 68px); max-height: none; }
+.sheet.xf-sheet[open] { display: flex; flex-direction: column; }
+.xf-sheet button { cursor: default; }
+.xf-ic { display: inline-grid; place-items: center; flex: none; }
+.xf-ic svg { width: 16px; height: 16px; }
+.xf-flex { flex: 1; }
+
+.xf-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px 14px; flex: none; }
+.xf-titles { min-width: 0; flex: 1; }
+.xf-titles .sheet-title { font-family: var(--display); font-size: 21px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; font-variation-settings: "opsz" 48; margin: 0; }
+.xf-titles p { margin: 3px 0 0; font-size: 13px; color: var(--text-2); }
+.xf-head .sv-art { width: 44px; height: 44px; }
+
+/* ---------- Two sides ---------- */
+.xf-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 0 var(--xf-pad); }
+.xf-pane {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; border-radius: 14px; overflow: hidden;
+  background: var(--group); box-shadow: 0 0 0 1px var(--hairline); transition: box-shadow 0.15s;
+}
+.xf-pane.is-drop { box-shadow: 0 0 0 2px var(--accent); }
+.xf-phead { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 8px; border-bottom: 0.5px solid var(--sep); }
+.xf-ptitle { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.xf-ptitle b { font-family: var(--display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+.xf-ptitle small { font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xf-pic { width: 26px; height: 26px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent-text); }
+.xf-pic svg { width: 16px; height: 16px; }
+.xf-places { display: flex; flex-wrap: wrap; gap: 5px; }
+.xf-place {
+  height: 24px; padding: 0 10px; border: 0; border-radius: 999px; background: var(--fill); color: var(--text-2);
+  font-size: 12px; font-weight: 600; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+}
+.xf-place:hover { background: var(--fill-strong); color: var(--text); }
+.xf-place[aria-pressed="true"] { background: var(--select-soft); color: var(--accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.xf-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 0.5px solid var(--sep); }
+.xf-ibtn {
+  width: 28px; height: 28px; flex: none; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-2);
+}
+.xf-ibtn svg { width: 16px; height: 16px; stroke-width: 2; }
+.xf-ibtn:hover:not(:disabled) { background: var(--fill); color: var(--text); }
+.xf-ibtn:disabled { opacity: 0.35; }
+.xf-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 1px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.xf-crumbs::-webkit-scrollbar { display: none; }
+.xf-crumbs.is-cut { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.xf-crumb { border: 0; background: transparent; height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; color: var(--text-2); flex: none; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.xf-crumb:hover { background: var(--fill); color: var(--text); }
+.xf-crumb[aria-current] { color: var(--text); font-weight: 650; }
+.xf-sep { color: var(--text-3); font-size: 12px; flex: none; }
+
+/* Name · Size · Modified */
+.xf-cols, .xf-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 76px 128px; align-items: center; column-gap: 10px; padding: 0 12px; }
+.xf-cols { padding-top: 4px; padding-bottom: 4px; border-bottom: 0.5px solid var(--sep); }
+.xf-col { border: 0; background: transparent; color: var(--text-3); font-size: 11.5px; font-weight: 650; text-transform: none; height: 22px; padding: 0 4px; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
+.xf-col:hover { color: var(--text); background: var(--fill); }
+.xf-col[aria-sort="ascending"], .xf-col[aria-sort="descending"] { color: var(--text-2); }
+.xf-col i { font-style: normal; font-size: 11px; }
+.xf-col-name { grid-column: 1 / 3; justify-self: start; margin-left: -4px; }
+.xf-col-size { justify-self: end; }
+.xf-col-mtime { justify-self: start; }
+
+.xf-listwrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.xf-list { flex: 1; min-height: 0; overflow: auto; padding: 4px 0 8px; outline: none; }
+.xf-list:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.xf-row { height: 30px; margin: 0 6px; padding: 0 6px; border-radius: 7px; font-size: 13px; user-select: none; }
+.xf-row:hover { background: var(--hover); }
+.xf-row[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 17%, var(--group)); }
+.xf-list:focus .xf-row.is-focus { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.xf-row.is-drop { background: var(--select-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.xf-kind { color: var(--text-3); }
+.xf-row.is-dir .xf-kind { color: var(--accent); }
+.xf-row.is-dir .xf-kind svg { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+.xf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xf-row.is-dir .xf-name { font-weight: 600; }
+.xf-size { text-align: right; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.xf-date { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xf-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--text-2); font-size: 13px; pointer-events: none; }
+.xf-msg.is-error { color: var(--red-text); font-weight: 600; }
+.xf-pane.is-loading .xf-list { opacity: 0.55; transition: opacity 0.2s 0.15s; }
+
+.xf-pfoot { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 0.5px solid var(--sep); background: color-mix(in srgb, var(--fill) 50%, transparent); flex-wrap: wrap; }
+.xf-selinfo { font-size: 12px; color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xf-pfoot .small-pill svg { width: 14px; height: 14px; }
+.xf-danger:not(:disabled) { color: var(--red-text); }
+.xf-go { height: 32px; }
+.xf-go svg { width: 16px; height: 16px; stroke-width: 2.2; }
+.xf-go.is-busy { opacity: 0.7; }
+
+/* ---------- Transfers ---------- */
+.xf-queue { flex: none; display: flex; flex-direction: column; margin: 12px var(--xf-pad) var(--xf-pad); border-radius: 14px; background: var(--group); box-shadow: 0 0 0 1px var(--hairline); max-height: 30vh; min-height: 0; }
+.xf-qhead { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 0.5px solid var(--sep); }
+.xf-qhead h3 { margin: 0; font-family: var(--display); font-size: 14.5px; font-weight: 600; }
+.xf-qsum { font-size: 12px; }
+.xf-qhead .link-btn { padding: 2px 4px; }
+.xf-qlist { overflow: auto; min-height: 0; padding: 4px 0; }
+.xf-qempty { margin: 0; padding: 10px 14px 12px; font-size: 12.5px; }
+.xf-job { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 14px; }
+.xf-job + .xf-job { border-top: 0.5px solid var(--sep); }
+.xf-jic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--fill); color: var(--text-2); }
+.xf-jic svg { width: 16px; height: 16px; stroke-width: 2; }
+.xf-job[data-state="running"] .xf-jic { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent-text); }
+.xf-job[data-state="done"] .xf-jic { background: var(--green-bg); color: var(--green-text); }
+.xf-job[data-state="failed"] .xf-jic { background: color-mix(in srgb, var(--red-text) 13%, transparent); color: var(--red-text); }
+.xf-jmain { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.xf-jtop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.xf-jname { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.xf-jto { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 0; }
+.xf-jbar { height: 5px; border-radius: 3px; background: var(--fill-strong); overflow: hidden; }
+.xf-jbar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.25s linear; }
+.xf-job[data-state="done"] .xf-jbar i { background: var(--green); }
+.xf-job[data-state="paused"] .xf-jbar i, .xf-job[data-state="waiting"] .xf-jbar i { background: var(--text-3); }
+.xf-job[data-state="failed"] .xf-jbar i { background: var(--red-text); }
+.xf-jinfo { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xf-jinfo.is-bad { color: var(--red-text); white-space: normal; }
+.xf-jinfo.is-warn { color: var(--orange-text); }
+.xf-jinfo.is-good { color: var(--green-text); }
+.xf-jbtns { display: flex; gap: 2px; }
+
+/* The picture that follows the pointer while dragging. */
+.xf-ghost { position: fixed; top: -100px; left: -100px; padding: 5px 10px; border-radius: 8px; background: var(--primary-bg); color: var(--primary-text); font: 600 12.5px var(--ui); white-space: nowrap; }
+
+/* ---------- Small questions ---------- */
+.sheet.xf-ask { width: min(500px, calc(100vw - 32px)); }
+.xf-choices { display: flex; flex-direction: column; gap: 6px; }
+.xf-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 11px; background: var(--fill); }
+.xf-choice:has(input:checked) { background: var(--select-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.xf-choice input { margin: 2px 0 0; accent-color: var(--accent); }
+.xf-choice span { display: flex; flex-direction: column; gap: 1px; }
+.xf-choice b { font-size: 13px; font-weight: 650; }
+.xf-choice small { font-size: 12px; color: var(--text-2); }
+.xf-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.xf-check input { margin: 0; accent-color: var(--accent); }
+.xf-names { margin: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.xf-warn { margin: 0; font-size: 12.5px; color: var(--red-text); font-weight: 600; }
+.xf-err { margin: 0; font-size: 12.5px; color: var(--red-text); font-weight: 600; }
+.xf-input { width: 100%; height: 34px; font: 13.5px var(--ui); padding: 0 10px; border-radius: 8px; }
+
+/* ---------- Living Room ---------- */
+[data-theme="seventies"] .xf-pane, [data-theme="seventies"] .xf-queue { background: var(--paper-3); }
+[data-theme="seventies"] .xf-ptitle b, [data-theme="seventies"] .xf-qhead h3 { font-weight: 700; }
+[data-theme="seventies"] .xf-jbar i { background: var(--orange); }
+[data-theme="seventies"] .xf-row.is-dir .xf-kind { color: var(--orange); }
+
+/* ---------- Narrow windows: the dates go first ---------- */
+@media (max-width: 1100px) {
+  .xf-cols, .xf-row { grid-template-columns: 20px minmax(0, 1fr) 70px; }
+  .xf-col-mtime, .xf-date { display: none; }
+  .xf-pfoot .small-pill > span:not(.xf-ic) { display: none; }
+  .xf-pfoot .small-pill { padding: 0 9px; }
+}
+@media (max-width: 860px) {
+  .xf-head { padding: 14px 16px 10px; }
+  .sheet.xf-sheet { --xf-pad: 12px; }
+  .xf-titles p { display: none; }
+  .xf-panes { gap: 8px; }
+  .xf-go > span:not(.xf-ic) { display: none; }
+  .xf-go { padding: 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .xf-jbar i, .xf-pane { transition: none; } }

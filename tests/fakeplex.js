@@ -32,6 +32,13 @@ async function start(opts) {
   // opts.real: { 'server path': 'file on this PC' }: that file's real bytes are served (for reading title cards).
   for (const [p, local] of Object.entries(opts.real || {})) files.set(p, fs.statSync(local).size);
   const reads = { opens: 0, closes: 0, count: 0, bytes: 0 }, writes = { bytes: 0 }, fds = {};
+  // opts.keep: files written to the server keep their bytes (and are read back from them), and files have dates.
+  // opts.content: { 'server path': Buffer | text }: files with these bytes to start with.
+  const kept = new Map(), mtimes = new Map();
+  for (const [p, v] of Object.entries(opts.content || {})) {
+    const b = Buffer.from(v); files.set(p, b.length); kept.set(p, b); mtimes.set(p, 1700000000);
+    for (let d = posix.dirname(p); d && d !== '/' && !dirs.has(d); d = posix.dirname(d)) dirs.add(d);
+  }
   let netFree = 0;
   // Follow links in any part of a path (like the real server does).
   function real(p) {
@@ -48,7 +55,7 @@ function attrs(p, follow) {
   if (!follow && links.has(posix.normalize(p))) return { mode: 0o120777, uid: 0, gid: 0, size: 10, atime: 0, mtime: 0 };
   const r = real(p);
   if (dirs.has(r)) return { mode: 0o40755, uid: 0, gid: 0, size: 4096, atime: 0, mtime: 0 };
-  if (files.has(r)) return { mode: 0o100644, uid: 0, gid: 0, size: files.get(r), atime: 0, mtime: 0 };
+  if (files.has(r)) return { mode: 0o100644, uid: 0, gid: 0, size: files.get(r), atime: 0, mtime: mtimes.get(r) || 0 };
   return null;
 }
 const kids = (d) => {
@@ -117,9 +124,26 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
       sftp.on('RMDIR', (id, p) => { const r = real(p); if (!dirs.has(r) || kids(p).length) return sftp.status(id, STATUS_CODE.FAILURE); dirs.delete(r); sftp.status(id, STATUS_CODE.OK); });
       sftp.on('RENAME', (id, from, to) => {
         const a = real(from), b = real(to);
-        if (!files.has(a) || files.has(b) || !dirs.has(posix.dirname(b))) return sftp.status(id, STATUS_CODE.FAILURE);
-        files.set(b, files.get(a)); files.delete(a); sftp.status(id, STATUS_CODE.OK);
+        if (dirs.has(a) && !files.has(b) && !dirs.has(b) && dirs.has(posix.dirname(b)) && !b.startsWith(a + '/')) { // a folder, and all in it
+          const move = (x) => (x === a ? b : x.startsWith(a + '/') ? b + x.slice(a.length) : x);
+          for (const d of [...dirs]) if (move(d) !== d) { dirs.delete(d); dirs.add(move(d)); }
+          for (const m of [files, kept, mtimes]) for (const [k, v] of [...m]) if (move(k) !== k) { m.delete(k); m.set(move(k), v); }
+          return sftp.status(id, STATUS_CODE.OK);
+        }
+        if (!files.has(a) || files.has(b) || dirs.has(b) || !dirs.has(posix.dirname(b))) return sftp.status(id, STATUS_CODE.FAILURE);
+        files.set(b, files.get(a)); files.delete(a);
+        for (const m of [kept, mtimes]) if (m.has(a)) { m.set(b, m.get(a)); m.delete(a); }
+        sftp.status(id, STATUS_CODE.OK);
       });
+      // Dates (utimes).
+      const setstat = (id, p, a) => {
+        const r = real(p);
+        if (!files.has(r) && !dirs.has(r)) return sftp.status(id, STATUS_CODE.NO_SUCH_FILE);
+        if (a && a.mtime != null && files.has(r)) mtimes.set(r, Number(a.mtime));
+        sftp.status(id, STATUS_CODE.OK);
+      };
+      sftp.on('SETSTAT', setstat);
+      sftp.on('FSETSTAT', (id, h, a) => { const st = handles.get(h.toString('hex')); return st && st.file ? setstat(id, st.file, a) : sftp.status(id, STATUS_CODE.FAILURE); });
       sftp.on('OPEN', (id, p, flags) => {
         if (isDenied(p) || !dirs.has(real(posix.dirname(p)))) return sftp.status(id, STATUS_CODE.PERMISSION_DENIED);
         // Opened for reading only: the file must be there, and nothing is changed.
@@ -129,7 +153,9 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
           return sftp.handle(id, handle({ file: real(p), read: true }));
         }
         if ((flags & OPEN_MODE.EXCL) && files.has(real(p))) return sftp.status(id, STATUS_CODE.FAILURE);
-        files.set(real(p), 0); sftp.handle(id, handle({ file: p }));
+        if (!opts.keep || (flags & OPEN_MODE.TRUNC) || !files.has(real(p))) { files.set(real(p), 0); kept.delete(real(p)); }
+        mtimes.set(real(p), Math.floor(Date.now() / 1000));
+        sftp.handle(id, handle({ file: p }));
       });
       // Reading: files given real bytes (opts.real) answer with them, others with zeros.
       sftp.on('READ', (id, h, offset, len) => {
@@ -146,6 +172,7 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
           const now = Date.now(), at = Math.max(now, netFree) + n / (opts.net.mbps * 125);
           netFree = at; setTimeout(fn, at - now + (opts.net.ms || 0));
         };
+        if (kept.has(st.file)) { const d = kept.get(st.file); return later(() => sftp.data(id, Buffer.from(d.subarray(offset, offset + n)))); }
         if (!local) return later(() => sftp.data(id, Buffer.alloc(n)));
         const buf = Buffer.allocUnsafe(n);
         fs.read(fds[st.file] || (fds[st.file] = fs.openSync(local, 'r')), buf, 0, n, offset, (err, got) => later(() => (err ? sftp.status(id, STATUS_CODE.FAILURE) : sftp.data(id, buf.subarray(0, got)))));
@@ -156,7 +183,13 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
         return a ? sftp.attrs(id, a) : sftp.status(id, STATUS_CODE.FAILURE);
       });
       sftp.on('CLOSE', (id, h) => { const st = handles.get(h.toString('hex')); if (st && st.read) reads.closes++; handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
-      sftp.on('REMOVE', (id, p) => { files.delete(real(p)); sftp.status(id, STATUS_CODE.OK); });
+      sftp.on('REMOVE', (id, p) => {
+        if (!opts.keep) { files.delete(real(p)); return sftp.status(id, STATUS_CODE.OK); }
+        const r = real(p);
+        if (links.has(posix.normalize(p))) { links.delete(posix.normalize(p)); return sftp.status(id, STATUS_CODE.OK); }
+        if (!files.has(r)) return sftp.status(id, dirs.has(r) ? STATUS_CODE.FAILURE : STATUS_CODE.NO_SUCH_FILE);
+        files.delete(r); kept.delete(r); mtimes.delete(r); sftp.status(id, STATUS_CODE.OK);
+      });
       // Writing (a file sent to the server): only its size is kept.
       sftp.on('WRITE', (id, h, offset, data) => {
         const st = handles.get(h.toString('hex'));
@@ -164,6 +197,11 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
         const f = real(st.file);
         files.set(f, Math.max(files.get(f) || 0, offset + data.length));
         writes.bytes += data.length;
+        if (opts.keep) {
+          let d = kept.get(f) || Buffer.alloc(0);
+          if (d.length < offset + data.length) { const g = Buffer.alloc(offset + data.length); d.copy(g); d = g; }
+          data.copy(d, offset); kept.set(f, d);
+        }
         sftp.status(id, STATUS_CODE.OK);
       });
     });
@@ -171,7 +209,7 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
 });
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, writes, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
+return { port: server.address().port, fp: hostFp, pass: PASS, files, dirs, links, plexAsked, reads, writes, kept, mtimes, close: () => { server.close(); Object.values(fds).forEach((fd) => fs.closeSync(fd)); } };
 }
 
 module.exports = { start };

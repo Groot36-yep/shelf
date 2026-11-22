@@ -90,6 +90,7 @@
     }
     var row = $('renameSendRow');
     if (row && st) row.hidden = !st.set;
+    if ($('filesBtn') && st) $('filesBtn').hidden = !(st.set && st.hasLogin);
     if ($('fixLibBtn') && st) $('fixLibBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
     if ($('spaceBtn') && st) $('spaceBtn').hidden = !(st.set && st.hasLogin && (st.movies || st.tv || (st.plex.libraries || []).length));
     if ($('shrinkBtn') && st) $('shrinkBtn').hidden = !(st.set && st.hasLogin && (st.music || (st.plex.libraries || []).some(function (l) { return l.kind === 'music'; })));
