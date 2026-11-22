@@ -69,7 +69,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Shelf",
-      "artifactName": "Shelf-Setup-${version}.exe"
+      "artifactName": "Shelf-Setup-${version}.exe",
+    "differentialPackage": false
     },
     "portable": {
       "artifactName": "Shelf-Portable-${version}.exe",
