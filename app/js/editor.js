@@ -384,7 +384,7 @@
       var chip = $('edPartChip');
       if (split && part) {
         chip.hidden = false; chip.dataset.part = i % 2;
-        chip.replaceChildren(el('i', { text: String(i + 1) }), part.entry ? el('code', { text: code(part.entry) }) : null, el('span', { text: part.entry ? part.entry.name : 'Choose an episode' }));
+        chip.replaceChildren.apply(chip, [el('i', { text: String(i + 1) }), part.entry ? el('code', { text: code(part.entry) }) : null, el('span', { text: part.entry ? part.entry.name : 'No episode chosen yet' })].filter(Boolean));
       } else chip.hidden = true;
       document.querySelectorAll('#edParts .ed-seg').forEach(function (n, k) { n.classList.toggle('is-cur', split && k === i); });
       document.querySelectorAll('#edPanel .ed-part').forEach(function (n, k) { n.classList.toggle('is-cur', split && k === i); });
@@ -572,6 +572,75 @@
     var l = st.list.filter(function (x) { return x.number != null; });
     var i = l.findIndex(function (x) { return keyOf(x) === keyOf(e); });
     return i >= 0 && l[i + 1] ? l[i + 1] : null;
+  }
+  function prev(e) {
+    var l = st.list.filter(function (x) { return x.number != null; });
+    var i = l.findIndex(function (x) { return keyOf(x) === keyOf(e); });
+    return i > 0 ? l[i - 1] : null;
+  }
+  function byKey(k) { return st.list.filter(function (x) { return x.number != null && keyOf(x) === k; })[0] || null; }
+  // The episode a title card names, as a part's episode.
+  function entryOf(c) {
+    var e = byKey(c.key), sn = String(c.key).split('x');
+    return { season: e ? e.season : +sn[0], number: e ? e.number : +sn[1], name: e ? e.name : c.name, runtime: (e && e.runtime) || null, how: c.manual ? 'manual' : 'card' };
+  }
+  // A part's likeliest episodes, for one-click answers: a title card read inside it, the episode after the
+  // part before it (and before the part after it), and what the file's name said. Never one another part has.
+  function likely(i) {
+    var used = {}, out = [], b = bounds();
+    st.parts.forEach(function (p, j) { if (j !== i && p.entry) used[keyOf(p.entry)] = 1; });
+    var add = function (e, why) { if (e && e.number != null && !used[keyOf(e)] && !out.some(function (x) { return keyOf(x.e) === keyOf(e); })) out.push({ e: e, why: why }); };
+    st.cards.forEach(function (c) { var t = cardStart(c); if (t >= b[i] - 1 && t < b[i + 1]) add(entryOf(c), 'Its title card is in this part'); });
+    var pv = st.parts[i - 1] && st.parts[i - 1].entry, nx = st.parts[i + 1] && st.parts[i + 1].entry;
+    if (pv) add(next(pv), 'Comes after part ' + i + '’s episode');
+    if (nx) add(prev(nx), 'Comes before part ' + (i + 2) + '’s episode');
+    (st.o.entries || []).forEach(function (e) { add(byKey(keyOf(e)) || e, 'What the file’s name says'); });
+    return out.slice(0, 3);
+  }
+  function setPart(i, x, how) {
+    var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: how || 'manual' };
+    st.parts.forEach(function (p, j) { if (j !== i && p.entry && keyOf(p.entry) === keyOf(pick)) p.entry = null; });
+    st.parts[i].entry = pick; st.newKey = keyOf(pick);
+    drawAll();
+    info('Part ' + (i + 1) + ' is ' + code(pick) + ' “' + pick.name + '”.');
+  }
+  // Read Title Cards from inside this window (this video only), then fill in what they show.
+  function readCardsHere() {
+    if (!st || st.reading || !st.o.readCards) return;
+    var tok = st.token;
+    st.reading = true; drawCards();
+    info('Reading the title cards in this video… This takes about a minute.');
+    st.o.readCards().then(function (r) {
+      if (!st || st.token !== tok) return;
+      st.reading = false;
+      var got = (r && r.cards) || [];
+      var mine = st.cards.filter(function (c) { return c.manual; });
+      st.cards = mine.concat(got.filter(function (c) { return !c.manual && !mine.some(function (m) { return m.key === c.key; }); })).sort(function (a, b) { return a.t - b.t; });
+      var read = st.cards.filter(function (c) { return !c.manual; });
+      if (!read.length) { drawAll(); info('No title card could be read in this video. Find one yourself (play or scrub) and click Mark Title Card Here.'); return; }
+      var names = read.map(function (c) { return '“' + c.name + '”'; }).join(', ');
+      if (st.mode === 'split') {
+        var b = bounds();
+        st.parts.forEach(function (p, i) {
+          if (p.entry && p.entry.how === 'manual') return;
+          var c = st.cards.filter(function (x) { var t = cardStart(x); return t >= b[i] - 1 && t < b[i + 1]; })[0];
+          if (c) p.entry = entryOf(c);
+        });
+      } else {
+        var ents = read.map(entryOf).sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+        var apart = ents.length > 1 && !ents.every(function (y, j) { return j === 0 || (y.season === ents[j - 1].season && y.number === ents[j - 1].number + 1); });
+        if (apart) {
+          // Not next to each other in the list: they need a file each. Split, in the order they play.
+          st.parts = read.map(function (c) { return { entry: entryOf(c) }; }); st.suggested = false;
+          setMode('split');
+          info('Read ' + names + '. They aren’t next to each other in the episode list, so each needs its own file. Shelf is finding where to cut.');
+          return;
+        }
+        st.oneEntries = ents;
+      }
+      drawAll();
+      info('Read ' + read.length + ' title card' + (read.length === 1 ? '' : 's') + ': ' + names + '.');
+    }, function (e) { if (st && st.token === tok) { st.reading = false; drawCards(); info('Couldn’t read the title cards: ' + e.message); } });
   }
   // First guesses for cuts: before each part's title card, else from the episodes' lengths.
   function suggest() {
@@ -773,7 +842,11 @@
   // The row of title cards under the timeline: every card Shelf read, one click away.
   function drawCards() {
     var list = $('edCardList');
-    $('edCardsNone').hidden = !!st.cards.length;
+    var none = $('edCardsNone');
+    none.hidden = !!st.cards.length && !st.reading;
+    none.replaceChildren.apply(none, st.reading ? [el('span', { class: 'spinner' }), ' Reading this video’s title cards…']
+      : st.o.readCards ? ['None read yet. ', el('button', { type: 'button', class: 'ed-btn small ed-readcards', text: 'Read Title Cards', title: 'Read the title cards in this video (about a minute)', onclick: readCardsHere }), ' or find one and mark it.']
+      : ['None read yet. Find one in the video, then mark it.']);
     list.hidden = !st.cards.length;
     list.replaceChildren.apply(list, st.cards.map(function (c, i) {
       var part = st.mode === 'split' ? partAt(cardStart(c) + 0.5) : -1;
@@ -799,13 +872,18 @@
     var seam = $('edSeam');
     if (!n) { seam.replaceChildren(); return; }
     var go = function (t) { return function () { if (st.playable) video.pause(); keepInView(t); seek(t); flash(); }; };
-    var before = Math.max(0, c - 1 / st.fps), after = Math.min(st.secs - 0.04, c + 0.02);
+    // A cut in the black gap between two cartoons would show two black frames, which tell you nothing. So when
+    // the cut is in (or right next to) a black gap, show the last picture before the gap and the first after
+    // it: the end of one cartoon and the start of the next. The gap's length sits between them.
+    var gap = st.gaps.filter(function (g) { return g.kind === 'black' && c >= g.a - 0.6 && c <= g.b + 0.6 && g.b - g.a < 8; })[0];
+    var before = gap ? Math.max(0, Math.min(gap.a, c) - 0.25) : Math.max(0, c - 1 / st.fps);
+    var after = gap ? Math.min(st.secs - 0.04, Math.max(gap.b, c) + 0.25) : Math.min(st.secs - 0.04, c + 0.02);
     seam.replaceChildren(
-      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': i % 2, title: 'The last frame of part ' + (i + 1) + ' (' + fmt(before) + '). Click to go there.', onclick: go(before) },
-        [frameImg(before, 208, 'Last frame of part ' + (i + 1)), el('span', { text: 'Part ' + (i + 1) + ' ends' })]),
-      el('i', { 'aria-hidden': 'true' }),
-      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': (i + 1) % 2, title: 'The first frame of part ' + (i + 2) + ' (' + fmt(after) + '). Click to go there.', onclick: go(after) },
-        [frameImg(after, 208, 'First frame of part ' + (i + 2)), el('span', { text: 'Part ' + (i + 2) + ' starts' })])
+      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': i % 2, title: (gap ? 'The last picture of part ' + (i + 1) + ' before the black gap' : 'The last frame of part ' + (i + 1)) + ' (' + fmt(before) + '). Click to go there.', onclick: go(before) },
+        [frameImg(before, 208, 'End of part ' + (i + 1)), el('span', { text: 'Part ' + (i + 1) + ' ends' })]),
+      el('i', { 'aria-hidden': 'true', class: gap ? 'is-gap' : '', title: gap ? 'Black for ' + (gap.b - gap.a).toFixed(1) + ' s: the cut is in it' : '' }, gap ? [el('b', { text: (gap.b - gap.a).toFixed(1) + ' s' })] : []),
+      el('button', { type: 'button', class: 'ed-side-frame', 'data-part': (i + 1) % 2, title: (gap ? 'The first picture of part ' + (i + 2) + ' after the black gap' : 'The first frame of part ' + (i + 2)) + ' (' + fmt(after) + '). Click to go there.', onclick: go(after) },
+        [frameImg(after, 208, 'Start of part ' + (i + 2)), el('span', { text: 'Part ' + (i + 2) + ' starts' })])
     );
   }
   function drawPanel() {
@@ -829,7 +907,7 @@
       ] : [dot, el('b', { class: 'ed-part-k', text: st.oneEntries.length > 1 ? 'Episode ' + (it.i + 1) + ' in this file' : 'This file' })]);
       var epBox = e
         ? el('div', { class: 'ed-ep' + (st.newKey === keyOf(e) ? ' is-new' : '') }, [el('span', { class: 'ed-code', text: code(e) }), el('span', { class: 'ed-name', text: e.name || '(no title)' })])
-        : el('div', { class: 'ed-ep is-empty' }, [el('span', { class: 'ed-name', text: 'Choose which episode this is' })]);
+        : el('div', { class: 'ed-ep is-empty' }, [el('span', { class: 'ed-name', text: split ? 'No episode chosen yet' : 'Choose which episode this is' })]);
       var change = el('button', { type: 'button', class: 'pill small-pill', 'data-opens-browser': '1', text: e ? 'Change…' : 'Choose…' });
       change.addEventListener('click', function () {
         browse(change, {
@@ -837,7 +915,8 @@
           title: split ? 'Which episode is part ' + (it.i + 1) + '?' : 'Which episode is this?',
           onPick: function (x) {
             var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'manual' };
-            if (split) st.parts[it.i].entry = pick; else st.oneEntries[it.i] = pick;
+            if (split) { setPart(it.i, pick); return; }
+            st.oneEntries[it.i] = pick;
             if (!split) st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
             st.newKey = keyOf(pick);
             drawAll();
@@ -845,7 +924,20 @@
           }
         });
       });
-      var row = [head, el('div', { class: 'ed-ep-row' }, [epBox, change])];
+      // In split view, a picture from each part (its title card, else a moment into it), so you can see which it is.
+      var pic = null;
+      if (split && !card) {
+        var pt =Math.round(Math.min(it.z - 1, it.a + Math.min(45, (it.z - it.a) * 0.15)) * 2) / 2;
+        pic = el('button', { type: 'button', class: 'ed-part-pic', 'data-part': it.i % 2, title: 'Go to ' + fmt(pt) + ' in part ' + (it.i + 1),
+          onclick: function () { if (st.playable) video.pause(); keepInView(pt); seek(pt); flash(); } }, [frameImg(pt, 160, 'Part ' + (it.i + 1))]);
+      }
+      var row = [head, el('div', { class: 'ed-ep-row' }, [pic, epBox, change].filter(Boolean))];
+      if (split && !e) {
+        var picks = likely(it.i);
+        if (picks.length) row.push(el('div', { class: 'ed-picks' }, [el('span', { text: 'Likely:' })].concat(picks.map(function (p) {
+          return el('button', { type: 'button', class: 'ed-pick', title: p.why, onclick: function () { setPart(it.i, p.e, p.why.indexOf('title card') >= 0 ? 'card' : 'manual'); } }, [el('code', { text: code(p.e) }), el('span', { text: p.e.name })]);
+        }))));
+      }
       // A part far shorter or longer than its share of the video (by the episodes' running times; listings
       // often give a whole half hour, so only the shares are compared) is worth a second look at its cuts.
       if (split && e && e.runtime && st.cuts.length && st.parts.every(function (p) { return p.entry && p.entry.runtime; })) {
@@ -906,9 +998,12 @@
       var together = en.every(function (x, i) { return i === 0 || (x.season === en[i - 1].season && x.number === en[i - 1].number + 1); });
       if (en.length > 1 && !together) { ok = false; warn = 'These episodes aren’t next to each other, so Plex can’t show one file as all of them. Split the file instead (top right), or choose episodes in a row.'; }
     }
-    $('edWarn').hidden = !warn; $('edWarn').textContent = warn;
+    // "Still to do" goes quietly where the new names will be; only a real problem is a warning.
+    var todo = /^(Choose|Add a cut)/.test(warn);
+    $('edWarn').hidden = !warn || todo; $('edWarn').textContent = warn;
     var names = ok ? st.o.preview(split ? 'split' : 'one', split ? st.parts.map(function (p) { return p.entry; }) : st.oneEntries) : [];
     var nb = $('edNames'); nb.textContent = '';
+    if (todo) nb.appendChild(el('p', { class: 'ed-names-todo', text: warn.replace(/\.$/, '') + ' to see the new file names.' }));
     names.forEach(function (n, i) { nb.appendChild(el('div', { class: 'ed-name-row', 'data-part': split ? i % 2 : 0 }, [el('span', { class: 'ed-dot' + (split ? '' : ' ok'), 'data-part': split ? i % 2 : 0, text: split ? String(i + 1) : '✓' }), el('span', { text: n })])); });
     st.newKey = null;
     $('edSave').disabled = !ok || !$('edBusy').hidden;

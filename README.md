@@ -190,6 +190,13 @@ working while it sends.
 - **Free up space on this PC** (off by default): each file goes to the Recycle Bin, but only once
   it's on the server and its fingerprint matched.
 - **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
+- **Server Files…** (in the ⚙ menu) works like FileZilla: your server on the left, this PC on the right.
+  Pick files or whole folders and click **Copy to This PC** or **Copy to Server**, or drag them across
+  (from File Explorer too). The transfers list shows speed and time left; pause, resume, cancel, and
+  try again if one fails. Copies arrive under a temporary name and only get their real name once
+  complete, keep their dates, and pick up where they stopped. Files already there: Shelf asks once
+  (Skip, Replace or Keep Both), and skips ones with the same size and date. New Folder, Rename and
+  Delete work on the server (Delete asks first; it can't be undone).
 - **Fix My Plex Library…** (in the ⚙ menu) finds files already on your server that Plex couldn't match,
   hasn't added, or that aren't named the Plex way. You pick which shows to fix, and can open a show to
   pick just some of its seasons. **Include files that already look right** lists every file, so you can
@@ -234,7 +241,7 @@ to save files in the folders you pick. Shelf tells you if it isn't.
 app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js),
                   music matching (js/music.js) and its part of the window (js/musicui.js)
 desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files),
-                  server.js + plexsend.js (Send to Plex over SSH), tags.js (music tags), musicbrainz.js (album lookups)
+                  server.js + plexsend.js (Send to Plex over SSH), transfer.js (Server Files), tags.js (music tags), musicbrainz.js (album lookups)
 tests/            npm test; app/tv/sources.smoke.js run the whole app end to end with mocked lookups
 index.html        the download page at groot36-yep.github.io/shelf
 ```

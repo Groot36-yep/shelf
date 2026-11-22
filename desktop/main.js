@@ -708,6 +708,20 @@ if (gotLock) app.whenReady().then(() => {
       if (seen && heard.text) { seen.listened++; for (const w of new Set(P.heardWords(heard.text.slice(0, 2500)))) seen.words.set(w, (seen.words.get(w) || 0) + 1); }
       return m;
     }
+    // While one video's frames are being read, the next one's still moments are found (that part is mostly the
+    // video tool decoding, and reading is mostly the text reader): about a third quicker for a folder of videos.
+    // (Videos on this computer only; one on the server is fetched over SSH and read only when it's its turn.)
+    const ahead = new Map(); // file → { secs, stills }
+    function prepareAhead(f) {
+      if (!f || onServer.has(f) || ahead.has(f) || deep) return;
+      const mins = (runtimesFor.get(f) || []).filter((m) => m > 0).sort((a, b) => a - b), usual = mins.length ? mins[mins.length >> 1] : 0;
+      const p = probe.duration(f).then((secs) => {
+        const oneEp = !!(usual && secs && usual * 60 >= secs * 0.6);
+        return { secs, oneEp, stills: scan.prepareStills(f, secs, oneEp ? 1 : 0) };
+      });
+      p.catch(() => {});
+      ahead.set(f, p);
+    }
     // proxy: the reader for videos on the server (null when there are none, or the server couldn't be reached: why).
     async function readAll(proxy, why) {
       for (let i = 0; i < files.length && !cardCancel; i++) {
@@ -723,7 +737,9 @@ if (gotLock) app.whenReady().then(() => {
             if (!proxy) throw new Error(why || 'Couldn’t reach your Plex server.');
             src = await proxy.add(f).catch((e) => { throw new Error(require('./server').friendly(e, '').message); });
           }
-          secs = src ? await probe.duration(f, src.fh) : await probe.duration(f);
+          const pre = ahead.get(f); ahead.delete(f);
+          var made = pre ? await pre.catch(() => null) : null;
+          secs = made ? made.secs : src ? await probe.duration(f, src.fh) : await probe.duration(f);
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
           send({ kind: 'file', path: f, index: i, total: files.length, result: out[f], stopped: cardCancel });
@@ -731,7 +747,7 @@ if (gotLock) app.whenReady().then(() => {
         }
         send({ kind: 'start', path: f, index: i, total: files.length, file: remote ? path.posix.basename(f) : path.basename(f) });
         let last = 0;
-        const seen = showSeen.get(showFor.get(f)) || { files: 0, cards: 0, heard: 0, seasons: [], words: new Map(), listened: 0 };
+        const seen = showSeen.get(showFor.get(f)) || { files: 0, cards: 0, heard: 0, seasons: [], words: new Map(), listened: 0, firstCard: [] };
         showSeen.set(showFor.get(f), seen);
         const foundParts = new Set(), foundSeasons = new Set();
         // Two videos of this show in, no title card read, but listening worked: just listen.
@@ -739,8 +755,12 @@ if (gotLock) app.whenReady().then(() => {
         try {
           // The show's episodes are about as long as this video: one episode, so only its start has a title card.
           const oneEp = !!(usual && secs && usual * 60 >= secs * 0.6);
+          // The next video's still moments, found meanwhile (unless this show is only listened to now).
+          if (!skipCards && !(seen.files >= 1 && seen.cards === 0 && seen.heard > 0)) prepareAhead(files[i + 1]);
           const r = skipCards ? { texts: [], parts: 0 } : await scan.scanFile(src ? src.url : f, secs, {
-            deep, maxParts: oneEp ? 1 : 0,
+            deep, maxParts: oneEp ? 1 : 0, stills: made && made.oneEp === oneEp ? made.stills : null,
+            // Where the first title card was in this show's other videos (the middle of the last few).
+            cardAt: seen.firstCard.length ? seen.firstCard.slice(-5).sort((a, b) => a - b)[Math.min(seen.firstCard.length, 5) >> 1] : null,
             isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f)),
             // An episode as long as the video (give or take the credits), and clearly longer than the show's usual one:
             // it's the only one in there. Online lists get lengths wrong (TVmaze has 11-minute "Squid's Day Off" at
@@ -753,7 +773,7 @@ if (gotLock) app.whenReady().then(() => {
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
-            onFound: (fd) => { foundParts.add(fd.part); const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
+            onFound: (fd) => { foundParts.add(fd.part); if (fd.part === 0) seen.firstCard.push(fd.t); const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
           let parts = r.parts || scan.windowsFor(secs, oneEp ? 1 : 0).length;
@@ -1037,6 +1057,9 @@ if (gotLock) app.whenReady().then(() => {
   app.on('before-quit', () => { plexSend.close(); if (scanLoaded) scanLoaded.stopOcr(); });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
+  // ---- Server Files (copy between your Plex server and this PC, over the same SSH login) ----
+  const xfer = require('./transfer').setup({ app, log, readPrefs, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:xferProgress', msg); } }, plexSend);
+  app.on('before-quit', () => xfer.close());
 
   // Settings → Look → App icon. choice: auto | a style; name: the style it comes to; pngs: { size: bytes }.
   handle('shelf:setAppIcon', async (choice, name, pngs) => {
@@ -1050,6 +1073,7 @@ if (gotLock) app.whenReady().then(() => {
     if (scanLoaded) await scanLoaded.stopOcr();
     plexSend.forgetAll();
     plexFix.forget();
+    xfer.forget();
     for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
     fs.rmSync(historyDir(), { recursive: true, force: true });
     fs.rmSync(path.join(app.getPath('userData'), 'lookups'), { recursive: true, force: true });

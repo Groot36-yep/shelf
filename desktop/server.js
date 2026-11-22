@@ -210,7 +210,17 @@ class Session {
     } catch (e) { return null; }
   }
   async rename(from, to, replace) {
-    if (replace) return this.p((cb) => this.sftp.ext_openssh_rename(from, to, cb)).catch(() => this.p((cb) => this.sftp.rename(from, to, cb)));
+    if (replace) {
+      return this.p((cb) => this.sftp.ext_openssh_rename(from, to, cb)).catch(async () => {
+        // A server without OpenSSH's rename-over: the old file is moved aside, the new one named, then the old one deleted.
+        const old = await this.stat(to);
+        if (!old || !old.isFile()) return this.p((cb) => this.sftp.rename(from, to, cb));
+        const aside = posix.join(posix.dirname(to), '.' + posix.basename(to) + '.shelf-old');
+        await this.p((cb) => this.sftp.rename(to, aside, cb));
+        try { await this.p((cb) => this.sftp.rename(from, to, cb)); } catch (e) { await this.p((cb) => this.sftp.rename(aside, to, cb)).catch(() => {}); throw e; }
+        await this.unlink(aside).catch(() => {});
+      });
+    }
     // Never over an existing file (SFTP's plain rename refuses if the name is taken).
     if (await this.stat(to)) throw problem('CONFLICT', 'A file with this name is already on the server.');
     return this.p((cb) => this.sftp.rename(from, to, cb));
