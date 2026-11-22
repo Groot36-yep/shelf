@@ -58,8 +58,9 @@ jobs:
 
       # Packages' own install scripts are skipped: two of them only compile optional speed-ups for the SSH library
       # (slow to build on Windows) that the shipped app leaves out anyway, so the tests now check the same SSH code
-      # that ships. The one that's needed, ffmpeg's download, runs by itself after.
+      # that ships. The one that's needed, ffmpeg's download, runs by itself after. (bash stops if either fails.)
       - name: Install
+        shell: bash
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node node_modules/ffmpeg-static/install.js
