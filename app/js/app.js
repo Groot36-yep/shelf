@@ -666,12 +666,22 @@
     if (splitOf(item)) return k('you', ['You split it']);
     if (item.parsed.isSubtitle && item.linkTo) return k('', ['Its video'], 'Named to go with its video');
     var how = v.kind === 'episode' ? (v.episode ? v.episode.how : '') : '';
-    if (how === 'card') return k('card', ['Title cards'], 'Read from the title cards inside the video');
+    if (how === 'card') {
+      // A tiny picture of the title card it was read from (videos on this computer).
+      var ce = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
+      var kc = k('card', ['Title card'], 'Read from the title cards inside the video');
+      if (ce && v.fullPath && native.cardFrame) {
+        var kt = el('span', { class: 'kthumb', 'aria-hidden': 'true' });
+        kc.replaceChild(kt, kc.firstChild);
+        cardFrame(v, ce.card, 120).then(function (url) { if (url) kt.appendChild(el('img', { src: url, alt: '' })); });
+      }
+      return kc;
+    }
     if (how === 'heard') return k('card', ['Heard'], 'Recognised from what’s said at the start of the video');
     if (how === 'manual' || item.handPicked || (v.kind === 'movie' && item.confirmed)) return k('you', ['You chose']);
     if (how === 'date') return k('', ['Air date'], 'From the air date in the file name');
     var c = current(v);
-    return k('', ['File name'], c ? 'From the file name (' + c.score + '% sure)' : 'From the file name');
+    return k('quiet', ['File name'], c ? 'From the file name (' + c.score + '% sure)' : 'From the file name');
   }
 
   // ---------- Shelves: the list, one shelf per show (and one for movies) ----------
@@ -1176,14 +1186,16 @@
       actions.replaceChildren.apply(actions, btns);
       box.classList.toggle('is-wide', btns.length > 3 || answers.reduce(function (n, a) { return n + a.label.length; }, 0) > 34);
     };
-    var thumb = el('div', { class: 'needs-thumb', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
+    // (A small warning mark until there's a picture: the title card it's about, the album cover, or the poster.)
+    var thumb = el('div', { class: 'needs-thumb is-icon', 'aria-hidden': 'true' }, [svgIcon(['M12 8v5', 'M12 16.5v.01', 'M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z'])]);
+    var showPic = function (img, poster) { thumb.classList.remove('is-icon'); thumb.classList.toggle('poster', !!poster); thumb.replaceChildren(img); };
     var card = v.episode && (v.episode.entries || []).filter(function (e) { return e.card != null; })[0];
-    if (item.kind === 'track') { var mc = music.coverUrl(item); if (mc) mc.then(function (url) { if (url) { thumb.classList.add('poster'); thumb.replaceChildren(el('img', { src: url, alt: '' })); } }); }
-    else if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) thumb.replaceChildren(el('img', { src: url, alt: '' })); });
+    if (item.kind === 'track') { var mc = music.coverUrl(item); if (mc) mc.then(function (url) { if (url) showPic(el('img', { src: url, alt: '' }), true); }); }
+    else if (card && v.fullPath) cardFrame(v, card.card, 240).then(function (url) { if (url) showPic(el('img', { src: url, alt: '' })); });
     else if (current(v) && current(v).poster && settings.posters) {
       var warn = thumb.firstChild, pimg = el('img', { src: current(v).poster, alt: '', referrerpolicy: 'no-referrer' });
-      pimg.addEventListener('error', function () { thumb.classList.remove('poster'); thumb.replaceChildren(warn); });
-      thumb.classList.add('poster'); thumb.replaceChildren(pimg);
+      pimg.addEventListener('error', function () { thumb.classList.remove('poster'); thumb.classList.add('is-icon'); thumb.replaceChildren(warn); });
+      showPic(pimg, true);
     }
     var actions = el('div', { class: 'needs-actions' });
     var go = function (d) { var nx = list[(at + d + list.length) % list.length]; needsShownId = nx.id; select(nx.id); };

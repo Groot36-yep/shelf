@@ -1646,6 +1646,8 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 @media (max-width: 860px) {
   .rv-card.is-wide { grid-column: auto; }
   .rv-keys { display: none; }
+}
+
 /* ---------- Fit and finish ---------- */
 /* Where two scrollbars meet, no white square. */
 ::-webkit-scrollbar-corner { background: transparent; }
@@ -1679,4 +1681,85 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
   .needs-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .shelf-head { padding-top: 10px; padding-bottom: 8px; }
   .stage.one-show .shelf-head { padding-top: 14px; padding-bottom: 10px; }
+}
+
+/* ==================================== Refinement pass ==================================== */
+/* The list: quiet column labels; a match by file name says so quietly, title cards show the card. */
+.list-head { height: 32px; font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); }
+.row-item { min-height: 44px; contain-intrinsic-size: auto 44px; }
+.r-name { font-weight: 550; letter-spacing: -0.003em; }
+.r-file { font-size: 11.5px; }
+.known.quiet { color: var(--text-3); font-size: 12px; }
+.known.quiet i { display: none; }
+.known.card { color: var(--accent-text); font-weight: 600; }
+.known .kthumb { flex: none; width: 30px; height: 17px; border-radius: 3px; overflow: hidden; background: var(--fill-strong); box-shadow: 0 0 0 1px var(--hairline); }
+.known .kthumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Needs you: a compact card with a slim edge, the question first, the answers beside it. */
+.needs { margin: 12px 16px 6px; padding: 12px 14px 12px 16px; border-radius: 12px; column-gap: 14px; row-gap: 8px;
+  box-shadow: inset 3px 0 0 var(--orange), inset 0 0 0 1px color-mix(in srgb, var(--orange) 16%, transparent); }
+.needs-top { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; }
+.needs-q { font-size: 14.5px; }
+.needs-text { font-size: 12.5px; }
+.needs-thumb { width: 104px; height: 58px; border-radius: 7px; align-self: start; }
+.needs-thumb.poster { width: 42px; height: 60px; }
+.needs-thumb.is-icon { width: 32px; height: 32px; border-radius: 50%; margin-top: 1px; background: color-mix(in srgb, var(--orange) 13%, transparent); box-shadow: none; }
+.needs-thumb.is-icon svg { width: 17px; height: 17px; }
+.answer { height: 32px; font-size: 12.5px; }
+
+/* A show's heading: its actions as small matching buttons. */
+.shelf-links { display: inline-flex; align-items: center; gap: 6px; }
+.shelf-check, .shelf-split { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--fill); color: var(--text-2);
+  font-size: 12px; font-weight: 600; text-decoration: none; }
+.shelf-check:hover, .shelf-split:hover { background: var(--fill-strong); color: var(--text); text-decoration: none; }
+.shelf-split:disabled { opacity: 0.5; }
+
+/* Rename Now: with no library folder yet, choosing one is the next step, so that button leads. */
+.row:has(#libPath.is-empty) #pickLib { background: var(--primary-bg); color: var(--primary-text); box-shadow: none; }
+.row:has(#libPath.is-empty) #pickLib:hover { background: var(--primary-hover); }
+
+/* Check All: a file known only by its name gets one quiet line, not an empty picture frame. */
+.rv-noproof { aspect-ratio: auto; place-items: center start; text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: var(--fill); font-size: 12px; }
+.rv-proof.is-none { flex: none; }
+
+/* The top bar: Add says what it does. */
+.tool.add { padding: 0 12px 0 10px; }
+
+/* The details pane: one clear next step. When the file should be split, that's the dark button; Deep Scan and
+   Split by Hand are quieter. */
+#deepScan { background: transparent; box-shadow: none; color: var(--text-2); }
+#deepScan:hover { background: var(--fill); color: var(--text); }
+#splitNow { background: var(--primary-bg); color: var(--primary-text); box-shadow: none; }
+#splitNow:hover:not(:disabled) { background: var(--primary-hover); }
+.insp-split { margin-top: 2px; }
+
+/* The episode editor in the light look: the window is Shelf's own; the video side stays a dark screen. */
+@media (prefers-color-scheme: light) {
+  .editor-sheet {
+    --bg: inherit; --window: inherit; --panel: inherit; --group: var(--surface); --raised: var(--surface); --row-alt: inherit;
+    --fill: inherit; --fill-strong: inherit; --sep: inherit; --hairline: inherit;
+    --text: inherit; --text-2: inherit; --text-3: inherit; --accent: inherit; --accent-text: inherit; --select: inherit; --on-accent: inherit;
+    --green-bg: inherit; --green-text: inherit; --orange-bg: inherit; --orange-text: inherit; --red-text: inherit; --shadow-pill: inherit;
+    color-scheme: light; background: var(--surface-2); box-shadow: var(--shadow-sheet);
+  }
+  .editor-sheet::backdrop { background: rgba(30, 22, 14, 0.38); }
+  .editor-sheet .ed-left {
+    --bg: #1B1713; --window: #1B1713; --panel: #1B1713; --group: #26211B; --raised: #2E2821; --row-alt: #201C17;
+    --fill: rgba(255, 238, 215, 0.075); --fill-strong: rgba(255, 238, 215, 0.13); --sep: #352E26; --hairline: rgba(255, 238, 215, 0.1);
+    --text: #F3EEE7; --text-2: #B9AEA1; --text-3: #8A7E71; --accent: #EBA640; --accent-text: #F1B860; --select: #4A3A24; --on-accent: #1A140D;
+    --green-bg: rgba(147, 184, 98, 0.15); --green-text: #B3D08A; --orange-bg: rgba(240, 122, 69, 0.15); --orange-text: #F6A27C; --red-text: #FF8A77;
+    --shadow-pill: 0 0 0 0.5px rgba(255, 238, 215, 0.1), 0 1px 2px rgba(0, 0, 0, 0.4);
+    color-scheme: dark; color: var(--text); background: #1B1713; border-radius: 16px; padding: 12px 12px 10px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4), 0 14px 34px -18px rgba(40, 25, 10, 0.55);
+  }
+  .editor-sheet .ed-right { border-left: 0; padding-left: 4px; }
+  /* (The side panel's wells and outlines were drawn for a dark window.) */
+  .editor-sheet .ed-right .ed-ep, .editor-sheet .ed-right .ed-name-row { background: var(--fill); }
+  .editor-sheet .ed-right .ed-ep.is-empty { background: var(--orange-bg); }
+  .editor-sheet .ed-right .ed-part { box-shadow: 0 0 0 1px var(--hairline); }
+  .editor-sheet .ed-right .is-split .ed-part.is-cur, .editor-sheet .is-split .ed-right .ed-part.is-cur { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .editor-sheet .ed-right .ed-add { border-color: var(--hairline); }
+  .editor-sheet .ed-right .ed-add:hover { border-color: var(--text-3); background: var(--fill); }
+  .editor-sheet .ed-mode { background: var(--fill); }
+  .editor-sheet .ed-mode button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(45, 32, 20, 0.15); }
 }
