@@ -850,7 +850,8 @@
     }).then(function () {
       var c0 = current(vids[0]);
       $('rvTitle').textContent = 'Check All';
-      $('rvSub').textContent = (Object.keys(shows).length === 1 ? c0.title + ': ' : '') + 'every episode, and how Shelf knows it. Look them over, then say they’re right.';
+      $('rvTitle').textContent = Object.keys(shows).length === 1 ? 'Check All: ' + c0.title : 'Check All';
+      $('rvSub').textContent = 'Each episode with how Shelf knows it: the title card it read, what it heard, or just the file name. Anything wrong? Fix… opens it.';
       renderReview();
       var d = $('reviewSheet'); if (!d.open) d.showModal();
       setTimeout(function () { var first = $('rvBody').querySelector('.rv-card.is-need') || $('rvBody').querySelector('.rv-card'); if (first) first.focus(); }, 60);
@@ -934,8 +935,8 @@
       return el('div', { class: 'rv-ep' }, [el('code', { text: epCode(e) }), el('b', { text: e.name || '' })]);
     }));
     var info = [eps,
-      el('div', { class: 'rv-new' }, names.map(function (n) { return el('div', { text: n }); })),
-      el('div', { class: 'rv-was', text: 'Now: ' + v.name })];
+      el('div', { class: 'rv-new', title: names.join('\n') + '\n\nNow: ' + v.name }, names.map(function (n) { return el('div', { text: n }); })),
+      el('div', { class: 'rv-was', title: v.name, text: 'Now: ' + v.name })];
     if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Fix… opens it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
     if (v.split) v.split.pieces.slice(0, -1).forEach(function (pc, k) { info.push(rvCut(v, k)); });
     var acts = [];
@@ -943,10 +944,10 @@
       acts.push(el('button', { type: 'button', class: 'pill small-pill' + (acts.length ? '' : ' pill-primary'), text: a.label, onclick: function () { Promise.resolve(a.run()).then(function () { renderReview(v.id); }); } }));
     });
     else if (rvCanRight(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-right' + (need ? ' pill-primary' : ''), 'aria-pressed': !need && v.checked ? 'true' : 'false',
-      text: !need && v.checked ? '✓ Right' : 'Right', title: 'This is right (Enter)', onclick: function () { rvSettle([v]).then(function () { rvNext(v.id); }); } }));
-    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill' + (acts.length ? '' : ' pill-primary'), text: 'Fix…', title: 'Open it in Check Episodes (F)', onclick: function () { rvFix(v); } }));
+      text: !need && v.checked ? '✓ Checked' : need ? 'It’s Right' : 'Looks Right', title: 'This is right (Enter)', onclick: function () { rvSettle([v]).then(function () { renderReview(v.id); rvNext(v.id); }); } }));
+    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-fix' + (acts.length ? '' : ' pill-primary'), text: 'Fix…', title: 'Open it in Check Episodes (F)', onclick: function () { rvFix(v); } }));
     var proofsBox = el('div', { class: 'rv-proofs' + (rows.length > 1 ? ' is-many' : '') }, rows.map(function (e) { return rvProof(v, e, proofs); }));
-    return el('article', { class: 'rv-card' + (need ? ' is-need' : ' is-ok') + (rows.length > 1 || v.split ? ' is-wide' : ''), tabindex: '0', 'data-id': v.id, 'aria-label': rows.map(function (e) { return epCode(e) + ' ' + e.name; }).join(', ') + (need ? ', needs you' : ', ready') }, [
+    return el('article', { class: 'rv-card' + (need ? ' is-need' : ' is-ok') + (!need && v.checked ? ' is-checked' : '') + (rows.length > 1 || v.split ? ' is-wide' : ''), tabindex: '0', 'data-id': v.id, 'aria-label': rows.map(function (e) { return epCode(e) + ' ' + e.name; }).join(', ') + (need ? ', needs you' : ', ready') }, [
       proofsBox, el('div', { class: 'rv-info' }, info), el('div', { class: 'rv-acts' }, acts)
     ]);
   }
@@ -956,9 +957,18 @@
     $('rvAll').textContent = vids.length; $('rvNeed').textContent = need.length;
     document.querySelectorAll('#rvFilter [data-rv]').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.rv === rv.filter ? 'true' : 'false'); });
     var settleable = vids.filter(function (v) { return needsReview(v) && rvCanRight(v); });
-    $('rvAllRight').textContent = settleable.length ? 'Mark All Right (' + settleable.length + ')' : 'All Right';
-    $('rvAllRight').disabled = !settleable.length;
-    $('rvProgress').textContent = need.length ? need.length + (need.length === 1 ? ' needs you' : ' need you') : '✓ All ' + vids.length + ' ready';
+    // Episodes known only by their file name can be checked from here: Read Title Cards reads just those.
+    var unread = rvUnread(vids);
+    $('rvRead').hidden = !unread.length || scanning;
+    $('rvRead').textContent = 'Read Title Cards (' + unread.length + ')';
+    $('rvAllRight').textContent = 'Mark All Right (' + settleable.length + ')';
+    $('rvAllRight').hidden = !settleable.length;
+    // Only worth filtering when some need you and some don't.
+    $('rvFilter').hidden = !need.length || need.length === vids.length;
+    if ($('rvFilter').hidden) rv.filter = 'all';
+    $('rvProgress').textContent = scanning ? 'Reading title cards…' : need.length ? need.length + (need.length === 1 ? ' needs you' : ' need you') : '✓ All ' + vids.length + ' ready';
+    $('rvProgress').classList.toggle('is-busy', scanning);
+    $('rvProgress').classList.toggle('is-need', !scanning && !!need.length);
     if (onlyId != null) {
       var old = body.querySelector('[data-id="' + onlyId + '"]'), v1 = itemById(onlyId);
       if (old && v1) { var fresh = rvCard(v1); old.replaceWith(fresh); return; }
@@ -977,6 +987,15 @@
     if (next) { next.focus(); next.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
   function rvFix(v) { $('reviewSheet').close(); openEditor(v); }
+  function rvUnread(vids) { return vids.filter(function (v) { return !v.cards && canLook(v) && v.parsed.isVideo; }); }
+  on('rvRead', 'click', function () {
+    var vids = rvUnread(rv.ids.map(itemById).filter(Boolean));
+    if (!vids.length || scanning) return;
+    $('rvRead').hidden = true;
+    var p = readCardsOf(vids, false);
+    renderReview();
+    p.then(function () { if ($('reviewSheet').open) renderReview(); });
+  });
   on('rvDone', 'click', function () { $('reviewSheet').close(); });
   on('rvAllRight', 'click', function () {
     var vids = rv.ids.map(itemById).filter(function (v) { return v && needsReview(v) && rvCanRight(v); });
@@ -1199,17 +1218,15 @@
     }
     var actions = el('div', { class: 'needs-actions' });
     var go = function (d) { var nx = list[(at + d + list.length) % list.length]; needsShownId = nx.id; select(nx.id); };
-    var top = el('div', { class: 'needs-top' }, [
-      el('span', { text: list.length === 1 ? 'Needs you' : 'Needs you · ' + list.length + ' files' }), el('span', { class: 'flex' }),
-      el('span', { class: 'needs-nav' }, [
-        el('button', { type: 'button', 'aria-label': 'Previous', title: 'Previous', disabled: list.length < 2 ? 'disabled' : null, onclick: function () { go(-1); } }, [svgIcon('M15 6l-6 6 6 6')]),
-        el('span', { class: 'pos', text: (at + 1) + ' of ' + list.length }),
-        el('button', { type: 'button', 'aria-label': 'Next (N)', title: 'Next (N)', disabled: list.length < 2 ? 'disabled' : null, onclick: function () { go(1); } }, [svgIcon('M9 6l6 6-6 6')])
-      ])
+    var nav = list.length < 2 ? null : el('span', { class: 'needs-nav', 'aria-label': 'Question ' + (at + 1) + ' of ' + list.length }, [
+      el('button', { type: 'button', 'aria-label': 'Previous', title: 'Previous', onclick: function () { go(-1); } }, [svgIcon('M15 6l-6 6 6 6')]),
+      el('span', { class: 'pos', text: (at + 1) + ' of ' + list.length }),
+      el('button', { type: 'button', 'aria-label': 'Next (N)', title: 'Next (N)', onclick: function () { go(1); } }, [svgIcon('M9 6l6 6-6 6')])
     ]);
     var meta = [item.kind === 'track' ? item.relPath.split('/').slice(-2).join(' / ') : item.name, v.minutes ? Math.round(v.minutes) + ' min' : ''].filter(Boolean).join(' · ');
     var changed = needsShownId !== item.id || box.hidden;
-    box.replaceChildren(top, thumb, el('div', { class: 'needs-body' }, [el('div', { class: 'needs-q', text: q.title }), el('div', { class: 'needs-text', text: q.text }), el('div', { class: 'needs-file', text: meta, title: item.relPath })]), actions);
+    box.replaceChildren(thumb, el('div', { class: 'needs-body' }, [el('div', { class: 'needs-q', text: q.title }), el('div', { class: 'needs-text', text: q.text }),
+      el('div', { class: 'needs-foot' }, [el('span', { class: 'needs-file', text: meta, title: item.relPath }), nav].filter(Boolean))]), actions);
     paint();
     // The likeliest answers from the show's own episode list, as one-key answers too.
     if (q.picks && current(v) && !v.split) {
@@ -2094,8 +2111,9 @@
     readCardsOf(unread.length ? unread : all, false);
   }
   on('autoMode', 'click', autoMode);
-  function readCardsOf(files, deepNext) {
-    if (!files.length) return;
+  function readCardsOf(files, deepNext, opt) {
+    opt = opt || {};
+    if (!files.length) return Promise.resolve();
     // Top to bottom, in the order you see them (the rest of the list after, in its order).
     var seenOrder = shelves(items).reduce(function (a, sh) { return a.concat(sh.items); }, []);
     var rank = function (i) { var k = seenOrder.indexOf(i); return k < 0 ? 1e9 : k; };
@@ -2103,7 +2121,7 @@
     // The shows these videos belong to (each is worked out again as its videos are read).
     var shows = [], seenShow = {};
     files.forEach(function (i) { var c0 = current(i); if (c0 && !seenShow[showIdKey(c0)]) { seenShow[showIdKey(c0)] = 1; shows.push(c0); } });
-    if (!shows.length) return;
+    if (!shows.length) return Promise.resolve();
     scanning = true; scanJob = busy('Waiting for your OK…'); render();
     var read = 0, titlesFound = 0;
     // The answer can arrive before the last progress messages do, so keep listening until "end" (or a few seconds).
@@ -2130,6 +2148,7 @@
         var cIt = current(it);
         (cIt ? resolveShow(cIt) : Promise.resolve()).then(function () {
           scheduleRender();
+          if ($('reviewSheet').open && rv.ids.indexOf(it.id) >= 0) renderReview(it.id);
           setTimeout(function () { if (it.scan === 'done') { it.scan = null; scheduleRender(); } }, 1800);
         });
       }
@@ -2142,7 +2161,7 @@
       }
       scheduleRender();
     });
-    Promise.all(shows.map(listFor)).then(function (lists) {
+    return Promise.all(shows.map(listFor)).then(function (lists) {
       var listOf = function (i) { var ci = current(i); return lists[shows.findIndex(function (c0) { return ci && showIdKey(c0) === showIdKey(ci); })] || []; };
       // Episodes the file's name points near: a slightly weaker reading is enough for these.
       var nearFor = function (i, list) {
@@ -2167,9 +2186,10 @@
     }).then(function (res) {
       if (!res) { reader.hide(); toast('Cancelled. No videos were read.'); return; }
       setScanStatus('Working out the episodes…');
-      return Promise.all(shows.map(resolveShow)).then(function () { return splitClearOnes(files); });
-    }).catch(function (e) { toast('Couldn’t read the title cards: ' + e.message); })
-      .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); });
+      return Promise.all(shows.map(resolveShow)).then(function () { return opt.noAutoSplit ? null : splitClearOnes(files); });
+    }).catch(function (e) { if (opt.raise) throw e; toast('Couldn’t read the title cards: ' + e.message); })
+      .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); },
+        function (e) { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); throw e; });
   }
   // A file whose cartoons' title cards were all read clearly, but which aren't next to each other in the list (so
   // Plex needs a file each): split straight away, at the black, silent moment before each card. Nothing is cut
@@ -2760,6 +2780,14 @@
         ShelfEditor.open({
           native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, remote: !!r.remote,
           entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
+          readCards: function () {
+            if (scanning) return Promise.reject(new Error('Shelf is already reading title cards. Try again when it’s done'));
+            // (Read again more thoroughly if a quick read found nothing before.)
+            return readCardsOf([v], !!v.cards, { noAutoSplit: true, raise: true }).then(function () {
+              v._cardsFor = null;
+              return { cards: cardsForCached(v, list) };
+            });
+          },
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
             v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null; v._cardsFor = null;

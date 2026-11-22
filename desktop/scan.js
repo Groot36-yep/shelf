@@ -501,7 +501,8 @@ async function scanFile(file, secs, opts) {
   let parts = wins.length; // fewer when the first card names an episode that fills the video
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
-  const allStills = prepareStills(file, secs, opts.maxParts);
+  // (Made ahead, while the video before this one was being read, when that was possible.)
+  const allStills = opts.stills || prepareStills(file, secs, opts.maxParts);
   // One still moment, read for part i. likely: one of the few likeliest (or straight after a black moment),
   // which get every version of the picture; the rest only the quick ones. strict: the title must also be
   // named by one reading on its own (not only by many noisy readings pooled). → the match, or null.
@@ -537,8 +538,14 @@ async function scanFile(file, secs, opts) {
     report(i, 0.02);
     const runs = await allStills[i];
     report(i, 0.2);
-    // Most likely spots first; at most 30 still moments per cartoon.
-    const tryRuns = rankRuns(runs, wins[i].likely).slice(0, i ? 45 : 30);
+    // Most likely spots first; at most 30 still moments per cartoon. Where this show's first title card was in
+    // the videos read before this one (most shows put it in the same place every time) comes first of all.
+    const seenAt = i === 0 && opts.cardAt != null && opts.cardAt >= wins[i].from && opts.cardAt <= wins[i].from + wins[i].len ? opts.cardAt : null;
+    const tryRuns = rankRuns(runs, seenAt != null ? seenAt : wins[i].likely).slice(0, i ? 45 : 30);
+    if (seenAt != null) {
+      const near = tryRuns.findIndex((r) => Math.abs(r.t - seenAt) <= 3);
+      if (near > 0) tryRuns.unshift(tryRuns.splice(near, 1)[0]);
+    }
     let k = 0, found = false, foundHit = null;
     // Title cards come straight after a black fade, often fading in: besides the still moments, look
     // a moment after the black fades nearest to where a card is expected.
@@ -648,4 +655,4 @@ async function scanFile(file, secs, opts) {
   return { texts, frames, parts };
 }
 
-module.exports = { scanFile, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, letteringLayers, levelled, OCR_READERS };
+module.exports = { scanFile, prepareStills, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, letteringLayers, levelled, OCR_READERS };

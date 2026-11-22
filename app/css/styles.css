@@ -1763,3 +1763,84 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
   .editor-sheet .ed-mode { background: var(--fill); }
   .editor-sheet .ed-mode button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(45, 32, 20, 0.15); }
 }
+
+/* ==================================== Refinement pass 2 ==================================== */
+/* Needs you: a calm card, no coloured strip or outline. The warning mark says it needs you; the question leads. */
+.needs { background: var(--surface); padding: 12px 14px; border-radius: 12px; row-gap: 10px;
+  box-shadow: 0 0 0 1px var(--hairline), 0 10px 26px -18px rgba(40, 25, 10, 0.45); }
+@media (prefers-color-scheme: dark) { .needs { background: var(--needs-bg); box-shadow: 0 0 0 1px var(--hairline); } }
+.needs-thumb.is-icon { align-self: center; }
+.needs-body { gap: 2px; }
+.needs-foot { display: flex; align-items: center; gap: 10px; min-width: 0; margin-top: 2px; }
+.needs-foot .needs-file { flex: 1; min-width: 0; }
+.needs-foot .needs-nav { flex: none; margin-right: -4px; }
+.needs-nav .pos { font-size: 11px; }
+
+/* Check All: compact cards, more on a screen. The picture is the proof; how it was known sits on it. */
+.review-sheet { width: min(1240px, calc(100vw - 32px)); }
+.rv-head { align-items: center; padding: 18px 24px 12px; }
+.rv-head .sheet-title { font-size: 19px; }
+.rv-head p { max-width: 70ch; font-size: 12.5px; }
+.rv-body { grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; padding: 16px 24px 22px; }
+.rv-card { gap: 8px; padding: 8px 8px 10px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 1px var(--hairline); transition: box-shadow 0.15s, transform 0.15s; }
+.rv-card:focus { outline: none; box-shadow: 0 0 0 1px var(--hairline); }
+.rv-card:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.rv-card.is-need, .rv-card.is-need:focus { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--orange) 55%, transparent); }
+.rv-card.is-need:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.rv-proof { position: relative; gap: 0; }
+.rv-proof.is-card figcaption, .rv-proof.is-heard figcaption { position: absolute; left: 6px; bottom: 6px; padding: 2px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 650;
+  color: #fff; background: rgba(0, 0, 0, 0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
+.rv-proof.is-heard figcaption { position: static; align-self: flex-start; margin-top: 5px; background: var(--fill); color: var(--text-2); backdrop-filter: none; }
+.rv-pic { border-radius: 7px; }
+.rv-card.is-checked .rv-proofs { position: relative; }
+.rv-card.is-checked .rv-proofs::after { content: "\2713"; position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; color: #fff; background: var(--green); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.rv-info { gap: 3px; padding: 0 2px; }
+.rv-ep { font-size: 13px; gap: 7px; }
+.rv-ep code { font-size: 11.5px; }
+.rv-ep b { font-weight: 650; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.rv-new { font-family: inherit; font-size: 11.5px; line-height: 1.4; color: var(--text-2); }
+.rv-new div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-new div::before { content: "\2192\00a0"; }
+.rv-was { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-why { font-size: 11.5px; padding: 6px 9px; }
+.rv-quote { font-size: 12px; padding: 8px 10px; max-height: 6em; aspect-ratio: auto; }
+.rv-noproof { font-size: 11.5px; padding: 8px 10px; }
+.rv-acts { gap: 6px; padding: 0 2px; margin-top: auto; }
+.rv-acts .pill { flex: none; height: 28px; padding: 0 12px; font-size: 12px; }
+.rv-acts .rv-fix:not(.pill-primary) { background: transparent; box-shadow: none; color: var(--text-2); padding: 0 8px; }
+.rv-acts .rv-fix:not(.pill-primary):hover { background: var(--fill); color: var(--text); }
+.rv-right[aria-pressed="true"] { background: var(--green-bg); color: var(--green-text, var(--green)); box-shadow: none; }
+.rv-cut { padding: 8px; gap: 6px; }
+.rv-progress { color: var(--green-text, var(--green)); }
+.review-sheet .sheet-actions.rv-foot { padding: 10px 24px 14px; gap: 10px; }
+
+/* Check Episodes, split view: each part with a picture, its episode, and likely answers one click away. */
+.ed-ep-row { align-items: stretch; }
+.ed-part-pic { flex: none; width: 64px; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: #000; cursor: pointer; align-self: center;
+  box-shadow: inset 0 -2px 0 var(--p0); transition: transform 0.1s; }
+.ed-part-pic[data-part="1"] { box-shadow: inset 0 -2px 0 var(--p1); }
+.ed-part-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ed-part-pic:hover { transform: scale(1.04); }
+.ed-ep { align-items: center; }
+.ed-ep.is-empty { background: transparent; color: var(--text-3); box-shadow: inset 0 0 0 1px var(--sep); font-style: italic; }
+.ed-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -2px; }
+.ed-picks > span { font-size: 11px; font-weight: 650; color: var(--text-3); }
+.ed-pick { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: var(--fill); color: var(--text);
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.12s, transform 0.08s; line-height: 26px; }
+.ed-pick code { font: 700 10.5px var(--mono); color: var(--accent-text); }
+.ed-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-pick:hover { background: var(--fill-strong); }
+.ed-pick:active { transform: scale(0.97); }
+.ed-seg.is-empty div { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); font-style: italic; }
+.ed-seam i.is-gap { width: 34px; display: grid; place-items: center; background: #000; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14); }
+.ed-seam i.is-gap b { font-size: 9.5px; font-weight: 700; color: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
+.ed-cards-none { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ed-cards-none .spinner { width: 12px; height: 12px; }
+.ed-readcards { height: 26px; }
+@media (prefers-color-scheme: light) { .editor-sheet .ed-right .ed-ep.is-empty { background: transparent; } }
+.ed-names-todo { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 12px; color: var(--text-3); box-shadow: inset 0 0 0 1px var(--sep); }
+.review-sheet { height: auto; max-height: calc(100vh - 80px); }
+.review-sheet .rv { max-height: calc(100vh - 80px); }
+.rv-progress.is-busy { color: var(--text-2); }
+.rv-progress.is-need { color: var(--orange-text); }

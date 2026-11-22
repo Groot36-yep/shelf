@@ -2,6 +2,19 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Server Files**: copy between your Plex server and this PC, like FileZilla (Menu → Server Files…). Two sides,
+  drag or Copy, pause and resume, files already there asked once.
+- **A better splitter** (Check Episodes → Split Into Files): each part shows a picture of itself, the likeliest
+  episodes are one click away, and Read Title Cards works right inside it (about 7 seconds for a SpongeBob
+  half-hour). A cut in the black gap between cartoons now shows the end of one and the start of the next, with the
+  gap's length between them, instead of two black frames.
+- **Check All, tidier**: smaller cards (eight on a screen), how each was known on its picture, the new name on one
+  line, and Read Title Cards for the episodes known only by their file name.
+- **Needs You** is a calm card: no coloured strip or outline.
+- **Reading title cards is quicker**: the next video is prepared while one is being read, and a show's title card
+  is looked for first where it was in its other episodes. Over the Garden Wall: 38 seconds instead of 68.
+
 ## Done (2.5.0)
 - **A more refined look.** The list is calmer: a match by file name is said quietly, one read from a title card
   shows a tiny picture of the card. The Needs You card is compact. A show's Check All and Split All are matching
