@@ -177,6 +177,7 @@
         <span class="section-label">Saved as</span>
         <div class="crumbs" id="inspCrumbs"></div>
         <div class="mono-box" id="inspFile"></div>
+        <p class="insp-quiet" id="inspQuiet" hidden></p>
       </div>
       <div class="insp-group" id="inspShowGroup">
         <div class="insp-section" id="inspCandWrap" hidden>
@@ -259,6 +260,10 @@
         <button class="pill" type="button" id="pickLib">Choose…</button>
       </div>
       <p class="row-help">Movies go in <b>Movies</b>, episodes in <b>TV Shows</b>, songs in <b>Music</b>, inside this folder.</p>
+      <label class="row" id="renameQuietRow" hidden>
+        <span><span id="renameQuietLabel">Turn down loud starts</span><br><small class="muted" id="renameQuietHelp"></small></span>
+        <input type="checkbox" class="switch" id="renameQuiet">
+      </label>
       <label class="row" id="renameShrinkRow" hidden>
         <span><span id="renameShrinkLabel">Make lossless songs smaller</span><br><small class="muted" id="renameShrinkHelp"></small></span>
         <input type="checkbox" class="switch" id="renameShrink">

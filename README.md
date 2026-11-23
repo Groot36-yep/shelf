@@ -89,6 +89,10 @@ each one shows a prompt naming the files first:
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
   (Deep Scan: 1–3 minutes; Shelf does it by itself for the videos Read Title Cards couldn’t recognise).
+- While it's there, it also measures how loud the first seconds are. A logo much louder than the show (the
+  Nickelodeon one before SpongeBob) is turned down to the show's level by **Rename Now**: only those seconds of sound
+  change (re-encoded once, at about the same quality), the picture is copied as it is, and your original is kept (or
+  goes to the Recycle Bin with Move). There's a switch for it in Rename Now.
 
 ## Inspect: see what's really in a file (and split it, if you want)
 
@@ -110,6 +114,7 @@ under the title, so it never just looks frozen.
   their own handle (they snap to the black gap) or use the cut bar.
 - Every title card Shelf read is one click away (a row under the timeline, and a **Jump to**
   button over the video).
+- **Drag the episodes** by their grip (or Alt+↑ / Alt+↓) into the order they play in.
 - **One File** keeps one name (listing every episode in it, if they're in a row), or **Split Into
   Files** gives each episode its own file. Shelf suggests each cut at the black, silent moment
   before the next episode.

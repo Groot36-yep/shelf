@@ -2,6 +2,29 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Updating Shelf keeps it pinned to the taskbar.** Installing a new version over the old one used to remove
+  Shelf's shortcuts and make new ones, which unpinned it. Now the shortcuts (and the pin) stay; a fresh set is made
+  only if you install to a different folder.
+- **Loud logos turned down.** A short burst at the very start that's much louder than the show (the Nickelodeon
+  logo before SpongeBob: about 10 dB louder) is found while reading title cards, and Rename Now brings it down to
+  the show's level. Only the sound of those few seconds changes; the picture and everything else are copied as they
+  are. The side panel says what it found, and Rename Now has a switch for it. Like making songs smaller, Move sends
+  the original to the Recycle Bin and Undo removes the new copy.
+- **Drag to reorder episodes in Inspect** (or Alt+↑ / Alt+↓ on the grip): the order they play in, which the name
+  follows ("Ripped Pants & Bubblestand"). In split view it changes which part is which episode.
+- **A clearer question when Shelf isn't sure.** "Which episodes are in this file?", one short reason
+  ("Title card: “Ripped Pants”, but the file's name points to S01E08–E09"), and answers that are just the episodes,
+  each with a small tag for why it's offered. Shelf's own pick is the first answer.
+- **Names that count cartoons are read that way.** "S01E04E05 Bubblestand - Ripped Pants" in a half-hour video was
+  taken as "the 4th half-hour" (E08–E09); a run of numbers, or a title matching its number, now settles it. Also
+  read: runs of three ("S01E01-E02-E03") and a one-word title next to the one it aired with ("Sleepy Time - Suds").
+- **Listening can't overrule the name and a title card.** The theme song "sounding like" another episode split a
+  correctly named file in two; a hearing that disagrees with both is now ignored, and only episodes the file holds
+  show up in Inspect.
+- **Title cards known by listening are placed where the card is**, where Shelf looked for it (Suds at 12:05), not
+  where the word was said (14:22), and Inspect labels them "heard".
+
 ## Done (2.8.0)
 - **Every episode in Check All has a picture, and never a black one.** Episodes known from their file name or from
   what was heard used to show none; now each shows a moment of the video (where a card was, where the words were

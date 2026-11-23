@@ -569,6 +569,8 @@ if (gotLock) app.whenReady().then(() => {
     const { results } = await fileops.run(ops.slice(0, 20000), {
       library, mode, allowed: allowedSources, journalPath: batch,
       writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
+      // A video's loud start turned down (a new copy; see loudstart.js).
+      quieten: (from, to, cut) => require('./loudstart').apply(from, to, cut),
       // Songs' covers come from the Cover Art Archive, through Shelf (never from the window).
       coverFor: (ref, size) => mb().cover(ref.release, ref.group, size),
       // An original made smaller (Move): to the Recycle Bin, where it can be put back from.
@@ -977,6 +979,9 @@ if (gotLock) app.whenReady().then(() => {
           }
           // (With the show's usual words, which the window leaves out when it judges these readings again.)
           out[f] = { secs, parts, texts: r.texts, notTitle: usualOnScreen(seen) };
+          // A loud start (the Nickelodeon logo before a SpongeBob episode): where it is and how much to turn it down,
+          // for Rename Now. (Videos on this computer; about a second each.)
+          if (!src && !cardCancel) out[f].loudStart = await require('./loudstart').measure(f, secs).catch(() => null);
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
         } finally {
