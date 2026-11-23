@@ -320,9 +320,65 @@ if (gotLock) app.whenReady().then(() => {
       });
     } finally { /* lanes handle the limits */ }
   }
+  // How dark a JPEG is: its average brightness, 0-255 (on a small copy). null if it can't be read.
+  function brightness(jpg) {
+    try {
+      const img = nativeImage.createFromBuffer(jpg);
+      if (img.isEmpty()) return null;
+      const bmp = img.resize({ width: 48 }).toBitmap(); // BGRA
+      let sum = 0, n = 0;
+      for (let k = 0; k + 2 < bmp.length; k += 4) { sum += bmp[k] * 0.11 + bmp[k + 1] * 0.59 + bmp[k + 2] * 0.3; n++; }
+      return n ? sum / n : null;
+    } catch (e) { return null; }
+  }
+  // A picture to recognise an episode by (Check All, the side panel): never the black of a fade. A title card is
+  // often noted the moment it starts to fade in; a dark frame is passed over for the first one a little later that
+  // shows something (or earlier, near the end). The editor asks for exact frames instead (frameJpeg).
+  async function litFrameJpeg(file, t, w) {
+    let first = null;
+    for (const d of [0, 0.8, 1.8, 3.5, 6, -2]) {
+      const at = Math.max(0, t + d);
+      const jpg = await frameJpeg(file, at, w);
+      if (!jpg || !jpg.length) continue;
+      if (!first) first = jpg;
+      const lum = brightness(jpg);
+      if (lum == null || lum >= 22) return jpg;
+    }
+    return first;
+  }
   // n evenly spaced frames from `from` to `to`, tiled in one row. key=true decodes only keyframes
   // (much faster for long stretches; each tile is then the nearest keyframe before its time).
   async function stripJpeg(file, from, to, n, w, keyOnly, owner) {
+    // A strip of eight or more pictures is made in four pieces at once, then joined: the video tool mostly waits on
+    // decoding one frame after another, and four of it at once take about 2 s instead of 5.5 for the whole-video strip
+    // of an 11-minute 1080p HEVC video (the editor's minute-long views, every frame decoded, gain as much).
+    if (n >= 8 && to - from >= 20) {
+      const counts = [0, 1, 2, 3].map((k) => Math.floor(n / 4) + (k < n % 4 ? 1 : 0)), span = (to - from) / n;
+      let at = from;
+      const pieces = await Promise.all(counts.map((c) => { const a = at; at += c * span; return stripJpegOne(file, a, a + c * span, c, w, keyOnly, owner); }));
+      const joined = joinStrips(pieces);
+      if (joined) return joined;
+    }
+    return stripJpegOne(file, from, to, n, w, keyOnly, owner);
+  }
+  // Pictures of the same height side by side, as one JPEG (null if any is missing or they don't match).
+  function joinStrips(jpgs) {
+    try {
+      const imgs = jpgs.map((j) => (j && j.length ? nativeImage.createFromBuffer(j) : null));
+      if (imgs.some((im) => !im || im.isEmpty())) return null;
+      const sizes = imgs.map((im) => im.getSize()), h = sizes[0].height;
+      if (sizes.some((s) => s.height !== h)) return null;
+      const W = sizes.reduce((t, s) => t + s.width, 0), out = Buffer.alloc(W * h * 4);
+      let x0 = 0;
+      imgs.forEach((im, k) => {
+        const bw = sizes[k].width, bmp = im.toBitmap();
+        for (let y = 0; y < h; y++) bmp.copy(out, (y * W + x0) * 4, y * bw * 4, (y + 1) * bw * 4);
+        x0 += bw;
+      });
+      return nativeImage.createFromBitmap(out, { width: W, height: h }).toJPEG(80);
+    } catch (e) { return null; }
+  }
+  async function stripJpegOne(file, from, to, n, w, keyOnly, owner) {
     try {
       const { spawn } = require('child_process');
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
@@ -363,6 +419,7 @@ if (gotLock) app.whenReady().then(() => {
       cancel() { if (fh) { fh.close().catch(() => {}); fh = null; } }
     }, { highWaterMark: 0 });
   }
+  const stripCache = new Map(); let stripBytes = 0; // the last film strips (at most 60, or 40 MB; in memory only)
   protocol.handle('shelf-media', async (request) => {
     const u = new URL(request.url);
     const tok = u.pathname.replace(/^\/+/, ''), file = mediaTokens.get(tok);
@@ -373,7 +430,16 @@ if (gotLock) app.whenReady().then(() => {
       const n = Math.min(240, Math.max(1, Math.round(Number(u.searchParams.get('n')) || 12)));
       const w = Math.min(320, Math.max(48, Math.round((Number(u.searchParams.get('w')) || 160) / 2) * 2));
       const slot = /^[a-z]{1,8}$/.test(u.searchParams.get('slot') || '') ? u.pathname + ':' + u.searchParams.get('slot') : null;
-      const jpg = await stripLane(slot, () => open() ? stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1', tok) : Promise.resolve(Buffer.alloc(0)));
+      // (Kept for a while, by file and stretch: opening the same video again, or coming back to it, is instant.)
+      const ck = [file, from.toFixed(2), to.toFixed(2), n, w, u.searchParams.get('key') === '1' ? 1 : 0].join('|');
+      let jpg = stripCache.get(ck);
+      if (jpg) { stripCache.delete(ck); stripCache.set(ck, jpg); } else {
+        jpg = await stripLane(slot, () => open() ? stripJpeg(file, from, to, n, w, u.searchParams.get('key') === '1', tok) : Promise.resolve(Buffer.alloc(0)));
+        if (jpg.length) {
+          stripCache.set(ck, jpg); stripBytes += jpg.length;
+          while (stripCache.size > 60 || stripBytes > 40e6) { const old = stripCache.keys().next().value; stripBytes -= stripCache.get(old).length; stripCache.delete(old); }
+        }
+      }
       return jpg.length ? new Response(jpg, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' } }) : new Response('', { status: 404 });
     }
     if (u.host === 'f') { // one still frame: shelf-media://f/<token>?t=12.5&w=320
@@ -561,10 +627,32 @@ if (gotLock) app.whenReady().then(() => {
   // Shelf can also show you the frame of a title card it read, and find where to split.
   const lookApproved = new Set();
   // The frame of a title card Shelf read (a small JPEG, straight to this window; never saved).
+  // Title cards you marked in Watch & Fix teach Shelf this show: how long after the silent gap before a cartoon its
+  // card comes (and, for the first cartoon, when). The next scan of the show looks there first (see learnedPath).
+  // Only for a video you let Shelf look inside; at most a few marks; the show's name as the list knows it.
+  handle('shelf:learnMarks', async (show, p, times) => {
+    const f = path.resolve(String(p || '')), name = String(show || '').slice(0, 200);
+    if (!name || !lookApproved.has(f) || !pickedVideos([f]).length || !Array.isArray(times)) return false;
+    const scan = scanner(), all = readLearned(), k = all[name] || {};
+    const keep = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'number' && isFinite(x)) : []);
+    const after = keep(k.afterQuiet), lens = keep(k.quietLen), first = keep(k.firstCard);
+    let taught = 0;
+    for (const t of times.map(Number).filter((x) => isFinite(x) && x >= 0).slice(0, 6)) {
+      const from = Math.max(0, t - 14);
+      const gaps = await scan.quietGaps(f, from, t - from + 0.5).catch(() => []);
+      const g = gaps.filter((x) => x.b - x.a >= 0.3 && x.b <= t + 0.3 && t - x.b <= 12).pop();
+      if (g) { after.push(Math.round((t - g.b) * 10) / 10); lens.push(Math.round((g.b - g.a) * 10) / 10); taught++; }
+      if (t < 240) first.push(Math.round(t * 10) / 10);
+    }
+    if (!taught && !first.length) return false;
+    all[name] = Object.assign({}, k, { at: Date.now(), afterQuiet: after.slice(-12), quietLen: lens.slice(-12), firstCard: first.slice(-12) });
+    try { writeLearned(all); } catch (e) { return false; }
+    return true;
+  });
   handle('shelf:cardFrame', async (p, t, w) => {
     const f = path.resolve(String(p));
     if (!lookApproved.has(f) || !pickedVideos([f]).length) return null;
-    const jpg = await frameLane(null, () => frameJpeg(f, Math.max(0, Number(t) || 0), Math.min(640, Math.max(160, Math.round((Number(w) || 320) / 2) * 2))));
+    const jpg = await frameLane(null, () => litFrameJpeg(f, Math.max(0, Number(t) || 0), Math.min(640, Math.max(160, Math.round((Number(w) || 320) / 2) * 2))));
     return jpg && jpg.length ? new Uint8Array(jpg) : null;
   });
   // Where to split a video Shelf already looked inside (hints as in splitSuggest). Asks first otherwise.
@@ -670,9 +758,13 @@ if (gotLock) app.whenReady().then(() => {
     const where = someOnServer
       ? [{ icon: 'lock', text: 'Videos on your Plex server: only the minutes Shelf needs are read, over your SSH connection' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }]
       : [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames and sound are deleted straight away' }];
-    const yes = deep
+    // The closer look Shelf takes by itself straight after a read you said yes to (for the videos that read didn't
+    // recognise) isn't asked about again: you already said Shelf may look inside them. (Search Harder, when you click
+    // it, still asks.) Videos on your server are always asked about.
+    const followUp = deep && !!(how && how.followUp) && files.every((f) => !onServer.has(f) && lookApproved.has(f));
+    const yes = followUp ? true : deep
       ? await askFirst(files, {
-        kind: 'deep', ok: 'Deep Scan', title: n(files, 'Deep scan this video?', 'Deep scan these # videos?'),
+        kind: 'deep', ok: 'Search Harder', title: n(files, 'Search this video harder for its title cards?', 'Search these # videos harder for their title cards?'),
         lead: 'Shelf takes a much closer look at every spot a title card could be, reading each one many ways.',
         points: where.concat([{ icon: 'clock', text: 'Takes a few minutes per video' }])
       })
@@ -819,8 +911,10 @@ if (gotLock) app.whenReady().then(() => {
             cardAt: lastFew(seen.firstCard),
             // How long after a fade to black, and after a silence (and how long that was), this show's cards were.
             cardAfterBlack: lastFew(seen.afterBlack), cardAfterQuiet: usualGaps(seen.afterQuiet), cardQuietLen: lastFew(seen.quietLen),
-            // The quick look a moment after the silences, unless this show's cards never come after one.
-            quick: !(seen.cards >= 3 && !seen.afterQuiet.length),
+            // The quick look a moment after the silences, unless this show's cards never come after one. (Not for a video
+            // on your server: hearing the silences reads the same minutes of video the picture search then reads again,
+            // so over SSH it nearly doubled what's fetched, more than the whole file.)
+            quick: !src && !(seen.cards >= 3 && !seen.afterQuiet.length),
             isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f), inSeason, notTitle),
             // An episode as long as the video (give or take the credits), and clearly longer than the show's usual one:
             // it's the only one in there. Online lists get lengths wrong (TVmaze has 11-minute "Squid's Day Off" at
@@ -928,7 +1022,7 @@ if (gotLock) app.whenReady().then(() => {
     if (!approvedMedia.has(p)) {
       const batch = [p].concat(Array.isArray(also) ? also.filter(onServerVideo).slice(0, 500) : []);
       const yes = await askFirst(batch, {
-        kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Check Episodes?', 'Open these # videos in Check Episodes?'),
+        kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Watch & Fix?', 'Open these # videos in Watch & Fix?'),
         lead: 'Shelf plays the video from your Plex server in its own window, so you can see which episodes it holds and mark their title cards.',
         points: [{ icon: 'lock', text: 'Played over your SSH connection, only the parts you watch' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }, { icon: 'keep', text: 'Nothing changes until you click Rename Now' }]
       });
@@ -960,7 +1054,7 @@ if (gotLock) app.whenReady().then(() => {
     }
     const batch = pickedVideos([p].concat(Array.isArray(also) ? also.slice(0, 500) : []));
     const yes = await askFirst(batch, {
-      kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Check Episodes?', 'Open these # videos in Check Episodes?'),
+      kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Watch & Fix?', 'Open these # videos in Watch & Fix?'),
       lead: 'Shelf plays the video in its own window, so you can see which episodes it holds, where each one starts, and split it if you want.',
       points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your original file is always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
     });

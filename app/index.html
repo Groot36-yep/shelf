@@ -157,8 +157,8 @@
         <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
         <p class="ep-why" id="inspEpWhy"></p>
         <div class="insp-card-foot">
-          <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
-          <button class="pill small-pill" type="button" id="deepScan" title="Deep Scan: a much closer look for this video’s title cards (a few minutes, Shelf asks first)">Deep Scan</button>
+          <button class="pill small-pill" type="button" id="checkEps" title="Play the video to see which episode it is: change it, mark its title card, or split it into one file per episode">Watch &amp; Fix…</button>
+          <button class="pill small-pill" type="button" id="deepScan" title="Read far more of this video for its title cards than the quick read does (a minute or two; Shelf asks first)">Search Harder</button>
           <span class="foot-flex"></span>
           <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
         </div>
@@ -171,7 +171,7 @@
       <!-- A song: the album edition it's on, and its tags now → after (see musicui.js). -->
       <div class="insp-music" id="inspMusic" hidden></div>
       <div class="insp-section" id="inspCandWrap" hidden>
-        <span class="section-label">Is this the right one?</span>
+        <span class="section-label" id="inspCandLabel">Which show is this?</span>
         <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
       </div>
 
@@ -200,7 +200,7 @@
         </div>
       </form>
 
-      <button class="link-btn danger" type="button" id="removeBtn">Take Off the List</button>
+      <button class="link-btn danger" type="button" id="removeBtn">Remove from List</button>
     </aside>
   </main>
 
@@ -431,6 +431,14 @@
               <label class="row">
                 <span class="row-text"><b>Split files by themselves</b><small>When Read Title Cards clearly reads two cartoons that aren’t next to each other in the list, Shelf splits the file (at the black moment between them) instead of asking. Check All shows each cut.</small></span>
                 <input type="checkbox" class="switch" id="optAutoSplit">
+              </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="tv title cards search harder deep scan unknown episodes automatically closer look">
+            <div class="group">
+              <label class="row">
+                <span class="row-text"><b>Search harder by itself</b><small>Videos Read Title Cards couldn’t recognise get a closer look straight after (Search Harder, without asking again). Takes a minute or two each; Stop ends it.</small></span>
+                <input type="checkbox" class="switch" id="optAutoDeep">
               </label>
             </div>
           </div>
@@ -992,11 +1000,11 @@
   </form>
 </dialog>
 
-<!-- Check Episodes window (and splitting, if you choose it) -->
+<!-- Watch & Fix window: play the video, check its episodes (and split it, if you choose) -->
 <dialog class="sheet editor-sheet" id="editorSheet" aria-labelledby="edTitle">
   <header class="ed-header">
     <div class="ed-titles">
-      <h2 id="edTitle" class="sheet-title">Check Episodes</h2>
+      <h2 id="edTitle" class="sheet-title">Watch &amp; Fix</h2>
       <p id="edFile"></p>
     </div>
     <div class="segmented ed-mode" role="group" aria-label="Keep as one file or split" id="edMode">

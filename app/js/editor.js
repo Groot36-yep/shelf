@@ -217,8 +217,9 @@
     lastHead = {}; syncPlay();
     $('editorSheet').showModal();
     setMode(st.mode, true);
-    // Start just before the first title card, or the first cut.
-    var startAt = st.cuts.length ? st.cuts[0] - 3 : st.cards.length ? st.cards[0].start || st.cards[0].t : 0;
+    // Start on the first title card (the moment it was read, not its fade-in), or just before the first cut; with
+    // neither, about a minute in (where most cartoons' cards are), never on the black first frame most videos start with.
+    var startAt = st.cuts.length ? st.cuts[0] - 3 : st.cards.length ? (st.cards[0].t != null ? st.cards[0].t : st.cards[0].start) : Math.min(60, st.secs * 0.1);
     var look = o.lookFor; // looking for a title card Shelf couldn't read: start where it usually is
     if (look) startAt = look.part ? Math.max(0, st.secs * look.part / look.of - 20) : Math.min(40, st.secs * 0.04);
     setZoom(st.cuts.length || st.cards.length || look ? 3 : 0, startAt, true);
@@ -962,7 +963,7 @@
             [frameImg(card.t, 320, 'The frame Shelf read')]),
           el('div', { class: 'ed-proof-text' }, [
             el('span', { class: 'ed-sure ' + sure, text: (sure === 'hi' ? '✓ Title card matches' : '≈ Title card looks like it') + ' · ' + fmt(card.t, false) }),
-            el('q', { title: 'Everything Shelf read on that frame: ' + card.text }, marked(card.text, card.name)),
+            card.text ? el('q', { title: 'Everything Shelf read on that frame: ' + card.text }, marked(card.text, card.name)) : null,
             el('span', { text: 'Not this episode? Click Change…' })
           ])
         ]));

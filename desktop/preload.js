@@ -87,10 +87,11 @@ contextBridge.exposeInMainWorld('shelfNative', {
   // Songs recognised by their sound: only fingerprints (codes made from the sound, on this PC) go to AcoustID.
   musicSound: (paths) => ipcRenderer.invoke('shelf:musicSound', Array.isArray(paths) ? paths.map(String) : []),
   musicSoundReady: () => ipcRenderer.invoke('shelf:musicSoundReady').then((x) => x === true),
-  readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep) }),
+  readCards: (jobs, how) => ipcRenderer.invoke('shelf:readCards', jobs, { deep: !!(how && how.deep), followUp: !!(how && how.followUp) }),
   canListen: () => ipcRenderer.invoke('shelf:canListen'),
   // A show's episode order in Plex (its key in Plex; 'tmdb' | 'tvdb' | 'tvdbdvd').
   plexShowOrder: (showKey, want) => ipcRenderer.invoke('shelf:plexShowOrder', String(showKey), String(want)),
+  learnMarks: (show, p, times) => ipcRenderer.invoke('shelf:learnMarks', String(show || ''), String(p || ''), Array.isArray(times) ? times.slice(0, 6).map(Number) : []),
   cardFrame: (p, t, w) => ipcRenderer.invoke('shelf:cardFrame', p, t, w).then((b) => (b instanceof Uint8Array && b.length < 2e6 ? b : null)),
   suggestCuts: (p, hints) => ipcRenderer.invoke('shelf:suggestCuts', p, hints),
   approveSplit: (paths) => ipcRenderer.invoke('shelf:approveSplit', paths),

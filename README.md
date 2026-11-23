@@ -84,13 +84,13 @@ each one shows a prompt naming the files first:
 
 - **Read Title Cards** (top bar) reads the title cards of every TV video in the list. It finds the moments where the picture holds
   still and reads the text there with an OCR engine built into Shelf, then compares it with the
-  show's real episode titles, and notes how long each video is. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Deep Scan**, in a file's details, finds
+  show's real episode titles, and notes how long each video is. On 36 real SpongeBob title cards it identified 30 and got none wrong (**Search Harder**, in a file's details, finds
   more of the hard ones, and for any it can't read you can **mark the title card yourself**);
   when it isn't sure it says so instead of guessing. Everything happens on your computer: nothing is
   uploaded or downloaded, and no pictures are saved. Takes roughly 15–30 seconds per video
-  (Deep Scan: 1–3 minutes).
+  (Search Harder: 1–3 minutes; Shelf does it by itself for the videos Read Title Cards couldn’t recognise).
 
-## Check Episodes: see what's really in a file (and split it, if you want)
+## Watch & Fix: see what's really in a file (and split it, if you want)
 
 Every TV file shows which episodes Shelf thinks it holds, with the frame of each title card it read
 and *how* it knows (title cards, the title in the file name, or just the number). Each episode has
@@ -100,7 +100,7 @@ decision, a card says so in plain words and answers it in one click (for example
 **Two Episodes**, or **Split into 2 Files** at the gap). Whenever Shelf is busy, it says what it's doing
 under the title, so it never just looks frozen.
 
-**Check Episodes…** opens the video, after a prompt, in a window built for checking:
+**Watch & Fix…** opens the video, after a prompt, in a window built for checking:
 
 - A big picture that takes all the room the controls leave, with clear controls: one second back,
   one frame back (hold to repeat), play, one frame forward, one second forward, ½×–2× speed, and J/K/L.
