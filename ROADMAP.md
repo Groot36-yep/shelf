@@ -8,11 +8,11 @@ Where things stand, and what's left to do. Newest first.
   said, or about a minute in). A frame that's the black of a fade is passed over for one a moment later.
 - **Watch & Fix** (it was "Check Episodes") opens on the title card, or about a minute in, instead of the black first
   frame, and its picture strips come about twice as fast (made in four pieces at once) and instantly the second time.
-- **Clearer buttons.** Check Episodes… → Watch & Fix…, Deep Scan → Search Harder, Fix… → Watch & Fix…, Take Off the
+- **Clearer buttons.** Check Episodes… → Watch & Fix…, Fix… → Watch & Fix…, Take Off the
   List → Remove from List, and "Is this the right one?" → "Which show is this?". The other shows fold away behind
   "Not this show?" when Shelf is sure.
-- **Search Harder by itself.** After Read Title Cards, the videos it couldn't recognise get a closer look straight
-  away, without asking again (Settings → TV: Search harder by itself).
+- **Deep Scan by itself.** After Read Title Cards, the videos it couldn't recognise get a closer look straight
+  away, without asking again (Settings → TV: Deep scan by itself). Deep Scan says what it does, and looks like a button.
 - **Your marks teach Shelf.** A title card you mark in Watch & Fix tells Shelf where that show's cards are, and its
   next scans look there first.
 - **Fewer wrong titles, more found:** a video split off a longer one has its card read from its first seconds

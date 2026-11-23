@@ -34,7 +34,7 @@
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
     musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
-    autoDeep: load('autoDeep', true),   // after Read Title Cards, search harder in the videos it didn't recognise
+    autoDeep: load('autoDeep', true),   // after Read Title Cards, deep scan the videos it didn't recognise
     appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
@@ -1372,7 +1372,7 @@
       }[how] || 'From the file name.';
       var iss = issueFor(item);
       paintQuickPicks(item, src0, rowsEp);
-      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Read Title Cards or Search Harder.' : ' Not sure? Check Episodes… shows you the video.');
+      $('inspEpWhy').textContent = why + (iss || sure || how === 'split' || how === 'manual' || how === 'card' ? '' : src0.segmented ? ' To be sure, use Read Title Cards or Deep Scan.' : ' Not sure? Check Episodes… shows you the video.');
       $('inspEpWhy').className = 'ep-why' + (/^✓|^✂/.test(why) ? ' is-sure' : '');
       var badge = $('inspEpBadge');
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
@@ -2237,7 +2237,7 @@
       .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); },
         function (e) { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); throw e; })
       .then(function () {
-        // The videos this read didn't recognise get a closer look straight away (Search Harder, by itself): no need to
+        // The videos this read didn't recognise get a Deep Scan straight away, by itself: no need to
         // click it on each. Not after you stopped the read, nor from the editor or a closer look already.
         if (deepNext || wasStopped || opt.raise || opt.noFollowUp || settings.autoDeep === false) return;
         var unknown = files.filter(needsCloserLook);

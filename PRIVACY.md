@@ -52,12 +52,12 @@ something. Shelf sends no cookies and no "referrer".
 
 ## Looking inside your videos
 
-Shelf only reads a video's contents when you click **Read Title Cards** or **Search Harder**, and only after
+Shelf only reads a video's contents when you click **Read Title Cards** or **Deep Scan**, and only after
 Shelf's prompt listing those files, where you choose OK or Cancel. (The closer look Shelf takes by itself straight
 after a read, for the videos it couldn't recognise, covers only videos you just said yes to; you can turn it off in
 Settings → TV.)
 
-- **Read Title Cards** and **Search Harder** read each video's running time and decode still moments of
+- **Read Title Cards** and **Deep Scan** read each video's running time and decode still moments of
   the video in memory and reads the words on them with an OCR engine that ships inside Shelf. No
   pictures are written to disk, nothing is uploaded, and no data is downloaded for it.
 - **Split…** asks before opening a video, then plays it inside Shelf (only that one file, through a

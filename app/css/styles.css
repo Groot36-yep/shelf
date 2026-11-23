@@ -1847,7 +1847,7 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 
 /* Check All: every episode with a picture from the video, and what Shelf read, heard or went by under it. */
 .rv-proof-stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-/* Side panel: Search Harder is a button like Watch & Fix (it was plain text); the other shows fold away. */
+/* Side panel: Deep Scan is a button like Watch & Fix (it was plain text); the other shows fold away. */
 #deepScan { background: var(--surface); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--text); }
 #deepScan:hover { background: var(--fill); }
 .cand-more { display: block; width: 100%; padding: 9px 12px; border: 0; border-top: 1px solid var(--hairline); background: transparent; text-align: left;

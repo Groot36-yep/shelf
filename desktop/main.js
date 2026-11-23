@@ -759,12 +759,12 @@ if (gotLock) app.whenReady().then(() => {
       ? [{ icon: 'lock', text: 'Videos on your Plex server: only the minutes Shelf needs are read, over your SSH connection' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }]
       : [{ icon: 'lock', text: 'Happens on this computer. Nothing is uploaded' }, { icon: 'trash', text: 'Frames and sound are deleted straight away' }];
     // The closer look Shelf takes by itself straight after a read you said yes to (for the videos that read didn't
-    // recognise) isn't asked about again: you already said Shelf may look inside them. (Search Harder, when you click
+    // recognise) isn't asked about again: you already said Shelf may look inside them. (Deep Scan, when you click
     // it, still asks.) Videos on your server are always asked about.
     const followUp = deep && !!(how && how.followUp) && files.every((f) => !onServer.has(f) && lookApproved.has(f));
     const yes = followUp ? true : deep
       ? await askFirst(files, {
-        kind: 'deep', ok: 'Search Harder', title: n(files, 'Search this video harder for its title cards?', 'Search these # videos harder for their title cards?'),
+        kind: 'deep', ok: 'Deep Scan', title: n(files, 'Deep scan this video for its title cards?', 'Deep scan these # videos for their title cards?'),
         lead: 'Shelf takes a much closer look at every spot a title card could be, reading each one many ways.',
         points: where.concat([{ icon: 'clock', text: 'Takes a few minutes per video' }])
       })
