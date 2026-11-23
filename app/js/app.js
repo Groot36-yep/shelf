@@ -477,6 +477,8 @@
   var episodeLists = {};   // "TMDB:387:tmdb" → Promise<list>
   var numbering = {};      // "TMDB:387" → 'segments' | 'halfhours', when you've chosen
   var refreshed = {};      // remembered episode lists asked for again this session
+  var notTitles = {};      // "TMDB:387" → words on screen in many of the show's videos, never a title (its credits)
+  function notTitleOf(c) { return (c && notTitles[showIdKey(c)]) || null; }
   function showIdKey(c) { return c.source + ':' + c.id; }
   function listFor(c, fresh) {
     var k = showIdKey(c) + ':' + settings.order;
@@ -541,7 +543,7 @@
       var ctx = chosen ? { mode: chosen, sure: true, segmented: det.segmented } : det;
       group.forEach(function (i) {
         var allCards = (i.cards || []).concat(markCards(i));
-        var fileCtx = Object.assign({}, ctx, { show: c.title, file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
+        var fileCtx = Object.assign({}, ctx, { show: c.title, notTitle: notTitleOf(c), file: { minutes: i.minutes || null, cards: allCards.length ? allCards : null, parts: i.cardParts || null } });
         var r = i.manualEp ? manualResult(i.manualEp) : P.resolveEpisode(i.parsed, list, fileCtx);
         var s = i.parsed.season != null ? i.parsed.season : 1, e = i.parsed.episode || 1;
         i.showKeyId = id;
@@ -2123,7 +2125,7 @@
     files.forEach(function (i) { var c0 = current(i); if (c0 && !seenShow[showIdKey(c0)]) { seenShow[showIdKey(c0)] = 1; shows.push(c0); } });
     if (!shows.length) return Promise.resolve();
     scanning = true; scanJob = busy('Waiting for your OK…'); render();
-    var read = 0, titlesFound = 0;
+    var read = 0, titlesFound = 0, failed = [];
     // The answer can arrive before the last progress messages do, so keep listening until "end" (or a few seconds).
     var ended, endedP = new Promise(function (res) { ended = res; });
     var stop = native.onCardProgress(function (p) {
@@ -2143,6 +2145,11 @@
         var r = p.result || {};
         if (r.secs) it.minutes = r.secs / 60;
         if (r.texts) { it.cards = r.texts; it.cardParts = r.parts; read++; }
+        // The show's usual words on screen, as learned so far (the latest know the most): all its videos' readings are
+        // judged again without them, so a credit read as a title earlier in this scan doesn't come back.
+        if (Array.isArray(r.notTitle) && current(it)) notTitles[showIdKey(current(it))] = r.notTitle.filter(function (w) { return typeof w === 'string'; }).slice(0, 200);
+        // A video that couldn't be read is said at the end (before, it was passed over without a word).
+        if (r.error) failed.push(it.name + ' (' + r.error + ')');
         it.scan = p.stopped && !r.texts ? null : 'done'; it.scanFrac = 1;
         // Show this episode's answer straight away, then settle back to the normal tag.
         var cIt = current(it);
@@ -2155,7 +2162,8 @@
       if (p.kind === 'end') {
         items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
         var nTitles = titlesFound + ' episode' + (titlesFound === 1 ? '' : 's');
-        reader.end(titlesFound ? 'Recognised ' + nTitles + '. Check All shows what each was known by.' : 'No episodes could be recognised. Shelf will go by name and length.',
+        var notRead = failed.length ? ' Couldn’t read ' + (failed.length === 1 ? failed[0] : failed.length + ' videos: ' + failed.slice(0, 3).join('; ') + (failed.length > 3 ? '…' : '')) + '.' : '';
+        reader.end((titlesFound ? 'Recognised ' + nTitles + '. Check All shows what each was known by.' : 'No episodes could be recognised. Shelf will go by name and length.') + notRead,
           p.stopped ? 'Stopped' : 'Finished reading', read + ' of ' + p.total + ' video' + (p.total === 1 ? '' : 's'));
         ended();
       }
@@ -2436,9 +2444,9 @@
   // The same answer is kept until the readings, your marks or the list change (opening the window stays quick).
   function cardsForCached(v, list) {
     var k = v._cardsFor;
-    if (k && k.cards === v.cards && k.marks === v.marks && k.list === list) return k.out;
+    if (k && k.cards === v.cards && k.marks === v.marks && k.list === list && k.nt === notTitleOf(current(v))) return k.out;
     var out = cardsFor(v, list);
-    v._cardsFor = { cards: v.cards, marks: v.marks, list: list, out: out };
+    v._cardsFor = { cards: v.cards, marks: v.marks, list: list, nt: notTitleOf(current(v)), out: out };
     return out;
   }
   function cardsFor(v, list) {
@@ -2447,10 +2455,12 @@
       var k = m.season + 'x' + m.number;
       out[k] = { t: m.t, start: m.t, key: k, name: m.name, season: m.season, number: m.number, text: '', score: 1, manual: true };
     });
-    var show = (current(v) || {}).title;
+    var show = (current(v) || {}).title, notTitle = notTitleOf(current(v));
     // A rougher reading counts for the episodes Shelf settled on and those around them (as when it worked them out).
     var rows = episodeRows(v);
     var near = list.filter(function (e) { return e.number != null && rows.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
+    // A card from a season far from the file's name needs to be read almost perfectly (as when it was read).
+    var inSeason = v.parsed && v.parsed.season != null ? list.filter(function (e) { return e.number != null && Math.abs(e.season - v.parsed.season) <= 1; }) : null;
     (v.cards || []).forEach(function (r) {
       if (r.heard) {
         var hk = String(r.heard.key || '').split('x'), he = list.filter(function (e) { return e.season === +hk[0] && e.number === +hk[1]; })[0];
@@ -2458,7 +2468,7 @@
         if (he && !(out[kk] && out[kk].manual) && !out[kk]) out[kk] = { t: r.t, start: r.start != null ? r.start : r.t, key: kk, name: he.name, text: r.heard.quote, score: 1, heard: true, words: r.heard.words || [] };
         return;
       }
-      var m = P.matchCardText(r.texts, list, near, show);
+      var m = P.matchCardText(r.texts, list, near, show, inSeason, notTitle);
       if (!m) return;
       var k = m.entry.season + 'x' + m.entry.number;
       // Show the clearest of the readings (the one closest to the title on its own).
