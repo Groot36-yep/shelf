@@ -32,7 +32,7 @@
     musicCover: load('musicCover', 'both'), musicYear: load('musicYear', true), musicGenres: load('musicGenres', false),
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
-    musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
+    quietStarts: load('quietStarts', true), musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
     autoDeep: load('autoDeep', true),   // after Read Title Cards, deep scan the videos it didn't recognise
     appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
@@ -1186,6 +1186,12 @@
     var iss = v.kind === 'episode' && c ? issueFor(item) : null;
     if (iss) {
       var acts = iss.actions.filter(function (a) { return !/^Inspect/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
+      // "Which episodes are in this file?": what Shelf thinks comes first, to keep with one key.
+      var mine = iss.kind === 'check' ? episodeRows(v, item) : [];
+      if (mine.length) {
+        acts.unshift({ label: epCode(mine[0]) + (mine.length > 1 ? '–E' + pad2(mine[mine.length - 1].number) : '') + ' ' + P.joinNames(mine), hint: 'Shelf’s pick',
+          run: function () { useEntries(v, mine.map(function (e) { return Object.assign({}, e); }), 'Saved: ' + P.joinNames(mine) + '.'); } });
+      }
       return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: iss.kind === 'check' };
     }
     var label = rowParts(item).code ? rowParts(item).code + ' ' + rowParts(item).name : name;
@@ -1219,7 +1225,7 @@
       var btns = answers.map(function (a) {
         var key = a.link ? '' : String(++keyed);
         return el('button', { type: 'button', class: 'answer' + (a.link ? ' link' : keyed === 1 && !a.link ? ' primary' : ''), title: a.title || (key ? 'Press ' + key : ''), onclick: function () { a.run(); } },
-          [el('span', { text: a.label })].concat(key && keyed <= 9 ? [el('kbd', { text: key })] : []));
+          [el('span', { text: a.label })].concat(a.hint ? [el('em', { class: 'hint', text: a.hint })] : [], key && keyed <= 9 ? [el('kbd', { text: key })] : []));
       });
       if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Play the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Inspect…' }), el('kbd', { text: 'E' })]));
       actions.replaceChildren.apply(actions, btns);
@@ -1253,7 +1259,7 @@
       listFor(current(v)).then(function (eps) {
         if (needsShownId !== item.id) return;
         var picks = quickPicks(v, episodeRows(v, item), eps).slice(0, Math.max(0, 4 - answers.filter(function (a) { return !a.link; }).length));
-        picks.forEach(function (p) { answers.splice(answers.length - (answers.length && answers[answers.length - 1].link ? 1 : 0), 0, { label: p.label, run: function () { usePickEntries(item, p); } }); });
+        picks.forEach(function (p) { answers.splice(answers.length - (answers.length && answers[answers.length - 1].link ? 1 : 0), 0, { label: p.label, hint: p.hint, run: function () { usePickEntries(item, p); } }); });
         if (picks.length) paint();
       }, function () {});
     }
@@ -1470,6 +1476,12 @@
       });
     }
     $('inspFile').textContent = splitOf(item) ? pieceNames(item).map(function (x) { return x.file; }).join('\n') : plex ? plex.file : 'Pick a match to see the new name.';
+    // Its loud start (a channel's logo), and what Rename Now does about it.
+    var qv = linkedVideo(item) || item, lq = qv.loudStart;
+    $('inspQuiet').hidden = !lq || item.status === 'done' || !!qv.remote;
+    if (lq) $('inspQuiet').textContent = quietFor(qv)
+      ? '🔉 The loud start (' + fmtClock(lq.start) + '–' + fmtClock(lq.end) + ') will be turned down ' + Math.abs(lq.gain) + ' dB to match the show.'
+      : '🔊 Loud start at ' + fmtClock(lq.start) + '–' + fmtClock(lq.end) + ' (' + Math.round(lq.loud - lq.body) + ' dB louder than the show). ' + (qv.split ? 'Not turned down when a video is split.' : settings.mode === 'link' ? 'Not turned down with Hard Link.' : 'Turn on “Turn down the loud start” in Rename Now to fix it.');
 
     $('searchKind').value = item.kind;
     var si = $('searchInput');
@@ -1687,6 +1699,15 @@
       $('renameSummary').textContent += ' ' + onServer + ' file' + (onServer === 1 ? ' is' : 's are') + ' on your Plex server and will be renamed there, then Plex rescans.' +
         (cutThere ? ' ' + cutThere + ' of them will be split there: each is read over SSH, cut on this PC (no re-encoding), and its pieces sent back and checked. The originals are kept on the server.' : ' Nothing is copied.');
     }
+    // Videos with a loud start (a channel's logo): turned down, unless you say not to.
+    var qs = r.filter(function (i) { return i.loudStart && !i.remote && !i.split && i.fullPath; });
+    $('renameQuietRow').hidden = !qs.length || settings.mode === 'link';
+    if (qs.length) {
+      $('renameQuiet').checked = settings.quietStarts !== false;
+      $('renameQuietLabel').textContent = 'Turn down the loud start of ' + qs.length + ' video' + (qs.length === 1 ? '' : 's');
+      $('renameQuietHelp').textContent = 'A logo before the episode much louder than the show (like Nickelodeon’s) is brought down to the show’s level. Only the sound changes. ' +
+        (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
+    }
     // Lossless songs: offer to make them smaller, with what it saves.
     var sh = music.shrinkable(r);
     $('renameShrinkRow').hidden = !sh.count;
@@ -1746,6 +1767,7 @@
         }
         var p = plexFor(i), op = { source: i.fullPath, folder: p.folder, file: p.file };
         if (i.kind === 'track') { var mx = music.renameExtra(i); if (mx) op.music = mx; } // its new tags and cover
+        if (quietFor(i)) op.quiet = quietFor(i); // its loud start turned down
         return op;
       });
       var btn = $('renameNow');
@@ -1760,7 +1782,7 @@
           if (!item) return;
           if (r.ok && r.to) item.batch = r.batch || null; // which Rename Now this was, for Undo
           if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
-          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.quieted ? 'Its loud start was turned down ' + Math.abs(r.quieted) + ' dB.' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
@@ -2004,6 +2026,7 @@
     saveKey('', 'acoustid'); $('acoustInput').value = ''; $('acoustStatus').textContent = 'Key removed from this computer.';
   });
   on('optShrinkFormat', 'change', function (e) { settings.musicShrinkFormat = e.target.value === 'opus' ? 'opus' : 'vorbis'; save('musicShrinkFormat', settings.musicShrinkFormat); render(); });
+  on('renameQuiet', 'change', function (e) { settings.quietStarts = e.target.checked; save('quietStarts', settings.quietStarts); prepareRename(); });
   on('renameShrink', 'change', function (e) { settings.musicShrink = e.target.checked; save('musicShrink', settings.musicShrink); render(); prepareRename(); });
   on('optGenres', 'change', function (e) { settings.musicGenres = e.target.checked; save('musicGenres', settings.musicGenres); render(); });
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
@@ -2183,6 +2206,7 @@
         var r = p.result || {};
         if (r.secs) it.minutes = r.secs / 60;
         if (r.texts) { it.cards = r.texts; it.cardParts = r.parts; read++; }
+        if (r.texts) it.loudStart = r.loudStart || null;
         // The show's usual words on screen, as learned so far (the latest know the most): all its videos' readings are
         // judged again without them, so a credit read as a title earlier in this scan doesn't come back.
         if (Array.isArray(r.notTitle) && current(it)) notTitles[showIdKey(current(it))] = r.notTitle.filter(function (w) { return typeof w === 'string'; }).slice(0, 200);
@@ -2511,7 +2535,11 @@
       if (r.heard) {
         var hk = String(r.heard.key || '').split('x'), he = list.filter(function (e) { return e.season === +hk[0] && e.number === +hk[1]; })[0];
         var kk = he && he.season + 'x' + he.number;
-        if (he && !(out[kk] && out[kk].manual) && !out[kk]) out[kk] = { t: r.t, start: r.start != null ? r.start : r.t, key: kk, name: he.name, text: r.heard.quote, score: 1, heard: true, words: r.heard.words || [] };
+        // Only an episode this file holds (a hearing of anything else was outvoted: the theme song "sounding like"
+        // Plankton! isn't a title card). Its card is where Shelf looked for it in that part, not where it was heard.
+        if (!he || !rows.some(function (x) { return x.season === he.season && x.number === he.number; })) return;
+        var spot = r.part >= 1 ? P.cardSpot(v.cards, r.part) : null;
+        if (!(out[kk] && out[kk].manual) && !out[kk]) out[kk] = { t: spot != null ? spot : r.t, start: spot != null ? spot : r.start != null ? r.start : r.t, heardT: r.t, key: kk, name: he.name, text: r.heard.quote, score: 1, heard: true, words: r.heard.words || [] };
         return;
       }
       var m = P.matchCardText(r.texts, list, near, show, inSeason, notTitle);
@@ -2529,7 +2557,7 @@
   function nameFor(v, entries) {
     var m = matchFor(v);
     if (!m || !entries.length) return '';
-    var first = entries[0], last = entries[entries.length - 1];
+    var srt = byNumber(entries), first = srt[0], last = srt[srt.length - 1];
     var mm = Object.assign({}, m, { season: first.season, episode: first.number, episodeEnd: last.number > first.number ? last.number : null, episodeTitle: P.joinNames(entries) });
     return P.plexName(v.parsed, mm, { movieIds: settings.movieIds, showYear: settings.showYear || m.needsYear, quality: qualityFor(v) }).file;
   }
@@ -2548,6 +2576,12 @@
   // ---------- Episodes in a file: rows, title-card frames, problems, fixing them ----------
   function epCode(e) { return 'S' + pad2(e.season) + 'E' + pad2(e.number); }
   function fmtClock(t) { t = Math.max(0, t || 0); var m = Math.floor(t / 60), sec = Math.floor(t % 60); return m + ':' + (sec < 10 ? '0' : '') + sec; }
+  // A video's loud start to turn down when it's renamed (see desktop/loudstart.js), or null.
+  function quietFor(i) {
+    var q = i.loudStart;
+    return q && settings.quietStarts !== false && settings.mode !== 'link' && !i.remote && !i.split && i.fullPath ? { start: q.start, end: q.end, gain: q.gain } : null;
+  }
+  function byNumber(es) { return es.slice().sort(function (a, b) { return a.season - b.season || a.number - b.number; }); }
   function inRow(es) { return es.every(function (e, k) { return k === 0 || (e.season === es[k - 1].season && e.number === es[k - 1].number + 1); }); }
   function joinAnd(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
   // The episodes Shelf thinks a video holds, in the order they play (with where each title card was read).
@@ -2634,7 +2668,7 @@
           { label: 'Just One Episode', title: 'The whole file is ' + epCode(es3[0] || ep) + ' “' + (es3[0] || ep).name + '”', run: function () { setCount(item, 'one'); } }
         ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the next title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: Math.max(2, es3.length) }); } }] : []) };
     }
-    return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
+    return { kind: 'check', title: (ep.entries || []).length > 1 ? 'Which episodes are in this file?' : 'Which episode is this?', text: note || 'Shelf isn’t sure.', actions: look };
   }
   // Deep Scan works on any TV video you've added from your computer or listed from your Plex server.
   function canDeep(item) { var v = linkedVideo(item) || item; return !!(settings.cardScan && canLook(v) && v.parsed.isVideo && !v.split); }
@@ -2645,9 +2679,10 @@
   var quickFor = { id: null, picks: [] };
   function samePick(a, b) { return a.length === b.length && a.every(function (e, k) { return e.season === b[k].season && e.number === b[k].number; }); }
   function quickPicks(v, rows, list) {
-    var picks = [], add = function (label, es) {
+    // label: the episodes ("S01E04–E05 Bubblestand & Ripped Pants"); hint: why it's offered, in two or three words.
+    var picks = [], add = function (label, es, hint) {
       if (!es || !es.length || samePick(es, rows) || picks.some(function (p) { return samePick(p.entries, es); })) return;
-      picks.push({ label: label, entries: es });
+      picks.push({ label: label, hint: hint || '', entries: es });
     };
     var first = rows[0], season = first.season;
     var seasonList = list.filter(function (e) { return e.season === season && e.number != null; }).sort(function (a, b) { return a.number - b.number; });
@@ -2671,18 +2706,19 @@
       // only a few.
       var allLong = seasonList.filter(long);
       var longs = allLong.filter(function (e) { return dist(e) <= 12 || allLong.length <= 3; }).sort(function (a, b) { return dist(a) - dist(b); });
-      if (rows.length > 1 && long(rows[0])) add('Just one long episode: ' + rows[0].name, [rows[0]]);
-      if (hh && hh !== groups[gi]) add('Half-hour ' + n0 + ' of the season: ' + code(hh) + ' ' + P.joinNames(hh), hh);
-      if (gi >= 0) add('The whole half-hour: ' + code(groups[gi]) + ' ' + P.joinNames(groups[gi]), groups[gi]);
-      if (longs[0]) add('One long episode: ' + epCode(longs[0]) + ' ' + longs[0].name, [longs[0]]);
-      if (rows.length > 1 && !long(rows[0])) add('Just ' + epCode(rows[0]) + ' ' + rows[0].name, [rows[0]]);
-      if (gi > 0) add('The half-hour before: ' + code(groups[gi - 1]) + ' ' + P.joinNames(groups[gi - 1]), groups[gi - 1]);
-      if (gi >= 0 && groups[gi + 1]) add('The half-hour after: ' + code(groups[gi + 1]) + ' ' + P.joinNames(groups[gi + 1]), groups[gi + 1]);
+      var say = function (es) { return code(es) + ' ' + P.joinNames(es); };
+      if (rows.length > 1 && long(rows[0])) add(say([rows[0]]), [rows[0]], 'one long episode');
+      if (hh && hh !== groups[gi]) add(say(hh), hh, 'what the name says');
+      if (gi >= 0) add(say(groups[gi]), groups[gi], 'aired together');
+      if (longs[0]) add(say([longs[0]]), [longs[0]], 'one long episode');
+      if (rows.length > 1 && !long(rows[0])) add(say([rows[0]]), [rows[0]], 'just the first');
+      if (gi > 0) add(say(groups[gi - 1]), groups[gi - 1], 'half-hour before');
+      if (gi >= 0 && groups[gi + 1]) add(say(groups[gi + 1]), groups[gi + 1], 'half-hour after');
     } else if (at >= 0) {
-      if (rows.length > 1) add('Just ' + epCode(rows[0]) + ' ' + rows[0].name, [rows[0]]);
-      else if (seasonList[at + 1] && (!v.minutes || v.minutes >= 36)) add('Two episodes: ' + code([first, seasonList[at + 1]]) + ' ' + first.name + ' & ' + seasonList[at + 1].name, [seasonList[at], seasonList[at + 1]]);
-      if (seasonList[at - 1]) add(epCode(seasonList[at - 1]) + ' ' + seasonList[at - 1].name, [seasonList[at - 1]]);
-      if (seasonList[at + 1]) add(epCode(seasonList[at + 1]) + ' ' + seasonList[at + 1].name, [seasonList[at + 1]]);
+      if (rows.length > 1) add(epCode(rows[0]) + ' ' + rows[0].name, [rows[0]], 'just the first');
+      else if (seasonList[at + 1] && (!v.minutes || v.minutes >= 36)) add(code([first, seasonList[at + 1]]) + ' ' + first.name + ' & ' + seasonList[at + 1].name, [seasonList[at], seasonList[at + 1]], 'two episodes');
+      if (seasonList[at - 1]) add(epCode(seasonList[at - 1]) + ' ' + seasonList[at - 1].name, [seasonList[at - 1]], 'episode before');
+      if (seasonList[at + 1]) add(epCode(seasonList[at + 1]) + ' ' + seasonList[at + 1].name, [seasonList[at + 1]], 'episode after');
     }
     return picks.slice(0, 4);
   }
@@ -2698,7 +2734,7 @@
       box.hidden = !picks.length;
       out.replaceChildren.apply(out, picks.map(function (p, k) {
         return el('button', { type: 'button', class: 'ep-quick-btn', title: 'Press ' + (k + 1), onclick: function () { usePick(item, k); } },
-          [el('kbd', { text: String(k + 1) }), el('span', { text: p.label })]);
+          [el('kbd', { text: String(k + 1) }), el('span', { text: p.label })].concat(p.hint ? [el('em', { class: 'hint', text: p.hint })] : []));
       }));
     }, function () { box.hidden = true; });
   }
@@ -2706,7 +2742,7 @@
     var p = quickFor.id === item.id && quickFor.picks[k];
     if (!p) return false;
     var v = linkedVideo(item) || item;
-    useEntries(v, p.entries, 'Saved: ' + p.label.replace(/^[^:]*: /, '') + '.').then(function () {
+    useEntries(v, p.entries, 'Saved: ' + p.label + '.').then(function () {
       // On to the next file that needs you, so a whole season can be settled from the keyboard.
       if (!needsReview(item) && items.some(needsReview)) nextToCheck();
     });
@@ -2714,14 +2750,15 @@
   }
   // A pick from the Needs-you card (it has its own picks; the card moves on to the next file by itself).
   function usePickEntries(item, p) {
-    useEntries(linkedVideo(item) || item, p.entries, 'Saved: ' + p.label.replace(/^[^:]*: /, '') + '.');
+    useEntries(linkedVideo(item) || item, p.entries, 'Saved: ' + p.label + '.');
   }
 
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
     var clean = es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; });
-    var last = clean[clean.length - 1];
-    v.manualEp = { season: clean[0].season, number: clean[0].number, end: inRow(clean) && last.number > clean[0].number ? last.number : null, name: P.joinNames(clean), entries: clean };
+    // (In the order they play, which can differ from the list's: the name's numbers are the run they make.)
+    var srt = byNumber(clean), first = srt[0], last = srt[srt.length - 1];
+    v.manualEp = { season: first.season, number: first.number, end: inRow(srt) && last.number > first.number ? last.number : null, name: P.joinNames(clean), entries: clean };
     v.split = null; v.confirmed = true;
     var c = current(v);
     return (c ? work('Updating the name…', function () { return resolveShow(c); }).then(render) : Promise.resolve()).then(function () { if (msg) toast(msg); });
