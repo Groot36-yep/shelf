@@ -117,6 +117,20 @@ check('a longer title wins when its own words are read; a rival from one shared 
   assert.strictEqual(plain.longer && plain.longer.name, 'Unfair Science Fair Redux (Another Story)', 'the scanner is told to look again');
 });
 
+check('one title card read: the video’s length says whether it’s one episode or two', () => {
+  const list = [{ season: 1, number: 12, name: 'Jerk De Soleil', runtime: 15 }, { season: 1, number: 13, name: 'Are You My Mummy?', runtime: 15 },
+    { season: 1, number: 21, name: "It's About Time!", runtime: 30 }, { season: 1, number: 22, name: "Dude, We're Getting the Band Back Together", runtime: 30 }];
+  const one = (name) => ({ part: 0, t: 64, texts: ['“' + name + '”'] });
+  const junk = { part: 1, t: 700, texts: ['=n Ne PE BY Fy'] };
+  // A 22.7-minute video, "It's About Time!" listed at 30 (the TV slot, about 22 minutes): that's all of it, for sure.
+  const single = P.resolveEpisode(P.parseFilename('Phineas and Ferb - S01E13.mkv'), list, { segmented: true, file: { minutes: 22.7, parts: 2, cards: [one("It's About Time!"), junk] } });
+  assert.strictEqual(single.number + (single.end ? '-' + single.end : '') + (single.sure ? '' : '?'), '21');
+  // The same length with "Jerk De Soleil" (15: about 11 minutes): long enough for two, the other one to check.
+  const two = P.resolveEpisode(P.parseFilename('Phineas and Ferb - S01E12.mkv'), list, { segmented: true, file: { minutes: 22.7, parts: 2, cards: [one('Jerk De Soleil'), junk] } });
+  assert.ok(two.entries.length === 2 && two.entries[0].name === 'Jerk De Soleil' && !two.sure, JSON.stringify(two));
+  assert.match(two.note, /long enough for 2 episodes/);
+});
+
 // What's said at the start, against descriptions (TVmaze's, trimmed).
 const told = (text) => ({ text, lines: text.split(/(?<=[.?!])\s+/).map((t, i) => ({ t: i * 4, text: t })) });
 const pfAbout = pf.map((e) => Object.assign({}, e, {

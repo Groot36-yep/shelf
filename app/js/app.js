@@ -776,6 +776,7 @@
     var v = videoOf(item);
     if (iss && iss.kind === 'apart') return 'Holds ' + ((v.episode && v.episode.entries) || []).length + ' episodes that aren’t next to each other.';
     if (iss && iss.kind === 'single') return 'One title card found. One long episode, or two?';
+    if (iss && iss.kind === 'more') return 'One title card found, in a video long enough for more. Both?';
     if (v.segmented && !v.numberSure) return 'One cartoon or a half-hour? Answer above.';
     if (iss) return (String(iss.text || '').split(/(?<=\.)\s/)[0] || iss.title).slice(0, 110);
     if (item.showAmbiguous) return 'A few ' + (item.kind === 'movie' ? 'movies' : 'shows') + ' have this name. Which one?';
@@ -1360,7 +1361,7 @@
         ]);
         list0.appendChild(row);
       });
-      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : 'This file holds';
+      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : rowsEp.length > 1 ? 'Episodes in this file' : 'Episode';
       var why = {
         split: '✂ You chose to split it. Each part gets its own name.',
         manual: '✓ You chose this.',
@@ -2623,6 +2624,16 @@
           { label: 'Two Episodes', title: 'Add the episode that comes after it (change it if it’s a different one)', run: function () { setCount(item, 'more'); } }
         ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the second title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
     }
+    // One card read in a video long enough for more: Shelf's guess for the rest, to keep, drop, or find in the video.
+    var more = ep.how === 'card' && /long enough for (\d+) episodes/.exec(note);
+    if (more) {
+      var es3 = ep.entries || [];
+      return { kind: 'more', title: (+more[1] === 2 ? 'Two' : more[1]) + ' episodes in this file?', text: note,
+        actions: [
+          { label: es3.length === 2 ? 'Yes, Both' : 'Yes, All ' + es3.length, title: 'Keep ' + joinAnd(names(es3)), run: function () { useEntries(v, episodeRows(v, item).map(function (e) { return Object.assign({}, e); }), 'Saved: ' + es3.length + ' episodes.'); } },
+          { label: 'Just One Episode', title: 'The whole file is ' + epCode(es3[0] || ep) + ' “' + (es3[0] || ep).name + '”', run: function () { setCount(item, 'one'); } }
+        ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the next title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: Math.max(2, es3.length) }); } }] : []) };
+    }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
   }
   // Deep Scan works on any TV video you've added from your computer or listed from your Plex server.
@@ -2835,6 +2846,13 @@
         ShelfEditor.open({
           native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, remote: !!r.remote,
           entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
+          // Whose title card is on the frame at t: what's read there, matched against the show's list (or null).
+          readFrame: native.mediaRead ? function (t) {
+            return native.mediaRead(r.token, t).then(function (texts) {
+              var inSeason = v.parsed && v.parsed.season != null ? list.filter(function (e) { return e.number != null && Math.abs(e.season - v.parsed.season) <= 1; }) : null;
+              return texts.length ? P.matchCardText(texts, list, [], c.title, inSeason, notTitleOf(c)) : null;
+            });
+          } : null,
           readCards: function () {
             if (scanning) return Promise.reject(new Error('Shelf is already reading title cards. Try again when it’s done'));
             // (Read again more thoroughly if a quick read found nothing before.)

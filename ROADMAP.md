@@ -11,6 +11,14 @@ Where things stand, and what's left to do. Newest first.
 - **Clearer buttons.** Check Episodes… → Inspect…, Fix… → Inspect…, Take Off the
   List → Remove from List, and "Is this the right one?" → "Which show is this?". The other shows fold away behind
   "Not this show?" when Shelf is sure.
+- **The side panel in a clearer order:** the episode (with "Holds one / two or more" at its foot), the name it'll be
+  saved as, then which show it is with the search for another right under it.
+- **Naming episodes in Inspect is easier:** the episode picker starts with Suggested episodes, and the first is what
+  Shelf reads on screen right now (scrub to a title card, press M, then Enter). Inspect shows a picture at once while
+  the video loads.
+- **One episode or two, by the video's length:** one title card read in a video long enough for two cartoons means
+  there's a second one (the one that aired with it, or the next), to check; one about as long as the episode is just
+  that episode, for sure.
 - **Deep Scan by itself.** After Read Title Cards, the videos it couldn't recognise get a closer look straight
   away, without asking again (Settings → TV: Deep scan by itself). Deep Scan says what it does, and looks like a button.
 - **Your marks teach Shelf.** A title card you mark in Inspect tells Shelf where that show's cards are, and its

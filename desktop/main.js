@@ -1066,6 +1066,21 @@ if (gotLock) app.whenReady().then(() => {
   });
   // endBatch: you closed the window (not "Save & Next"), so the next video asks again.
   // A still frame of a video open in Check Episodes (fetched once, kept by that window).
+  // The words on one frame of the video open in Inspect (to suggest whose title card it is). Read on this computer;
+  // the frame isn't kept.
+  handle('shelf:mediaRead', async (token, t) => {
+    const f = mediaTokens.get(String(token));
+    if (!f) return [];
+    const scan = scanner(), at = Math.max(0, Number(t) || 0), out = [];
+    try {
+      for (const [full, w] of [[true, 480], [false, 960]]) {
+        const imgs = await scan.frameVariants(f, at, full, w);
+        for (const x of await scan.readMany(imgs)) if (x.replace(/[^A-Za-z]/g, '').length >= 3) out.push(x.slice(0, 300));
+      }
+    } catch (e) { /* nothing read */ }
+    scan.stopOcrSoon();
+    return out.slice(0, 40);
+  });
   handle('shelf:mediaFrame', async (token, t, w) => {
     const f = mediaTokens.get(String(token));
     if (!f) return null;

@@ -145,12 +145,7 @@
       </div>
       <p class="insp-error" id="inspError" hidden></p>
       <section class="insp-card" id="inspEpWrap" hidden>
-        <div class="insp-card-head"><span class="section-label" id="inspEpLabel">This file holds</span><span class="ep-badge" id="inspEpBadge"></span></div>
-        <!-- Always yours to set: one episode, or more than one. -->
-        <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
-          <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
-          <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
-        </div>
+        <div class="insp-card-head"><span class="section-label" id="inspEpLabel">Episode</span><span class="ep-badge" id="inspEpBadge"></span></div>
         <div class="ep-card" id="inspEpList"></div>
         <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
         <!-- One-click answers worked out from the show's own episode list (keys 1–4). -->
@@ -166,39 +161,46 @@
           <button class="pill small-pill" type="button" id="splitNow" title="Give each episode its own file. Shelf finds the black, silent gap between them; nothing is cut until Rename Now.">Split into 2 Files</button>
           <button class="link-btn" type="button" id="splitByHand" title="Open the video and place the cuts yourself">Split by Hand…</button>
         </div>
+        <!-- Always yours to set: one episode, or more than one (a correction you rarely need, so it comes last). -->
+        <div class="ep-holds"><span class="ep-holds-k" id="epHoldsLabel">Holds</span>
+        <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
+          <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
+          <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
+        </div>
+        </div>
       </section>
       <p class="insp-note" id="inspNote" hidden></p>
       <!-- A song: the album edition it's on, and its tags now → after (see musicui.js). -->
       <div class="insp-music" id="inspMusic" hidden></div>
-      <div class="insp-section" id="inspCandWrap" hidden>
-        <span class="section-label" id="inspCandLabel">Which show is this?</span>
-        <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
-      </div>
-
+      <!-- The answer first (the episode, then the name it gets), then which show it is and how to find another. -->
       <div class="insp-section">
-        <span class="section-label">Will be saved as</span>
+        <span class="section-label">Saved as</span>
         <div class="crumbs" id="inspCrumbs"></div>
         <div class="mono-box" id="inspFile"></div>
       </div>
-
+      <div class="insp-group" id="inspShowGroup">
+        <div class="insp-section" id="inspCandWrap" hidden>
+          <span class="section-label" id="inspCandLabel">Which show is this?</span>
+          <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
+        </div>
+        <form class="insp-section" id="searchForm">
+          <label class="section-label" for="searchInput" id="searchLabel">Not the right one? Search by name</label>
+          <div class="search-row">
+            <div class="search">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+              <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
+            </div>
+            <select id="searchKind" aria-label="Search for">
+              <option value="movie">Movie</option>
+              <option value="episode">TV</option>
+            </select>
+          </div>
+        </form>
+      </div>
       <details class="insp-more" id="inspMore">
         <summary>More about this file</summary>
         <div class="group" id="inspFacts"></div>
       </details>
-
-      <form class="insp-section" id="searchForm">
-        <label class="section-label" for="searchInput">Not right? Search by name</label>
-        <div class="search-row">
-          <div class="search">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-            <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
-          </div>
-          <select id="searchKind" aria-label="Search for">
-            <option value="movie">Movie</option>
-            <option value="episode">TV</option>
-          </select>
-        </div>
-      </form>
 
       <button class="link-btn danger" type="button" id="removeBtn">Remove from List</button>
     </aside>

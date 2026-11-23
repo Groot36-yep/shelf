@@ -78,12 +78,10 @@ function fake(file, vf, af) {
   // ---- C ---- (one card, nothing further in)
   await pick('SpongeBob.S01E01.mp4'); await sleep(300);
   console.log('C card:', await win.textContent('#issueTitle'), '|', await win.textContent('#issueText'));
-  assert.match(await win.textContent('#issueTitle'), /One long episode/);
-  assert.match(await win.textContent('#issueActions'), /One Episode.*Two Episodes/);
-  await win.click('#issueActions button:has-text("Two Episodes")'); await sleep(700);
-  s = await item('SpongeBob.S01E01.mp4');
-  assert.deepStrictEqual(s.ep, [1, 2, 'manual'], 'Two Episodes adds the next one');
-  await win.click('#epCount button[data-count=one]'); await sleep(700);
+  // The video is long enough for more than "Help Wanted": Shelf's guess is what aired with it, to keep or drop.
+  assert.match(await win.textContent('#issueTitle'), /episodes in this file\?/);
+  assert.match(await win.textContent('#issueActions'), /Yes, .*Just One Episode/);
+  await win.click('#issueActions button:has-text("Just One Episode")'); await sleep(700);
   s = await item('SpongeBob.S01E01.mp4');
   console.log('C:', JSON.stringify(s));
   assert.deepStrictEqual(s.ep, [1, null, 'manual']);

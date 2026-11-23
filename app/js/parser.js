@@ -1408,8 +1408,23 @@
           // or its opening credits).
           !cardsIn.some(function (c) { return c.part >= 1 && c.boundary; });
         if (onlyFirst) {
+          // How long the video is next to how long that episode runs says best whether it's alone in there (a list's
+          // 15 or 30 minutes is the TV slot: about three quarters of it is the episode, as in scan.js runSecs).
+          var epMins = found[0].runtime ? (found[0].runtime % 15 === 0 ? found[0].runtime * 0.75 : found[0].runtime) : 0;
+          var ratio = epMins && file.minutes ? file.minutes / epMins : 0;
+          if (ratio && ratio <= 1.4) return out(found, cardHow, true);
+          if (ratio >= 1.6) {
+            // Long enough for another episode whose card wasn't read: the one that aired with it, else the next one.
+            var mate = g && g.length > 1 ? g : null;
+            var sl = seasonEntries(list, found[0].season).filter(function (e) { return e.number != null; }).sort(function (x, y) { return x.number - y.number; });
+            var nxt = sl.filter(function (e) { return e.number === found[0].number + 1; })[0];
+            var guess = mate || (nxt ? [found[0], nxt] : null);
+            var many = Math.max(2, Math.round(ratio));
+            if (guess) return out(guess, cardHow, false, 'Shelf read one title card (' + found[0].name + '), but the video is long enough for ' + many + ' episodes. The other one is likely ' +
+              joinNames(guess.filter(function (e) { return e !== found[0]; })) + ' (' + (mate ? 'it aired with it' : 'the next in the list') + '). Check it, or use Inspect… to change it.');
+          }
           var long1 = found[0].runtime && found[0].runtime >= 18;
-          return out(found, cardHow, !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Check Episodes to add it.');
+          return out(found, cardHow, !!long1, long1 ? '' : 'Shelf read one title card (' + found[0].name + ') and no second one further in, so this looks like one long episode. If it does hold a second cartoon, use Inspect… to add it.');
         }
         // Only a later cartoon's card was read, and nothing listed aired with it: something comes before it in the
         // file (a first cartoon whose card couldn't be read), so it can't be the whole file.

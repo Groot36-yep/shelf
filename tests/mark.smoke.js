@@ -52,7 +52,8 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   await sleep(500);
   await pick(file); await sleep(300);
   console.log('before:', JSON.stringify(await item()), '|', await win.textContent('#issueTitle'));
-  assert.match(await win.textContent('#issueTitle'), /One long episode/);
+  // (One card read in a 22-minute video of 11-minute cartoons: Shelf's guess for the second, to check.)
+  assert.match(await win.textContent('#issueTitle'), /One long episode|Two episodes in this file/);
 
   // ---- Mark the second card ----
   await win.click('#issueActions button:has-text("Find It in the Video")');
