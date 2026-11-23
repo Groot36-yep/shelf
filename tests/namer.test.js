@@ -75,6 +75,13 @@ check('letters scattered through a long smudge don’t make a short title', () =
 });
 
 // Readings of one frame of "No More Bunny Business & Spa Day" (S02E28-E29), 12 minutes in: the second cartoon's credit,
+check('a one-word title isn’t made of letters from two different words ("Sou DwArd" isn’t "UpWard")', () => {
+  const sb = [[5, 33, 'The Two Faces of Squidward'], [15, 4, 'UpWard'], [3, 10, 'Gary in Love']].map(([season, number, name]) => ({ season, number, name }));
+  assert.strictEqual(P.matchCardText(['0 Frcs of 0', "Tho Th O'Faces oF i Iy G", '{ TxD Sou DwArd'], sb, null, 'SpongeBob SquarePants'), null);
+  assert.strictEqual((P.matchCardText(['UPWARD'], sb) || {}).entry, sb[1], 'the card itself still names it');
+  assert.strictEqual((P.matchCardText(['garyinlove'], sb) || {}).entry, sb[2], 'and words the reader ran together still count');
+});
+
 // "Story By Jennifer Keene", where OCR lost the "By" now and then ("Story" ≈ "Storm", "Zim pert ee" ≈ "Imperfect").
 const keene = ['1 w 42 Pf 534 Sennifor Keane Story Br', 'a. oy r. ~ He = hd xz S*zry By Jennifer Keene', 'Tag ~ gt hs fd Story By ~ennifer Keene',
   '= re I # ~ PEE _—— Zim pert ee — A »', 'Py 3 Story Jennifer Keane —', 'Wi 04 5 (4 Ji Ay |— VY - >) Ceo J =) Story, By. Jennifer Keene'];

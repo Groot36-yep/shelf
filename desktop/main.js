@@ -871,7 +871,9 @@ if (gotLock) app.whenReady().then(() => {
               if (cardCancel) break;
               send({ kind: 'listen', path: f, index: i, total: files.length, part: p.part });
               // Once two of the show's files are recognised, the seasons they're in count a little extra.
-              const m = await hear(src ? src.url : f, p.from, hearList, secs, seen.heard >= 2 ? seen.seasons : null, seen);
+              // (Stopped, or the sound couldn't be read: the cards already read in this video are kept.)
+              let m = null;
+              try { m = await hear(src ? src.url : f, p.from, hearList, secs, seen.heard >= 2 ? seen.seasons : null, seen); } catch (e) { if (cardCancel) break; }
               if (!m) continue;
               seen.heard++; seen.seasons.push(m.entry.season);
               r.texts.push({ part: p.part, t: m.line ? m.line.t : Math.round(p.from), start: Math.round(p.from), texts: [], heard: { name: m.entry.name, key: m.entry.key, quote: m.line ? m.line.text : '', words: m.words, score: m.score, margin: m.margin } });
