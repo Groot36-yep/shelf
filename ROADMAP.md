@@ -2,6 +2,32 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Every episode in Check All has a picture, and never a black one.** Episodes known from their file name or from
+  what was heard used to show none; now each shows a moment of the video (where a card was, where the words were
+  said, or about a minute in). A frame that's the black of a fade is passed over for one a moment later.
+- **Inspect** (it was "Check Episodes") opens on the title card, or about a minute in, instead of the black first
+  frame, and its picture strips come about twice as fast (made in four pieces at once) and instantly the second time.
+- **Clearer buttons.** Check Episodes… → Inspect…, Fix… → Inspect…, Take Off the
+  List → Remove from List, and "Is this the right one?" → "Which show is this?". The other shows fold away behind
+  "Not this show?" when Shelf is sure.
+- **The side panel in a clearer order:** the episode (with "Holds one / two or more" at its foot), the name it'll be
+  saved as, then which show it is with the search for another right under it.
+- **Naming episodes in Inspect is easier:** the episode picker starts with Suggested episodes, and the first is what
+  Shelf reads on screen right now (scrub to a title card, press M, then Enter). Inspect shows a picture at once while
+  the video loads.
+- **One episode or two, by the video's length:** one title card read in a video long enough for two cartoons means
+  there's a second one (the one that aired with it, or the next), to check; one about as long as the episode is just
+  that episode, for sure.
+- **Deep Scan by itself.** After Read Title Cards, the videos it couldn't recognise get a closer look straight
+  away, without asking again (Settings → TV: Deep scan by itself). Deep Scan says what it does, and looks like a button.
+- **Your marks teach Shelf.** A title card you mark in Inspect tells Shelf where that show's cards are, and its
+  next scans look there first.
+- **Fewer wrong titles, more found:** a video split off a longer one has its card read from its first seconds
+  ("Unfair Science Fair Redux": not found before, now in 8 seconds); a title that starts like another ("Unfair Science
+  Fair" / "...Redux (Another Story)") gets a second look; a stray smudge no longer passes for a short title ("Flop
+  Starz" in "Rollercoaster"); and a title in the file's name stands when listening ranks it a close second.
+
 ## Done (2.7.0)
 - **Reading title cards is about a fifth quicker, and keeps learning.** Shelf hears the silent gap before each
   cartoon (under a second) and looks just after it first, instead of first going through minutes of video; when that

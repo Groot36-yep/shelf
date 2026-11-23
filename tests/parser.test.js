@@ -184,8 +184,9 @@ withFile('SpongeBob.S01E02.mkv', { minutes: 44 }, 'S1E4-E7');
 withFile('SpongeBob.S01E09.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Plankton!') }, 'S1E6-E7');
 withFile('SpongeBob.S01E01.mkv', { minutes: 22, parts: 2, cards: cards('Help Wanted', 'Tea at the Treedome') }, 'S1E1-E3');
 // Second card unreadable: only the first one read, nothing further in → one episode, but Shelf asks.
-withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Hall Monitor') }, 'S1E6 ?');
-withFile('SpongeBob.S01E07.mkv', { minutes: 22, parts: 2, cards: cards('Pickles', 'Hall Monitor') }, 'S1E13 ?');
+// One card read in a 22-minute video of 11-minute cartoons: there's a second one in there (what aired with it), to check.
+withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: cards('Jellyfishing', 'Hall Monitor') }, 'S1E6-E7 ?');
+withFile('SpongeBob.S01E07.mkv', { minutes: 22, parts: 2, cards: cards('Pickles', 'Hall Monitor') }, 'S1E12-E13 ?');
 // Only the second card read: a cartoon starts mid-way, so there's one before it (what aired with it).
 withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: OCR['Plankton!'] }] }, 'S1E6-E7');
 // Second card unreadable, but Shelf saw a cartoon start further in (black → card → black): two cartoons.
@@ -195,10 +196,12 @@ check('a long special read from its one title card is one episode, for sure', ()
   const f = { minutes: 23.8, parts: 2, cards: [{ part: 0, t: 53, texts: ["~ os Gt aN ShONGERDE'S sTanD", 'a 3 (\\ CBOE LAST BL'] }, { part: 1, t: 800, texts: ['=n Ne PE BY Fy'] }] };
   const r = P.resolveEpisode(P.parseFilename('SpongeBob_SquarePants_S07E11_720p.mkv'), list, { segmented: true, file: f });
   assert.strictEqual(r.number + (r.end ? '-' + r.end : '') + (r.sure ? '' : '?'), '32');
-  list[1].runtime = 11; // the episode list doesn't know it's long: still one episode, but Shelf asks
+  // The episode list wrongly says it's 11 minutes: the video looks long enough for two, so Shelf guesses the other one
+  // (what aired with it) and asks. (Real lists give it 22 or 30; a missed second card is far more common.)
+  list[1].runtime = 11;
   const r2 = P.resolveEpisode(P.parseFilename('SpongeBob_SquarePants_S07E11_720p.mkv'), list, { segmented: true, file: f });
-  assert.strictEqual(r2.number + (r2.end ? '-' + r2.end : '') + (r2.sure ? '' : '?'), '32?');
-  assert.match(r2.note, /one long episode/);
+  assert.strictEqual(r2.number + (r2.end ? '-' + r2.end : '') + (r2.sure ? '' : '?'), '31-32?');
+  assert.match(r2.note, /long enough for 2 episodes/);
 });
 check('a name that says two cartoons ("E01aE01b") is never taken for one long episode', () => {
   const list = [{ season: 3, number: 1, name: 'The Algae’s Always Greener', runtime: 11 }, { season: 3, number: 2, name: 'SpongeGuard on Duty', runtime: 11 }, { season: 3, number: 3, name: 'Club SpongeBob', runtime: 11 }];

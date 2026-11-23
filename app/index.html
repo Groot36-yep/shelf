@@ -145,20 +145,15 @@
       </div>
       <p class="insp-error" id="inspError" hidden></p>
       <section class="insp-card" id="inspEpWrap" hidden>
-        <div class="insp-card-head"><span class="section-label" id="inspEpLabel">This file holds</span><span class="ep-badge" id="inspEpBadge"></span></div>
-        <!-- Always yours to set: one episode, or more than one. -->
-        <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
-          <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
-          <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
-        </div>
+        <div class="insp-card-head"><span class="section-label" id="inspEpLabel">Episode</span><span class="ep-badge" id="inspEpBadge"></span></div>
         <div class="ep-card" id="inspEpList"></div>
         <button class="link-btn ep-add" type="button" id="epAdd" data-opens-browser="1" hidden>+ Add Another Episode</button>
         <!-- One-click answers worked out from the show's own episode list (keys 1–4). -->
         <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
         <p class="ep-why" id="inspEpWhy"></p>
         <div class="insp-card-foot">
-          <button class="pill small-pill" type="button" id="checkEps" title="Open the video: see where each episode starts, mark title cards, or split it into files">Check Episodes…</button>
-          <button class="pill small-pill" type="button" id="deepScan" title="Deep Scan: a much closer look for this video’s title cards (a few minutes, Shelf asks first)">Deep Scan</button>
+          <button class="pill small-pill" type="button" id="checkEps" title="Play the video to see which episode it is: change it, mark its title card, or split it into one file per episode">Inspect…</button>
+          <button class="pill small-pill" type="button" id="deepScan" title="Read far more of this video for its title cards than the quick read does (a minute or two; Shelf asks first)">Deep Scan</button>
           <span class="foot-flex"></span>
           <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
         </div>
@@ -166,41 +161,48 @@
           <button class="pill small-pill" type="button" id="splitNow" title="Give each episode its own file. Shelf finds the black, silent gap between them; nothing is cut until Rename Now.">Split into 2 Files</button>
           <button class="link-btn" type="button" id="splitByHand" title="Open the video and place the cuts yourself">Split by Hand…</button>
         </div>
+        <!-- Always yours to set: one episode, or more than one (a correction you rarely need, so it comes last). -->
+        <div class="ep-holds"><span class="ep-holds-k" id="epHoldsLabel">Holds</span>
+        <div class="segmented small ep-count" role="group" aria-label="This file holds" id="epCount">
+          <button type="button" data-count="one" aria-pressed="true" title="The whole video is one episode">One Episode</button>
+          <button type="button" data-count="more" aria-pressed="false" title="The video holds two or more episodes (for example two cartoons)">Two or More</button>
+        </div>
+        </div>
       </section>
       <p class="insp-note" id="inspNote" hidden></p>
       <!-- A song: the album edition it's on, and its tags now → after (see musicui.js). -->
       <div class="insp-music" id="inspMusic" hidden></div>
-      <div class="insp-section" id="inspCandWrap" hidden>
-        <span class="section-label">Is this the right one?</span>
-        <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
-      </div>
-
+      <!-- The answer first (the episode, then the name it gets), then which show it is and how to find another. -->
       <div class="insp-section">
-        <span class="section-label">Will be saved as</span>
+        <span class="section-label">Saved as</span>
         <div class="crumbs" id="inspCrumbs"></div>
         <div class="mono-box" id="inspFile"></div>
       </div>
-
+      <div class="insp-group" id="inspShowGroup">
+        <div class="insp-section" id="inspCandWrap" hidden>
+          <span class="section-label" id="inspCandLabel">Which show is this?</span>
+          <div class="group" id="inspCands" role="radiogroup" aria-label="Possible matches"></div>
+        </div>
+        <form class="insp-section" id="searchForm">
+          <label class="section-label" for="searchInput" id="searchLabel">Not the right one? Search by name</label>
+          <div class="search-row">
+            <div class="search">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+              <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
+            </div>
+            <select id="searchKind" aria-label="Search for">
+              <option value="movie">Movie</option>
+              <option value="episode">TV</option>
+            </select>
+          </div>
+        </form>
+      </div>
       <details class="insp-more" id="inspMore">
         <summary>More about this file</summary>
         <div class="group" id="inspFacts"></div>
       </details>
 
-      <form class="insp-section" id="searchForm">
-        <label class="section-label" for="searchInput">Not right? Search by name</label>
-        <div class="search-row">
-          <div class="search">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-            <input id="searchInput" type="search" placeholder="Movie or show name" autocomplete="off">
-          </div>
-          <select id="searchKind" aria-label="Search for">
-            <option value="movie">Movie</option>
-            <option value="episode">TV</option>
-          </select>
-        </div>
-      </form>
-
-      <button class="link-btn danger" type="button" id="removeBtn">Take Off the List</button>
+      <button class="link-btn danger" type="button" id="removeBtn">Remove from List</button>
     </aside>
   </main>
 
@@ -291,7 +293,7 @@
     </header>
     <div class="rv-body" id="rvBody" tabindex="-1"></div>
     <footer class="sheet-actions rv-foot">
-      <span class="rv-keys muted">Arrow keys to move · <kbd>Enter</kbd> right · <kbd>F</kbd> fix</span>
+      <span class="rv-keys muted">Arrow keys to move · <kbd>Enter</kbd> right · <kbd>F</kbd> inspect</span>
       <span class="rv-progress" id="rvProgress"></span>
       <button class="pill" type="button" id="rvRead" hidden title="Read the title cards of the episodes known only by their file name, to check them">Read Title Cards</button>
       <button class="pill" type="button" id="rvAllRight">Mark All Right</button>
@@ -431,6 +433,14 @@
               <label class="row">
                 <span class="row-text"><b>Split files by themselves</b><small>When Read Title Cards clearly reads two cartoons that aren’t next to each other in the list, Shelf splits the file (at the black moment between them) instead of asking. Check All shows each cut.</small></span>
                 <input type="checkbox" class="switch" id="optAutoSplit">
+              </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="tv title cards deep scan search harder unknown episodes automatically closer look">
+            <div class="group">
+              <label class="row">
+                <span class="row-text"><b>Deep scan by itself</b><small>Videos Read Title Cards couldn’t recognise get a Deep Scan straight after, without asking again. Takes a minute or two each; Stop ends it.</small></span>
+                <input type="checkbox" class="switch" id="optAutoDeep">
               </label>
             </div>
           </div>
@@ -992,11 +1002,11 @@
   </form>
 </dialog>
 
-<!-- Check Episodes window (and splitting, if you choose it) -->
+<!-- Inspect window: play the video, check its episodes (and split it, if you choose) -->
 <dialog class="sheet editor-sheet" id="editorSheet" aria-labelledby="edTitle">
   <header class="ed-header">
     <div class="ed-titles">
-      <h2 id="edTitle" class="sheet-title">Check Episodes</h2>
+      <h2 id="edTitle" class="sheet-title">Inspect</h2>
       <p id="edFile"></p>
     </div>
     <div class="segmented ed-mode" role="group" aria-label="Keep as one file or split" id="edMode">

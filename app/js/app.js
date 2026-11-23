@@ -34,6 +34,7 @@
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
     musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
+    autoDeep: load('autoDeep', true),   // after Read Title Cards, deep scan the videos it didn't recognise
     appIcon: load('appIcon', 'auto'), // the app icon's style: auto (matches the look) or one of ICON_STYLES
     tmdbKey: '' // loaded from the encrypted store at start-up
   };
@@ -775,6 +776,7 @@
     var v = videoOf(item);
     if (iss && iss.kind === 'apart') return 'Holds ' + ((v.episode && v.episode.entries) || []).length + ' episodes that aren’t next to each other.';
     if (iss && iss.kind === 'single') return 'One title card found. One long episode, or two?';
+    if (iss && iss.kind === 'more') return 'One title card found, in a video long enough for more. Both?';
     if (v.segmented && !v.numberSure) return 'One cartoon or a half-hour? Answer above.';
     if (iss) return (String(iss.text || '').split(/(?<=\.)\s/)[0] || iss.title).slice(0, 110);
     if (item.showAmbiguous) return 'A few ' + (item.kind === 'movie' ? 'movies' : 'shows') + ' have this name. Which one?';
@@ -853,7 +855,7 @@
       var c0 = current(vids[0]);
       $('rvTitle').textContent = 'Check All';
       $('rvTitle').textContent = Object.keys(shows).length === 1 ? 'Check All: ' + c0.title : 'Check All';
-      $('rvSub').textContent = 'Each episode with how Shelf knows it: the title card it read, what it heard, or just the file name. Anything wrong? Fix… opens it.';
+      $('rvSub').textContent = 'Each episode with how Shelf knows it: the title card it read, what it heard, or just the file name. Anything wrong? Inspect… plays it so you can change it.';
       renderReview();
       var d = $('reviewSheet'); if (!d.open) d.showModal();
       setTimeout(function () { var first = $('rvBody').querySelector('.rv-card.is-need') || $('rvBody').querySelector('.rv-card'); if (first) first.focus(); }, 60);
@@ -877,15 +879,31 @@
     });
     return out;
   }
-  // How Shelf knows one episode of this file: → a figure.
+  // A picture from the video with what it is on it ("Title card · 1:08", "Heard at 0:31", "From the video · 1:00").
+  function rvShot(v, t, label, alt) {
+    return el('figure', { class: 'rv-proof is-card' }, [rvFrame(v, t, 480, alt), el('figcaption', { text: label + ' · ' + fmtClock(t) })]);
+  }
+  // Where to take a picture of an episode Shelf didn't see a title card of: where a card was read in this video if
+  // any, else about a minute into its part of the video (where most cartoons' cards are), so there's always
+  // something to recognise it by.
+  function rvGuessT(v, e) {
+    var es = (v.episode && v.episode.entries) || [], k = Math.max(0, es.findIndex(function (x) { return x.season === e.season && x.number === e.number; }));
+    var secs = v.minutes ? v.minutes * 60 : 0, from = secs && es.length > 1 ? (secs * k) / es.length : 0;
+    var read = (v.cards || []).filter(function (c) { return c.part === k && c.t != null && !c.heard; })[0];
+    if (read) return read.t;
+    return Math.round(from + (secs ? Math.min(60, (secs / Math.max(1, es.length)) * 0.15) : 60));
+  }
+  // How Shelf knows one episode of this file: → a picture from the video (never none, so you can always see which
+  // episode it is) and what it read, heard or went by.
   function rvProof(v, e, proofs) {
     var p = proofs.filter(function (x) { return x.key === e.season + 'x' + e.number; })[0];
-    if (p && p.heard) return el('figure', { class: 'rv-proof is-heard' }, [rvQuote(p.text, p.words), el('figcaption', { text: 'Heard at ' + fmtClock(p.t) })]);
-    if (p) return el('figure', { class: 'rv-proof is-card' }, [rvFrame(v, p.t, 480, 'Title card of ' + e.name), el('figcaption', { text: (p.manual ? 'Title card you marked' : 'Title card') + ' · ' + fmtClock(p.t) })]);
+    if (p && p.heard) return el('div', { class: 'rv-proof-stack' }, [rvShot(v, p.t, 'Heard at', 'The moment this was said'), rvQuote(p.text, p.words)]);
+    if (p) return rvShot(v, p.t, p.manual ? 'Title card you marked' : 'Title card', 'Title card of ' + e.name);
     var how = v.episode ? v.episode.how : '';
     var said = how === 'manual' ? 'You chose this episode.' : how === 'title' ? 'Matched by the episode title in its file name.' : how === 'date' ? 'Matched by the air date in its file name.'
       : how === 'card' || how === 'heard' ? 'Goes with the episode Shelf recognised next to it.' : 'Known only by its file name. Read Title Cards can check it.';
-    return el('figure', { class: 'rv-proof is-none' }, [el('div', { class: 'rv-noproof', text: said })]);
+    if (!v.fullPath) return el('figure', { class: 'rv-proof is-none' }, [el('div', { class: 'rv-noproof', text: said })]);
+    return el('div', { class: 'rv-proof-stack' }, [rvShot(v, rvGuessT(v, e), 'From the video', 'A moment from ' + e.name), el('div', { class: 'rv-noproof', text: said })]);
   }
   function rvNames(v) { return (splitOf(v) ? pieceNames(v) : [plexFor(v)]).filter(Boolean).map(function (p) { return p.file; }); }
   // A split's cut: the last frame before it and the first after, and buttons to move it.
@@ -939,7 +957,7 @@
     var info = [eps,
       el('div', { class: 'rv-new', title: names.join('\n') + '\n\nNow: ' + v.name }, names.map(function (n) { return el('div', { text: n }); })),
       el('div', { class: 'rv-was', title: v.name, text: 'Now: ' + v.name })];
-    if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Fix… opens it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
+    if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Inspect… plays it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
     if (v.split) v.split.pieces.slice(0, -1).forEach(function (pc, k) { info.push(rvCut(v, k)); });
     var acts = [];
     if (iss && iss.kind === 'apart' && !v.split) iss.actions.forEach(function (a) {
@@ -947,7 +965,7 @@
     });
     else if (rvCanRight(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-right' + (need ? ' pill-primary' : ''), 'aria-pressed': !need && v.checked ? 'true' : 'false',
       text: !need && v.checked ? '✓ Checked' : need ? 'It’s Right' : 'Looks Right', title: 'This is right (Enter)', onclick: function () { rvSettle([v]).then(function () { renderReview(v.id); rvNext(v.id); }); } }));
-    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-fix' + (acts.length ? '' : ' pill-primary'), text: 'Fix…', title: 'Open it in Check Episodes (F)', onclick: function () { rvFix(v); } }));
+    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-fix' + (acts.length ? '' : ' pill-primary'), text: 'Inspect…', title: 'Play it to see which episode it is, and change it (F)', onclick: function () { rvFix(v); } }));
     var proofsBox = el('div', { class: 'rv-proofs' + (rows.length > 1 ? ' is-many' : '') }, rows.map(function (e) { return rvProof(v, e, proofs); }));
     return el('article', { class: 'rv-card' + (need ? ' is-need' : ' is-ok') + (!need && v.checked ? ' is-checked' : '') + (rows.length > 1 || v.split ? ' is-wide' : ''), tabindex: '0', 'data-id': v.id, 'aria-label': rows.map(function (e) { return epCode(e) + ' ' + e.name; }).join(', ') + (need ? ', needs you' : ', ready') }, [
       proofsBox, el('div', { class: 'rv-info' }, info), el('div', { class: 'rv-acts' }, acts)
@@ -1167,7 +1185,7 @@
     }
     var iss = v.kind === 'episode' && c ? issueFor(item) : null;
     if (iss) {
-      var acts = iss.actions.filter(function (a) { return !/^Check Episodes/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
+      var acts = iss.actions.filter(function (a) { return !/^Inspect/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
       return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: iss.kind === 'check' };
     }
     var label = rowParts(item).code ? rowParts(item).code + ' ' + rowParts(item).name : name;
@@ -1203,7 +1221,7 @@
         return el('button', { type: 'button', class: 'answer' + (a.link ? ' link' : keyed === 1 && !a.link ? ' primary' : ''), title: a.title || (key ? 'Press ' + key : ''), onclick: function () { a.run(); } },
           [el('span', { text: a.label })].concat(key && keyed <= 9 ? [el('kbd', { text: key })] : []));
       });
-      if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Open the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Check Episodes…' }), el('kbd', { text: 'E' })]));
+      if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Play the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Inspect…' }), el('kbd', { text: 'E' })]));
       actions.replaceChildren.apply(actions, btns);
       box.classList.toggle('is-wide', btns.length > 3 || answers.reduce(function (n, a) { return n + a.label.length; }, 0) > 34);
     };
@@ -1329,7 +1347,7 @@
       rowsEp.forEach(function (e, i) {
         var thumb = null;
         if (e.card != null && src0.fullPath) {
-          thumb = el('button', { type: 'button', class: 'ep-thumb', title: 'The title card Shelf read (' + fmtClock(e.card) + '). Click to open it in Check Episodes.', onclick: function () { openEditor(item); } });
+          thumb = el('button', { type: 'button', class: 'ep-thumb', title: 'The title card Shelf read (' + fmtClock(e.card) + '). Click to inspect it.', onclick: function () { openEditor(item); } });
           cardFrame(src0, e.card, 240).then(function (url) { if (url) thumb.appendChild(el('img', { src: url, alt: 'Title card' })); });
         }
         var row = el('div', { class: 'ep-card-row' + (thumb ? ' has-thumb' : ''), 'data-part': src0.split || rowsEp.length > 1 ? i % 2 : '' }, [
@@ -1338,12 +1356,12 @@
             el('span', { class: 'ep-card-code', text: 'S' + pad2(e.season) + 'E' + pad2(e.number) }),
             el('span', { class: 'ep-card-name', text: e.name || '(no title listed)', title: e.name || '' })
           ]),
-          src0.split ? null : el('button', { type: 'button', class: 'ep-change', 'data-opens-browser': '1', id: i === 0 ? 'changeEp' : null, text: 'Change', title: 'Pick a different episode for this', onclick: function (ev) { changeEntry(src0, i, ev.currentTarget); } }),
+          src0.split ? null : el('button', { type: 'button', class: 'ep-change', 'data-opens-browser': '1', id: i === 0 ? 'changeEp' : null, text: 'Change…', title: 'Pick a different episode from the show’s list', onclick: function (ev) { changeEntry(src0, i, ev.currentTarget); } }),
           !src0.split && rowsEp.length > 1 ? el('button', { type: 'button', class: 'ep-remove', 'aria-label': 'Remove ' + (e.name || 'this episode'), title: 'Not in this file: remove it', text: '✕', onclick: function () { removeEntry(src0, i); } }) : null
         ]);
         list0.appendChild(row);
       });
-      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : 'This file holds';
+      $('inspEpLabel').textContent = src0.split ? 'Will be split into ' + rowsEp.length + ' files' : rowsEp.length > 1 ? 'Episodes in this file' : 'Episode';
       var why = {
         split: '✂ You chose to split it. Each part gets its own name.',
         manual: '✓ You chose this.',
@@ -1361,7 +1379,7 @@
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
       badge.className = 'ep-badge ' + (iss ? 'warn' : /^✓|^✂/.test(why) ? 'ok' : 'maybe');
       $('checkEps').hidden = !canLook(src0) || !src0.parsed.isVideo;
-      $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Check Episodes…';
+      $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Inspect…';
       $('checkEps').disabled = scanning;
       $('clearSplit').hidden = !src0.split;
       var canSplit = splittable(item);
@@ -1417,8 +1435,16 @@
     var candWrap = $('inspCandWrap'), cands = $('inspCands');
     cands.textContent = '';
     candWrap.hidden = item.candidates.length < 2;
+    // (These are shows or movies Shelf found for the name, not episodes.)
+    $('inspCandLabel').textContent = item.kind === 'movie' ? 'Which movie is this?' : item.kind === 'track' ? 'Which album is this?' : 'Which show is this?';
+    // When the chosen one is clearly right (well ahead of the rest), the others wait behind "Not this show?" instead
+    // of filling half the panel; when it's close, or you've opened them, they're all shown.
+    var chosen = item.candidates[item.choice], others = item.candidates.filter(function (o, i) { return i !== item.choice; });
+    var clear = chosen && (chosen.score || 0) >= 85 && others.every(function (o) { return (o.score || 0) <= (chosen.score || 0) - 20; });
+    var folded = clear && !item.showAllCands && others.length > 0;
     item.candidates.forEach(function (cd, idx) {
       var on = idx === item.choice;
+      if (folded && !on) return;
       cands.appendChild(el('button', {
         type: 'button', class: 'cand' + (on ? ' is-on' : ''), role: 'radio', 'aria-checked': on ? 'true' : 'false',
         onclick: function () { choose(item, idx); }
@@ -1431,6 +1457,8 @@
         ])
       ]));
     });
+    if (folded) cands.appendChild(el('button', { type: 'button', class: 'cand-more', text: 'Not this ' + (item.kind === 'movie' ? 'movie' : 'show') + '? ' + others.length + (others.length === 1 ? ' other…' : ' others…'),
+      title: 'Show the other ' + (item.kind === 'movie' ? 'movies' : 'shows') + ' Shelf found for this name', onclick: function () { item.showAllCands = true; renderInspector(); } }));
 
     var plex = plexFor(item);
     var crumbs = $('inspCrumbs');
@@ -1603,6 +1631,7 @@
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
       $('optAutoSplit').checked = settings.autoSplit !== false;
+      $('optAutoDeep').checked = settings.autoDeep !== false;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
       $('tvdbPinInput').value = settings.tvdbPin;
@@ -1980,6 +2009,7 @@
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
   on('optAutoSplit', 'change', function (e) { settings.autoSplit = e.target.checked; save('autoSplit', settings.autoSplit); });
+  on('optAutoDeep', 'change', function (e) { settings.autoDeep = e.target.checked; save('autoDeep', settings.autoDeep); });
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
   var scanning = false;
@@ -2113,6 +2143,14 @@
     readCardsOf(unread.length ? unread : all, false);
   }
   on('autoMode', 'click', autoMode);
+  // A video the read didn't recognise: no episode at all, or only the number in its name to go by, or one that still
+  // needs you (and that you haven't settled). Episodes matched by the title in the name are left as they are.
+  function needsCloserLook(v) {
+    if (!v.fullPath || !canLook(v) || v.manualEp || v.confirmed || v.split || v.status === 'done') return false;
+    var how = v.episode ? v.episode.how : '';
+    if (how === 'card' || how === 'heard' || how === 'title' || how === 'date' || how === 'manual') return !v.episode.sure && needsReview(v) && how !== 'title';
+    return true;
+  }
   function readCardsOf(files, deepNext, opt) {
     opt = opt || {};
     if (!files.length) return Promise.resolve();
@@ -2125,7 +2163,7 @@
     files.forEach(function (i) { var c0 = current(i); if (c0 && !seenShow[showIdKey(c0)]) { seenShow[showIdKey(c0)] = 1; shows.push(c0); } });
     if (!shows.length) return Promise.resolve();
     scanning = true; scanJob = busy('Waiting for your OK…'); render();
-    var read = 0, titlesFound = 0, failed = [];
+    var read = 0, titlesFound = 0, failed = [], wasStopped = false;
     // The answer can arrive before the last progress messages do, so keep listening until "end" (or a few seconds).
     var ended, endedP = new Promise(function (res) { ended = res; });
     var stop = native.onCardProgress(function (p) {
@@ -2160,6 +2198,7 @@
         });
       }
       if (p.kind === 'end') {
+        if (p.stopped) wasStopped = true;
         items.forEach(function (i) { if (i.scan === 'queued' || i.scan === 'reading') i.scan = null; });
         var nTitles = titlesFound + ' episode' + (titlesFound === 1 ? '' : 's');
         var notRead = failed.length ? ' Couldn’t read ' + (failed.length === 1 ? failed[0] : failed.length + ' videos: ' + failed.slice(0, 3).join('; ') + (failed.length > 3 ? '…' : '')) + '.' : '';
@@ -2187,17 +2226,24 @@
           season: i.parsed.season != null ? i.parsed.season : null };
         if (i.fullPath) job.path = i.fullPath; else job.remote = i.remote;
         return job;
-      }), { deep: !!deepNext });
+      }), { deep: !!deepNext, followUp: !!opt.followUp });
     }).then(function (res) {
       if (!res) return res;
       return Promise.race([endedP, new Promise(function (r) { setTimeout(r, 4000); })]).then(function () { return res; });
     }).then(function (res) {
-      if (!res) { reader.hide(); toast('Cancelled. No videos were read.'); return; }
+      if (!res) { wasStopped = true; reader.hide(); toast('Cancelled. No videos were read.'); return; } // (no closer look either)
       setScanStatus('Working out the episodes…');
       return Promise.all(shows.map(resolveShow)).then(function () { return opt.noAutoSplit ? null : splitClearOnes(files); });
     }).catch(function (e) { if (opt.raise) throw e; toast('Couldn’t read the title cards: ' + e.message); })
       .then(function () { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); },
-        function (e) { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); throw e; });
+        function (e) { stop(); scanning = false; if (scanJob) { scanJob.done(); scanJob = null; } render(); throw e; })
+      .then(function () {
+        // The videos this read didn't recognise get a Deep Scan straight away, by itself: no need to
+        // click it on each. Not after you stopped the read, nor from the editor or a closer look already.
+        if (deepNext || wasStopped || opt.raise || opt.noFollowUp || settings.autoDeep === false) return;
+        var unknown = files.filter(needsCloserLook);
+        if (unknown.length) return readCardsOf(unknown, true, { followUp: true });
+      });
   }
   // A file whose cartoons' title cards were all read clearly, but which aren't next to each other in the list (so
   // Plex needs a file each): split straight away, at the black, silent moment before each card. Nothing is cut
@@ -2476,7 +2522,7 @@
         .sort(function (a, b) { return b.s - a.s || a.t.length - b.t.length; })[0];
       if (out[k] && out[k].manual) return;
       if ((v.marks || []).some(function (mk) { return Math.abs(mk.t - r.t) < 120; })) return; // near a card you marked: yours wins
-      if (!out[k] || m.score > out[k].score) out[k] = { t: r.t, start: r.start != null ? r.start : r.t, key: k, name: m.entry.name, text: best ? best.t : '', score: m.score };
+      if (!out[k] || m.score > out[k].score) out[k] = { t: r.t, start: r.start != null ? r.start : r.t, key: k, name: m.entry.name, text: best && best.s > 0 ? best.t : '', score: m.score }; // (no reading on its own like the title: none shown, the picture says it)
     });
     return Object.keys(out).map(function (k) { return out[k]; });
   }
@@ -2561,7 +2607,7 @@
           { label: 'Leave Plex As It Is', link: true, run: function () { v.plexFixed = true; applyStatus(v); render(); } }] };
     }
     var names = function (es) { return es.map(function (e) { return epCode(e) + ' “' + e.name + '”'; }); };
-    var look = canLook(v) ? [{ label: 'Check Episodes…', title: 'Open the video to see for yourself', run: function () { openEditor(item); } }] : [];
+    var look = canLook(v) ? [{ label: 'Inspect…', title: 'Play the video to see for yourself', run: function () { openEditor(item); } }] : [];
     if (ep.needsSplit) {
       var es = ep.entries || [];
       return { kind: 'apart', title: 'This file holds ' + es.length + ' separate episodes',
@@ -2577,6 +2623,16 @@
           { label: 'One Episode', run: function () { setCount(item, 'one'); } },
           { label: 'Two Episodes', title: 'Add the episode that comes after it (change it if it’s a different one)', run: function () { setCount(item, 'more'); } }
         ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the second title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: 2 }); } }] : []) };
+    }
+    // One card read in a video long enough for more: Shelf's guess for the rest, to keep, drop, or find in the video.
+    var more = ep.how === 'card' && /long enough for (\d+) episodes/.exec(note);
+    if (more) {
+      var es3 = ep.entries || [];
+      return { kind: 'more', title: (+more[1] === 2 ? 'Two' : more[1]) + ' episodes in this file?', text: note,
+        actions: [
+          { label: es3.length === 2 ? 'Yes, Both' : 'Yes, All ' + es3.length, title: 'Keep ' + joinAnd(names(es3)), run: function () { useEntries(v, episodeRows(v, item).map(function (e) { return Object.assign({}, e); }), 'Saved: ' + es3.length + ' episodes.'); } },
+          { label: 'Just One Episode', title: 'The whole file is ' + epCode(es3[0] || ep) + ' “' + (es3[0] || ep).name + '”', run: function () { setCount(item, 'one'); } }
+        ].concat(canLook(v) ? [{ label: 'Find It in the Video…', link: true, title: 'Find the next title card in the video and say which episode it is', run: function () { openEditor(item, { part: 1, of: Math.max(2, es3.length) }); } }] : []) };
     }
     return { kind: 'check', title: 'Check this episode', text: note || 'Shelf isn’t sure which episode this is.', actions: look };
   }
@@ -2790,6 +2846,13 @@
         ShelfEditor.open({
           native: native, token: r.token, secs: r.secs, fps: r.fps, name: v.name, list: list, remote: !!r.remote,
           entries: entries, cards: cardsForCached(v, list), lookFor: lookFor || null,
+          // Whose title card is on the frame at t: what's read there, matched against the show's list (or null).
+          readFrame: native.mediaRead ? function (t) {
+            return native.mediaRead(r.token, t).then(function (texts) {
+              var inSeason = v.parsed && v.parsed.season != null ? list.filter(function (e) { return e.number != null && Math.abs(e.season - v.parsed.season) <= 1; }) : null;
+              return texts.length ? P.matchCardText(texts, list, [], c.title, inSeason, notTitleOf(c)) : null;
+            });
+          } : null,
           readCards: function () {
             if (scanning) return Promise.reject(new Error('Shelf is already reading title cards. Try again when it’s done'));
             // (Read again more thoroughly if a quick read found nothing before.)
@@ -2801,6 +2864,8 @@
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
             v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null; v._cardsFor = null;
+            // ...and teach Shelf where this show's cards are, for its other videos.
+            if (v.fullPath && native.learnMarks && c) native.learnMarks(c.title, v.fullPath, (marks || []).map(function (m) { return m.t; })).catch(function () {});
             work('Updating the episodes…', function () { return resolveShow(c); }).then(render);
           },
           mode: v.split || wantSplit || (v.episode && v.episode.needsSplit) ? 'split' : 'one',

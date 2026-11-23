@@ -80,7 +80,7 @@ const shot = (page, name) => (process.env.SHOTS ? page.screenshot({ path: path.j
   // Split View's permission window
   await win.click('#checkEps');
   cw = await askWindow();
-  assert.match(await cw.textContent('#cTitle'), /Open this video in Check Episodes\?/);
+  assert.match(await cw.textContent('#cTitle'), /Inspect this video\?/);
   await shot(cw, 'consent-open');
   await cw.click('#cOk', { noWaitAfter: true }).catch(() => {}); await win.waitForSelector('#editorSheet[open]'); await win.click('#edCancel'); await sleep(300);
 

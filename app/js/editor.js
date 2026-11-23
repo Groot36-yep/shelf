@@ -74,6 +74,23 @@
     if (box.parentNode !== host) host.appendChild(box);
     eb.list = (opts.list || []).filter(function (e) { return e.number != null; });
     eb.onPick = opts.onPick; eb.marked = {};
+    // Suggestions first ({ e, why }): what's read on screen (opts.readAt, asked for now), title cards, the file's name,
+    // the episodes either side. The first is chosen with Enter.
+    var inList = function (e) { return e && eb.list.filter(function (x) { return keyOf(x) === keyOf(e); })[0]; };
+    eb.suggest = []; eb.reading = false; eb.top = false;
+    (opts.suggest || []).forEach(function (s) { var e = s && inList(s.e); if (e && !eb.suggest.some(function (x) { return keyOf(x.e) === keyOf(e); })) eb.suggest.push({ e: e, why: s.why }); });
+    eb.suggest = eb.suggest.slice(0, 4);
+    var ticket = eb.ticket = {};
+    if (opts.readAt != null && st && st.o.readFrame) {
+      eb.reading = true;
+      st.o.readFrame(opts.readAt).then(function (m) {
+        if (eb.ticket !== ticket || $('epBrowser').hidden) return;
+        eb.reading = false;
+        var e = m && inList(m.entry);
+        if (e) { eb.suggest = [{ e: e, why: 'Read on screen at ' + fmt(opts.readAt, false) }].concat(eb.suggest.filter(function (x) { return keyOf(x.e) !== keyOf(e); })).slice(0, 4); eb.top = true; }
+        ebRender();
+      }, function () { if (eb.ticket === ticket) { eb.reading = false; ebRender(); } });
+    }
     (opts.marked || []).forEach(function (e) { eb.marked[keyOf(e)] = 1; });
     var seasons = []; eb.list.forEach(function (e) { if (seasons.indexOf(e.season) < 0) seasons.push(e.season); });
     seasons.sort(function (a, b) { return (a === 0) - (b === 0) || a - b; });
@@ -97,7 +114,7 @@
     ebRender();
     setTimeout(function () { $('ebSearch').focus(); }, 0);
   }
-  function ebClose() { $('epBrowser').hidden = true; eb.onPick = null; }
+  function ebClose() { $('epBrowser').hidden = true; eb.onPick = null; eb.ticket = null; }
   function ebRender() {
     var q = $('ebSearch').value.trim();
     var rows;
@@ -115,17 +132,24 @@
     } else rows = eb.list.filter(function (e) { return e.season === eb.season; });
     // Searching looks across every season; the tabs show where you are.
     document.querySelectorAll('#ebSeasons button').forEach(function (b) { b.setAttribute('aria-pressed', !q && +b.dataset.season === eb.season ? 'true' : 'false'); });
-    eb.rows = rows.slice(0, 300);
-    eb.sel = Math.max(0, eb.rows.findIndex(function (e) { return eb.marked[keyOf(e)]; }));
+    // (Not while searching: then the matches are what you want.)
+    var sugg = q ? [] : eb.suggest;
+    eb.rows = sugg.map(function (s) { return s.e; }).concat(rows.slice(0, 300));
+    eb.sel = eb.top && sugg.length ? 0 : Math.max(0, eb.rows.findIndex(function (e) { return eb.marked[keyOf(e)]; }));
     var list = $('ebList'); list.textContent = '';
+    if (!q && (sugg.length || eb.reading)) {
+      list.appendChild(el('div', { class: 'eb-group', text: 'Suggested' }));
+      if (eb.reading) list.appendChild(el('div', { class: 'eb-reading' }, [el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { text: 'Reading the title on screen…' })]));
+    }
     if (!eb.rows.length) { list.appendChild(el('p', { class: 'eb-empty', text: q ? 'No episode matches “' + q + '”. Try part of the title, or a number like S01E08.' : 'No episodes listed.' })); return; }
     eb.rows.forEach(function (e, i) {
-      var on = eb.marked[keyOf(e)];
-      list.appendChild(el('button', { type: 'button', class: 'eb-row' + (i === eb.sel ? ' is-sel' : '') + (on ? ' is-marked' : ''), role: 'option', 'aria-selected': i === eb.sel ? 'true' : 'false',
+      var on = eb.marked[keyOf(e)], why = i < sugg.length ? sugg[i].why : '';
+      if (!q && sugg.length && i === sugg.length) list.appendChild(el('div', { class: 'eb-group', text: eb.season === 0 ? 'Specials' : 'Season ' + eb.season }));
+      list.appendChild(el('button', { type: 'button', class: 'eb-row' + (i === eb.sel ? ' is-sel' : '') + (on ? ' is-marked' : '') + (why ? ' is-suggest' : ''), role: 'option', 'aria-selected': i === eb.sel ? 'true' : 'false',
         onclick: function () { ebPick(e); }, onmousemove: function () { if (eb.sel !== i) { eb.sel = i; ebMark(); } } }, [
         el('span', { class: 'eb-code', text: code(e) }),
         el('span', { class: 'eb-name', text: e.name || '(no title)' }),
-        el('span', { class: 'eb-meta', text: [e.aired ? e.aired.slice(0, 4) : '', e.runtime ? e.runtime + ' min' : ''].filter(Boolean).join(' · ') }),
+        el('span', { class: 'eb-meta', text: why || [e.aired ? e.aired.slice(0, 4) : '', e.runtime ? e.runtime + ' min' : ''].filter(Boolean).join(' · ') }),
         on ? el('span', { class: 'eb-on', text: '✓' }) : el('span')
       ]));
     });
@@ -217,12 +241,20 @@
     lastHead = {}; syncPlay();
     $('editorSheet').showModal();
     setMode(st.mode, true);
-    // Start just before the first title card, or the first cut.
-    var startAt = st.cuts.length ? st.cuts[0] - 3 : st.cards.length ? st.cards[0].start || st.cards[0].t : 0;
+    // Start on the first title card (the moment it was read, not its fade-in), or just before the first cut; with
+    // neither, about a minute in (where most cartoons' cards are), never on the black first frame most videos start with.
+    var startAt = st.cuts.length ? st.cuts[0] - 3 : st.cards.length ? (st.cards[0].t != null ? st.cards[0].t : st.cards[0].start) : Math.min(60, st.secs * 0.1);
     var look = o.lookFor; // looking for a title card Shelf couldn't read: start where it usually is
     if (look) startAt = look.part ? Math.max(0, st.secs * look.part / look.of - 20) : Math.min(40, st.secs * 0.04);
     setZoom(st.cuts.length || st.cards.length || look ? 3 : 0, startAt, true);
     seek(startAt);
+    // A picture at once (the player can take a few seconds to show its first frame of a big video): the frame itself,
+    // until the player has caught up (see onseeked).
+    var tok0 = st.token;
+    o.native.mediaFrame(st.token, clamp(startAt, 0, Math.max(0, st.secs - 0.04)), 960).then(function (b) {
+      if (!b || !st || st.token !== tok0 || !st.playable || (!seeking && pendingSeek == null && video.readyState >= 2 && Math.abs(video.currentTime - st.t) < 0.06)) return;
+      var f = $('edFrame'); f.src = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); f.hidden = false;
+    }).catch(function () {});
     if (look) setTimeout(function () { if (st) info('Find the title card for ' + (look.of > 1 ? 'part ' + (look.part + 1) : 'this video') + ' (play or scrub), then click Mark Title Card Here.'); }, 0);
     loop();
   }
@@ -597,6 +629,15 @@
     (st.o.entries || []).forEach(function (e) { add(byKey(keyOf(e)) || e, 'What the file’s name says'); });
     return out.slice(0, 3);
   }
+  // Guesses for the episode at t (one-file mode, or a mark): title cards read near it, what the file's name says, and
+  // the episodes either side of the one chosen now. (Its own "read on screen" comes first when it's found.)
+  function suggestAt(t, cur) {
+    var out = [], add = function (e, why) { if (e && e.number != null && !(cur && keyOf(cur) === keyOf(e)) && !out.some(function (x) { return keyOf(x.e) === keyOf(e); })) out.push({ e: e, why: why }); };
+    st.cards.filter(function (c) { return !c.manual && Math.abs(cardStart(c) - t) < 120; }).forEach(function (c) { add(entryOf(c), 'Title card at ' + fmt(c.t, false)); });
+    (st.o.entries || []).forEach(function (e) { add(byKey(keyOf(e)) || e, 'What the file’s name says'); });
+    if (cur) { add(next(cur), 'The next episode'); add(prev(cur), 'The episode before'); }
+    return out.slice(0, 3);
+  }
   function setPart(i, x, how) {
     var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: how || 'manual' };
     st.parts.forEach(function (p, j) { if (j !== i && p.entry && keyOf(p.entry) === keyOf(pick)) p.entry = null; });
@@ -800,7 +841,7 @@
     var guess = st.mode === 'split' ? st.parts[partAt(t)] && st.parts[partAt(t)].entry : st.oneEntries[t > st.secs / 2 ? st.oneEntries.length - 1 : 0];
     browse($('edMarkCard'), {
       list: st.list, marked: guess ? [guess] : [], season: guess ? guess.season : null,
-      title: 'Whose title card is at ' + fmt(t, false) + '?',
+      title: 'Whose title card is at ' + fmt(t, false) + '?', readAt: t, suggest: suggestAt(t, guess),
       onPick: function (x) { if (st) addMark(t, x); }
     });
   }
@@ -910,9 +951,12 @@
         : el('div', { class: 'ed-ep is-empty' }, [el('span', { class: 'ed-name', text: split ? 'No episode chosen yet' : 'Choose which episode this is' })]);
       var change = el('button', { type: 'button', class: 'pill small-pill', 'data-opens-browser': '1', text: e ? 'Change…' : 'Choose…' });
       change.addEventListener('click', function () {
+        var cardHere = e && st.cards.filter(function (c) { return c.key === keyOf(e); })[0];
+        var readAt = split ? (st.t >= it.a && st.t < it.z ? st.t : cardHere ? cardHere.t : null) : (cardHere ? cardHere.t : st.t);
         browse(change, {
           list: st.list, marked: e ? [e] : [], season: e ? e.season : (st.parts[0] && st.parts[0].entry ? st.parts[0].entry.season : null),
           title: split ? 'Which episode is part ' + (it.i + 1) + '?' : 'Which episode is this?',
+          readAt: readAt, suggest: split ? likely(it.i) : suggestAt(readAt != null ? readAt : st.t, e),
           onPick: function (x) {
             var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'manual' };
             if (split) { setPart(it.i, pick); return; }
@@ -962,7 +1006,7 @@
             [frameImg(card.t, 320, 'The frame Shelf read')]),
           el('div', { class: 'ed-proof-text' }, [
             el('span', { class: 'ed-sure ' + sure, text: (sure === 'hi' ? '✓ Title card matches' : '≈ Title card looks like it') + ' · ' + fmt(card.t, false) }),
-            el('q', { title: 'Everything Shelf read on that frame: ' + card.text }, marked(card.text, card.name)),
+            card.text ? el('q', { title: 'Everything Shelf read on that frame: ' + card.text }, marked(card.text, card.name)) : null,
             el('span', { text: 'Not this episode? Click Change…' })
           ])
         ]));
@@ -975,7 +1019,8 @@
       var add = el('button', { type: 'button', class: 'ed-add', 'data-opens-browser': '1', text: '+ Add Another Episode in This File' });
       add.addEventListener('click', function () {
         var last = st.oneEntries[st.oneEntries.length - 1];
-        browse(add, { list: st.list, marked: st.oneEntries, season: last ? last.season : null, title: 'Add an episode that’s also in this file', onPick: function (x) {
+        browse(add, { list: st.list, marked: st.oneEntries, season: last ? last.season : null, title: 'Add an episode that’s also in this file',
+          readAt: st.t, suggest: [{ e: last && next(last), why: 'Comes after ' + (last ? code(last) : '') }].concat(suggestAt(st.t, null)), onPick: function (x) {
           if (st.oneEntries.some(function (y) { return keyOf(y) === keyOf(x); })) return;
           st.oneEntries.push({ season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'manual' });
           st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
