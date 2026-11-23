@@ -391,6 +391,8 @@ kbd { font-family: var(--ui); }
   max-width: 100%; transition: background 0.15s, transform 0.09s;
 }
 .answer > span { overflow: hidden; text-overflow: ellipsis; }
+/* Why an answer is offered ("aired together"), small and quiet beside it. */
+.answer .hint, .ep-quick-btn .hint { flex: none; font-style: normal; font-size: 11px; font-weight: 550; opacity: 0.62; }
 .answer:hover { background: color-mix(in srgb, var(--text) 5%, var(--surface)); }
 .answer:active { transform: scale(0.97); }
 .answer.primary { background: var(--primary-bg); color: var(--primary-text); box-shadow: none; }
@@ -1055,6 +1057,15 @@ svg.solid { fill: currentColor; stroke: none; }
 .ed-part.is-new { animation: part-in 0.4s cubic-bezier(0.2, 1.2, 0.3, 1) both; }
 @keyframes part-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
 .ed-part-head { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+/* Drag by the grip to change the order. */
+.ed-grip { flex: none; width: 18px; height: 22px; margin: -2px -2px -2px -6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: rgba(255, 238, 215, 0.45); cursor: grab; display: grid; place-items: center; touch-action: none; }
+.ed-grip svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.ed-grip:hover { color: inherit; background: rgba(255, 255, 255, 0.06); }
+.ed-grip:active { cursor: grabbing; }
+.ed-grip:focus-visible { outline: 2px solid var(--focus, #e8a25a); outline-offset: 1px; }
+.ed-part.is-dragging { opacity: 0.45; }
+.ed-part.drop-before { box-shadow: 0 -6px 0 -3px var(--p0); }
+.ed-part.drop-after { box-shadow: 0 6px 0 -3px var(--p0); }
 .ed-part-go { display: flex; align-items: center; gap: 8px; margin: -3px 0 -3px -4px; padding: 3px 8px 3px 4px; border: 0; border-radius: 999px; background: transparent; cursor: pointer; min-width: 0; transition: background 0.12s; }
 .ed-part-go:hover { background: var(--fill); }
 .ed-part-go:active { transform: scale(0.97); }
@@ -1868,3 +1879,4 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 .eb-reading .spinner { width: 12px; height: 12px; }
 /* (A picture still on its way shows nothing, not a broken-picture mark.) */
 .ed-thumb img:not([src]), .ed-part-pic img:not([src]), .rv-pic img:not([src]) { visibility: hidden; }
+.insp-quiet { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }

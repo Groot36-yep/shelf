@@ -233,6 +233,12 @@ async function run(ops, opts) {
         if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
         continue;
       }
+      // A video with a loud start (a channel's logo) turned down: a new copy, like a song made smaller.
+      if (op.quiet && mode !== 'link' && !caseOnly && opts.quieten) {
+        await runQuiet(op, from, to, mode, opts, res, journal);
+        if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
+        continue;
+      }
       if (caseOnly) await renameCase(from, to);
       else if (mode === 'move') await moveNoOverwrite(from, to);
       else if (mode === 'copy') await copyNoOverwrite(from, to);
@@ -342,6 +348,26 @@ async function runShrink(op, from, to, dir, format, mode, opts, res, journal) {
   await folderCover(op.music.cover && opts.coverFor ? op.music.cover : null, dir, opts, journal);
   if (opts.journalPath) await writeJournal(opts.journalPath, journal);
   res.ok = true; res.to = to; res.converted = format; res.trashed = !!rec.trashed;
+}
+
+/**
+ * A video whose loud start (op.quiet: { start, end, gain }) is turned down: a new copy is written and checked
+ * (loudstart.js). Copy: your original stays. Move: your original goes to the Recycle Bin, only now. Undo removes
+ * the copy (as for a song made smaller).
+ */
+async function runQuiet(op, from, to, mode, opts, res, journal) {
+  const q = op.quiet || {};
+  const cut = { start: +q.start, end: +q.end, gain: +q.gain };
+  if (!(cut.start >= 0 && cut.end > cut.start && cut.end <= 31 && cut.gain < 0 && cut.gain >= -24)) throw new Error('Bad loud start');
+  await opts.quieten(from, to, cut);
+  const rec = { from, to, converted: 'quiet', size: (await fsp.stat(to)).size };
+  if (mode === 'move') {
+    if (opts.trash) { await opts.trash(from); rec.trashed = true; }
+    else rec.keptOriginal = true;
+  }
+  journal.done.push(rec);
+  if (opts.journalPath) await writeJournal(opts.journalPath, journal);
+  res.ok = true; res.to = to; res.quieted = cut.gain; res.trashed = !!rec.trashed;
 }
 
 /**

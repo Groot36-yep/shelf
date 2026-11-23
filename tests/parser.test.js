@@ -133,6 +133,14 @@ function resolves(file, list, ctx, want) {
 resolves('SpongeBob.SquarePants.S01E02.Bubblestand.Ripped.Pants.1080p.WEB-DL.mkv', SB, {}, 'S1E4-E5');
 resolves('SpongeBob SquarePants - S01E01 - Help Wanted - Reef Blower - Tea at the Treedome.mkv', SB, {}, 'S1E1-E3');
 resolves('SpongeBob.S01E06.Jellyfishing.mkv', SB, {}, 'S1E6');
+// Names from a real Amazon rip: a run of three, and a one-word title beside the one it aired with.
+resolves('SpongeBob SquarePants S01E01-E02-E03 Help Wanted - Reef Blower-Tea The Threedome.mkv', SB, {}, 'S1E1-E3');
+resolves('SpongeBob SquarePants S01E30E31 Sleepy Time - Suds.mkv', SB, { file: { minutes: 23 } }, 'S1E30-E31');
+check('a short one-word title only counts next to another one', () => {
+  assert.strictEqual(P.matchByTitle('Suds', SB, 1).entries[0].name, 'Suds'); // the whole title
+  assert.strictEqual(P.matchByTitle('Sleepy Time and some suds', SB, 1).entries.length, 2);
+  assert.strictEqual(P.matchByTitle('Pizza Delivery and some suds', SB, 1).entries.length, 1);
+});
 resolves('SpongeBob.S01E20.Hooky.Mermaid.Man.and.Barnacle.Boy.II.mkv', SB, {}, 'S1E40-E41');
 resolves('SpongeBob.S01E12.Mermaid.Man.and.Barnacle.Boy.mkv', SB, {}, 'S1E12');
 resolves('SpongeBob.S01E02.mkv', SB, { mode: 'halfhours', sure: true }, 'S1E4-E5');
@@ -211,6 +219,42 @@ check('a name that says two cartoons ("E01aE01b") is never taken for one long ep
   assert.strictEqual(r.number + '-' + r.end, '1-2');
 });
 withFile('SpongeBob.S01E05.mkv', { minutes: 22, parts: 2, cards: cards('Pizza Delivery', 'Pickles') }, 'S1E10 ?');
+// A name that counts cartoons ("S01E04E05", "S01E04 Bubblestand") is read that way in a half-hour video: E04 isn't
+// "the 4th half-hour" (E08–E09). Its one readable card agrees, so there's nothing to ask.
+withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { minutes: 24, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['Ripped Pants'] }] }, 'S1E4-E5');
+withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { minutes: 24, parts: 2, cards: [{ part: 0, texts: ['Ripped Pants'] }] }, 'S1E4-E5');
+withFile('SpongeBob SquarePants S01E04 Bubblestand.mkv', { minutes: 24, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['Ripped Pants'] }] }, 'S1E4-E5');
+withFile('SpongeBob SquarePants S01E04E05.mkv', { minutes: 24 }, 'S1E4-E5');
+check('a name with titles that fit its numbers isn’t overruled by a rough reading (real season 1 files)', () => {
+  // Read in a 20-file run: the bubbly "Suds" card as "Scaredy Pants" (0.67), and garbled credits as season 11's "The String" (0.86).
+  const M = require('./fixtures/sb-s01-misreads.json'), list = SB.concat([{ season: 11, number: 53, name: 'The String', runtime: 11 }]);
+  for (const [name, f] of Object.entries(M)) {
+    const r = P.resolveEpisode(P.parseFilename(name), list, { mode: 'segments', sure: true, segmented: true, show: 'SpongeBob SquarePants', file: { minutes: f.minutes, parts: 2, cards: f.cards } });
+    const want = name.match(/E(\d+)/g).map((x) => +x.slice(1));
+    assert.ok(r && r.sure && r.number === want[0] && r.end === want[1], name + ' → ' + JSON.stringify(r && [r.number, r.end, r.sure, r.note]));
+  }
+  // A clear reading of another episode still counts: asked, not ignored.
+  const clear = P.resolveEpisode(P.parseFilename('SpongeBob SquarePants S01E30E31 Sleepy Time - Suds.mkv'), SB, { segmented: true, file: { minutes: 24, parts: 2, cards: [{ part: 0, t: 52, texts: ['SlEcPy TiME'] }, { part: 1, t: 725, texts: ['Scaredy Pants'] }] } });
+  assert.strictEqual(clear.sure, false);
+});
+check('a cartoon known by listening has its title card where Shelf looked, not where the word was heard', () => {
+  // From a real file: the "Suds" card (bubble lettering) couldn't be read at 12:04; "suds" was heard at 14:22.
+  const f = { minutes: 24.4, parts: 2, cards: [{ part: 0, t: 52, texts: ['SlEcPy TiME'] }, { part: 1, t: 725, texts: ['la) LAD d 2 1'] }, { part: 1, t: 724, texts: ['la) LAD d'] }, { part: 1, t: 744, texts: ['NN. & 1%)'] },
+    { part: 1, t: 862, texts: [], heard: { key: '1x31', score: 12, margin: 4 } }] };
+  const r = P.resolveEpisode(P.parseFilename('SpongeBob SquarePants S01E30E31 Sleepy Time - Suds.mkv'), SB, { segmented: true, file: f });
+  assert.deepStrictEqual(r.entries.map((e) => e.name + '@' + e.card), ['Sleepy Time@52', 'Suds@724']);
+  assert.strictEqual(P.cardSpot([{ part: 1, t: 700, texts: [], boundary: true }, { part: 1, t: 690, texts: ['x'] }], 1), 700);
+});
+// From a real file: listening to the theme song "heard" another episode (season 5's, or "Plankton!" next door). The name
+// and the Ripped Pants card agree, so the hearing doesn't count (it once split the file in two).
+withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { minutes: 23.8, parts: 2, cards: [{ part: 0, t: 52, texts: ['SPARSE'] }, { part: 1, t: 720, texts: ["R'PPsD Pants"] }, { part: 0, t: 18, texts: [], heard: { key: '5x37', score: 14, margin: 3 } }] }, 'S1E4-E5');
+withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { minutes: 23.8, parts: 2, cards: [{ part: 1, t: 720, texts: ["R'PPsD Pants"] }, { part: 0, t: 3, texts: [], heard: { key: '1x7', score: 14, margin: 3 } }] }, 'S1E4-E5');
+// Numbered by half-hour, and the card says otherwise: asked, in a few words.
+check('a card that disagrees with the name says so briefly', () => {
+  const r = P.resolveEpisode(P.parseFilename('SpongeBob.S01E04.mkv'), SB, { segmented: true, file: { minutes: 24, parts: 2, cards: [{ part: 1, texts: ['Ripped Pants'] }] } });
+  assert.strictEqual(r.sure, false);
+  assert.strictEqual(r.note, 'Title card: “Ripped Pants”, but the file’s name points to S01E08–E09.');
+});
 // Title cards you mark yourself (when Shelf couldn't read them) count, and beat what Shelf read.
 const mark = (name, part, t) => { const e = SB.find((x) => x.name === name); return { part, t, texts: [], mark: { season: e.season, number: e.number } }; };
 withFile('SpongeBob.S01E03.mkv', { minutes: 22, parts: 2, cards: [{ part: 0, t: 53, texts: OCR['Jellyfishing'] }, { part: 1, t: 700, texts: ['x7 Q# ]'] }, mark('Plankton!', 1, 712)] }, 'S1E6-E7');

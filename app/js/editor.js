@@ -866,7 +866,7 @@
       var loose = st.oneEntries.map(function (e, j) { return j; }).filter(function (j) { return cardT(st.oneEntries[j]) == null; });
       if (loose.length) st.oneEntries[t > st.secs / 2 ? loose[loose.length - 1] : loose[0]] = pick;
       else st.oneEntries.push(pick);
-      st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+      if (!st.ordered) st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
       var en = st.oneEntries;
       var apart = en.length > 1 && !en.every(function (y, j) { return j === 0 || (y.season === en[j - 1].season && y.number === en[j - 1].number + 1); });
       if (apart) {
@@ -885,6 +885,51 @@
 
   // ---- The parts / episodes panel ----
   function drawAll() { drawTimeline(); drawPanel(); }
+  // The order of the episodes: in one file, the order they play in (and are named in); split, which part is which
+  // (the cuts stay where they are; the episodes move between the parts).
+  function moveItem(from, to) {
+    var split = st.mode === 'split';
+    var arr = split ? st.parts.map(function (p) { return p.entry; }) : st.oneEntries;
+    if (to < 0 || to >= arr.length || from === to) return;
+    var x = arr.splice(from, 1)[0];
+    arr.splice(to, 0, x);
+    if (split) st.parts.forEach(function (p, i) { p.entry = arr[i]; });
+    st.ordered = true;
+    drawAll();
+    info((x ? code(x) + ' “' + x.name + '”' : 'That ' + (split ? 'part' : 'episode')) + ' is now ' + (split ? 'part ' : 'episode ') + (to + 1) + '.');
+    var g = document.querySelectorAll('#edPanel .ed-grip')[to];
+    if (g) g.focus();
+  }
+  // Press the grip and move: a line shows where it will go; let go to move it there. (Plain pointer events: the
+  // browser's own drag and drop is unreliable here, and these work with a mouse, a pen or a finger.)
+  function dragOrder(partEl, grip, i) {
+    grip.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      var parts = [].slice.call(document.querySelectorAll('#edPanel .ed-part')), to = i, moved = false, y0 = ev.clientY;
+      try { grip.setPointerCapture(ev.pointerId); } catch (x) { /* fine */ }
+      var clear = function () { parts.forEach(function (n) { n.classList.remove('is-dragging', 'drop-before', 'drop-after'); }); };
+      var where = function (y) {
+        // The slot the pointer is over: before the first card whose middle is below it.
+        var k = parts.findIndex(function (n) { var r = n.getBoundingClientRect(); return y < r.top + r.height / 2; });
+        return k < 0 ? parts.length : k;
+      };
+      var move = function (e) {
+        if (!moved && Math.abs(e.clientY - y0) < 4) return;
+        moved = true;
+        clear(); partEl.classList.add('is-dragging');
+        var slot = where(e.clientY);
+        to = slot > i ? slot - 1 : slot;
+        if (to !== i) { if (slot < parts.length) parts[slot].classList.add('drop-before'); else parts[parts.length - 1].classList.add('drop-after'); }
+      };
+      var up = function () {
+        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+        clear();
+        if (moved && to !== i) moveItem(i, to);
+      };
+      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+    });
+  }
   // The row of title cards under the timeline: every card Shelf read, one click away.
   function drawCards() {
     var list = $('edCardList');
@@ -944,6 +989,11 @@
     var items = split ? st.parts.map(function (p, i) { return { entry: p.entry, i: i, a: b[i], z: b[i + 1] }; }) : st.oneEntries.map(function (e, i) { return { entry: e, i: i }; });
     items.forEach(function (it) {
       var e = it.entry, card = e && st.cards.filter(function (c) { return c.key === keyOf(e); })[0];
+      // More than one: drag by the grip (or Alt+↑ / Alt+↓ on it) to put them in the order they play.
+      var grip = items.length > 1 ? el('button', { type: 'button', class: 'ed-grip', title: 'Drag to change the order (or Alt+↑ / Alt+↓)',
+        'aria-label': 'Move ' + (e ? code(e) + ' ' + (e.name || '') : (split ? 'part ' : 'episode ') + (it.i + 1)) + '. Alt+Up or Alt+Down moves it.',
+        onkeydown: function (ev) { if (ev.altKey && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) { ev.preventDefault(); ev.stopPropagation(); moveItem(it.i, it.i + (ev.key === 'ArrowUp' ? -1 : 1)); } } },
+        [svg('M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01')]) : null;
       var dot = el('span', { class: 'ed-dot', 'data-part': it.i % 2, text: String(it.i + 1) });
       var head = el('div', { class: 'ed-part-head' }, split ? [
         el('button', { type: 'button', class: 'ed-part-go', title: 'Go to where part ' + (it.i + 1) + ' starts (' + fmt(it.a) + ')',
@@ -951,6 +1001,7 @@
         [dot, el('b', { text: 'Part ' + (it.i + 1) }), el('span', { class: 'ed-go', text: 'Go to start' })]),
         el('span', { class: 'ed-range', title: fmt(it.a) + ' – ' + fmt(it.z), text: fmt(it.z - it.a, false) + ' long' })
       ] : [dot, el('b', { class: 'ed-part-k', text: st.oneEntries.length > 1 ? 'Episode ' + (it.i + 1) + ' in this file' : 'This file' })]);
+      if (grip) head.insertBefore(grip, head.firstChild);
       var epBox = e
         ? el('div', { class: 'ed-ep' + (st.newKey === keyOf(e) ? ' is-new' : '') }, [el('span', { class: 'ed-code', text: code(e) }), el('span', { class: 'ed-name', text: e.name || '(no title)' })])
         : el('div', { class: 'ed-ep is-empty' }, [el('span', { class: 'ed-name', text: split ? 'No episode chosen yet' : 'Choose which episode this is' })]);
@@ -966,7 +1017,7 @@
             var pick = { season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'manual' };
             if (split) { setPart(it.i, pick); return; }
             st.oneEntries[it.i] = pick;
-            if (!split) st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+            if (!split && !st.ordered) st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
             st.newKey = keyOf(pick);
             drawAll();
             info('Changed to ' + code(pick) + ' “' + pick.name + '”.');
@@ -1006,6 +1057,15 @@
             el('span', { text: 'Wrong spot? Go to it and click Remove Mark.' })
           ])
         ]));
+        else if (card.heard) row.push(el('div', { class: 'ed-proof' }, [
+          el('button', { type: 'button', class: 'ed-thumb', title: 'Go to where this episode’s title card should be', onclick: function () { goCard(card); } },
+            [frameImg(card.t, 320, 'Where its title card should be')]),
+          el('div', { class: 'ed-proof-text' }, [
+            el('span', { class: 'ed-sure mid', text: '♪ Heard at ' + fmt(card.heardT != null ? card.heardT : card.t, false) + (card.heardT != null && Math.abs(card.heardT - card.t) > 2 ? ' · card about ' + fmt(card.t, false) : '') }),
+            card.text ? el('q', { title: 'What Shelf heard' }, marked(card.text, card.name)) : null,
+            el('span', { text: 'The title card couldn’t be read. Wrong spot? Go to the card and click Mark Title Card Here.' })
+          ])
+        ]));
         else row.push(el('div', { class: 'ed-proof' }, [
           el('button', { type: 'button', class: 'ed-thumb', title: 'Go to this title card in the video', onclick: function () { goCard(card); } },
             [frameImg(card.t, 320, 'The frame Shelf read')]),
@@ -1018,7 +1078,9 @@
       } else if (e) {
         row.push(el('p', { class: 'ed-how' + (e.how === 'manual' ? ' manual' : ''), text: e.how === 'title' ? 'From the episode title in the file name.' : e.how === 'manual' ? 'You chose this.' : e.how === 'halfhour' ? 'Worked out from the half-hour number in the file name.' : e.how === 'length' ? 'From the video’s length. Check it in the video.' : 'From the episode number in the file name. Check it in the video.' }));
       }
-      box.appendChild(el('div', { class: 'ed-part' + (split && it.i === partAt(st.t) ? ' is-cur' : '') + (it.fresh ? ' is-new' : ''), 'data-part': it.i % 2 }, row));
+      var partEl = el('div', { class: 'ed-part' + (split && it.i === partAt(st.t) ? ' is-cur' : '') + (it.fresh ? ' is-new' : ''), 'data-part': it.i % 2 }, row);
+      if (grip) dragOrder(partEl, grip, it.i);
+      box.appendChild(partEl);
     });
     if (!split) {
       var add = el('button', { type: 'button', class: 'ed-add', 'data-opens-browser': '1', text: '+ Add Another Episode in This File' });
@@ -1028,7 +1090,7 @@
           readAt: st.t, suggest: [{ e: last && next(last), why: 'Comes after ' + (last ? code(last) : '') }].concat(suggestAt(st.t, null)), onPick: function (x) {
           if (st.oneEntries.some(function (y) { return keyOf(y) === keyOf(x); })) return;
           st.oneEntries.push({ season: x.season, number: x.number, name: x.name, runtime: x.runtime || null, how: 'manual' });
-          st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
+          if (!st.ordered) st.oneEntries.sort(function (p, q) { return p.season - q.season || p.number - q.number; });
           st.newKey = keyOf(x);
           drawAll();
         } });
@@ -1043,7 +1105,7 @@
       st.parts.forEach(function (p) { if (p.entry) { if (seen[keyOf(p.entry)]) { ok = false; warn = 'Two parts are the same episode.'; } seen[keyOf(p.entry)] = 1; } });
       if (!st.cuts.length) { ok = false; warn = 'Add a cut where the second episode starts.'; }
     } else {
-      var en = st.oneEntries;
+      var en = st.oneEntries.slice().sort(function (p, q) { return p.season - q.season || p.number - q.number; });
       if (!en.length) { ok = false; warn = 'Choose at least one episode.'; }
       var together = en.every(function (x, i) { return i === 0 || (x.season === en[i - 1].season && x.number === en[i - 1].number + 1); });
       if (en.length > 1 && !together) { ok = false; warn = 'These episodes aren’t next to each other, so Plex can’t show one file as all of them. Split the file instead (top right), or choose episodes in a row.'; }
