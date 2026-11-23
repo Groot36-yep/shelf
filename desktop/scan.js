@@ -597,6 +597,16 @@ async function scanFile(file, secs, opts) {
     if (!hit && likely && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
     const names = (x) => { const m = x.replace(/[^A-Za-z]/g, '').length >= 3 && opts.isMatch([x], i); return !!m && (!hit.entry || m.entry === hit.entry); };
     if (hit && strict && read.concat(strict === 2 ? after : []).filter(names).length < (strict === 2 ? 2 : 1)) { hit = null; run.unsure = true; }
+    // A title that's the start of a longer one ("Unfair Science Fair" / "...Redux (Another Story)"): the rest may not have
+    // been read yet. A second look a moment later settles it (the longer one if its own words show up then).
+    if (hit && hit.longer && !(opts.cancelled && opts.cancelled())) {
+      for (const d of [1.5, 3]) {
+        const more = (await readMany(await frameVariants(file, run.t + d, false).catch(() => [])).catch(() => []))
+          .filter((x) => x.replace(/[^A-Za-z]/g, '').length >= 3).map((x) => x.slice(0, 300));
+        const m2 = more.length && opts.isMatch(read.concat(more), i);
+        if (m2 && m2.entry === hit.longer) { hit = m2; read.push(...more); break; }
+      }
+    }
     // (Not the readings of a title turned down here: the window judges the readings again, more loosely, and would
     // bring it back.)
     if (read.length && !run.unsure) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
@@ -653,6 +663,24 @@ async function scanFile(file, secs, opts) {
         // (Read just as the usual search reads it, which so needn't again; but a title read there and not confirmed
         // is judged again the usual way.)
         if (!run.unsure && !look.secs) tried.push(look.t);
+      }
+    }
+    // The very start of the video (its first cartoon): one cut from a longer video, or one that begins with its cartoon,
+    // has its card in the first seconds, after the silence there if there is one ("Unfair Science Fair Redux", split off
+    // a half-hour, at 6-12 s over a moving shot, while this show's cards were otherwise about a minute in). A few looks,
+    // only when the quick look found nothing.
+    if (!found && i === 0 && wins[0].from === 0 && !(opts.cancelled && opts.cancelled())) {
+      // (Not the hush the file itself begins with.)
+      const q0 = (curQuiet || []).filter((q) => q.a >= 0.5 && q.b <= 20 && q.b - q.a >= 0.3)[0];
+      const offs = afterQuiet.length ? [afterQuiet[0], afterQuiet[0] + 2] : [1.2, 3.5];
+      const early = (q0 ? offs.map((d) => q0.b + d) : [2, 5, 8])
+        .filter((t) => t < (secs || 1e9) - 1 && !tried.some((x) => Math.abs(x - t) < 1));
+      for (const t of early) {
+        if (opts.cancelled && opts.cancelled()) break;
+        const run = { t, start: q0 ? q0.b : 0, secs: 0, probe: true, rightAfterBlack: true };
+        const hit = await readFrame(run, i, true, 2);
+        if (hit) { found = true; foundHit = hit; break; }
+        if (!run.unsure) tried.push(t);
       }
     }
     if (!found) {

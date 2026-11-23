@@ -105,6 +105,18 @@ check('words on screen in many of a show’s videos (its credits) don’t count 
     ['story', 'jennifer', 'keene']);
 });
 
+check('a longer title wins when its own words are read; a rival from one shared word, or from letters alone, isn’t one', () => {
+  const list = pf.concat([{ season: 1, number: 47, name: 'Unfair Science Fair Redux (Another Story)', runtime: 15 },
+    { season: 4, number: 24, name: 'Troy Story', runtime: 15 }, { season: 3, number: 20, name: 'My Fair Goalie', runtime: 15 }]);
+  const redux = P.matchCardText(['Ev AY gl = — NN — — eer z= < Fray Science Fair Redux” (Another Story). «JE'], list, [], SHOW);
+  assert.strictEqual(redux && redux.entry.name, 'Unfair Science Fair Redux (Another Story)', '"Bee Story" (letters) and "Troy Story" (one word) are no rivals');
+  const rough = P.matchCardText(['3 =, i] - a ~— — NE a FBnfalr, Science Fair Redut” Aretherlc ery)'], list, [], SHOW);
+  assert.strictEqual(rough && rough.entry.name, 'Unfair Science Fair Redux (Another Story)', '"Redut" is Redux: the longer title');
+  const plain = P.matchCardText(['"Unfair Science Fair"'], list, [], SHOW);
+  assert.strictEqual(plain && plain.entry.name, 'Unfair Science Fair');
+  assert.strictEqual(plain.longer && plain.longer.name, 'Unfair Science Fair Redux (Another Story)', 'the scanner is told to look again');
+});
+
 // What's said at the start, against descriptions (TVmaze's, trimmed).
 const told = (text) => ({ text, lines: text.split(/(?<=[.?!])\s+/).map((t, i) => ({ t: i * 4, text: t })) });
 const pfAbout = pf.map((e) => Object.assign({}, e, {
@@ -152,6 +164,19 @@ check('a reality show’s episode, from what’s said about the cake', () => {
   assert.strictEqual(m && m.entry.name, 'Museum, Mistakes, and Mother Mary');
   const m2 = P.matchHeard(told('I will make a long green roulette table, with the chips and the wheel. Wedding season is starting, the orders are piling up.'), cb);
   assert.strictEqual(m2 && m2.entry.name, 'Weddings, Water and Whacked!');
+});
+
+check('the title in a file’s name stands when listening ranks it a close second ("Flop Starz" heard as a pop-star episode)', () => {
+  const list = [{ season: 1, number: 3, name: 'Flop Starz', runtime: 15 }, { season: 1, number: 4, name: 'The Fast and the Phineas', runtime: 15 },
+    { season: 2, number: 58, name: 'Ladies and Gentlemen, Meet Max Modem!', runtime: 15 }];
+  const parsed = P.parseFilename('Phineas and Ferb - S01E03 - Flop Starz [1080p WEB-DL].mkv');
+  const ctx = (alts) => ({ show: 'Phineas and Ferb', file: { minutes: 12, parts: 1, cards: [{ part: 0, t: 32, start: 0, texts: [], heard: { key: '2x58', score: 23.7, margin: 2.4, alts } }] } });
+  const close = P.resolveEpisode(parsed, list, ctx([{ key: '1x3', score: 12.9 }]));
+  assert.strictEqual(close.number, 3, 'the name’s episode was a close second');
+  assert.notStrictEqual(close.how, 'heard');
+  const far = P.resolveEpisode(parsed, list, ctx([{ key: '1x4', score: 5 }]));
+  assert.strictEqual(far.number, 58, 'nowhere near: asked, with both');
+  assert.strictEqual(far.sure, false);
 });
 
 // Paths: a video in a season's folder is an episode even without a number in its name.

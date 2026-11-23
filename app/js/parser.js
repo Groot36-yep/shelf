@@ -841,7 +841,8 @@
   }
   // How much of a title's words appear in what was read. Readings of the same frame are pooled: one
   // version may catch "SPONGEBOB'S", another "LAST", another "STAND".
-  function wordScore(title, tokens, blob, perReading) {
+  // found (optional): the title's real words that were read are added to it (to compare two titles' evidence).
+  function wordScore(title, tokens, blob, perReading, found) {
     var ws = cardWords(title).filter(function (w, i, a) { return a.indexOf(w) === i; }); // "Mine … Mine" counts once
     var hit = ws.map(function (w) { return wordHit(w, tokens, blob); });
     // A title with only one short real word ("Not Normal", "Pickles") rests on that word alone,
@@ -899,6 +900,7 @@
     });
     // A title with two or more real words needs at least two of them; and one of them read cleanly.
     if (!total || !strong || hits < Math.min(2, words)) return 0;
+    if (found) ws.forEach(function (w, i) { if (hit[i] >= 0.5 && !CARD_STOP[w]) found.push(w); });
     return got / total;
   }
   /**
@@ -936,7 +938,7 @@
     'home life world everyone everybody anyone someone somebody friend mom dad family kid boy girl hand head live play ' +
     'run walk talk hear watch wanna gotta guess huh wow cause yet already ago long lot lots fine bad hard easy fast ' +
     'together whatever ever happen year minute hour second three four five idea part head left stuff course doesn ' +
-    'lady gentlemen evening welcome hello').split(' ');
+    'lady gentlemen evening welcome hello might probably definitely totally kinda sort pretty').split(' ');
   var heardCommon = {}; HEARD_COMMON.forEach(function (w) { heardCommon[w] = 1; });
   function heardWords(s) {
     return String(s || '').toLowerCase().replace(/[’']s\b/g, '').replace(/[^a-z0-9]+/g, ' ').split(' ').map(function (w) {
@@ -1027,7 +1029,9 @@
       ws.forEach(function (w) { if (best.d.set[w] && !seen[w]) { seen[w] = 1; v += idf(w) * best.d.set[w]; } });
       if (v > lineScore) { lineScore = v; line = l; }
     });
-    return { entry: best.d.e, score: Math.round(best.score * 10) / 10, margin: Math.round(best.score / Math.max(0.1, second.score) * 10) / 10, words: words, line: line ? { t: line.t, text: String(line.text).slice(0, 220) } : null };
+    return { entry: best.d.e, score: Math.round(best.score * 10) / 10, margin: Math.round(best.score / Math.max(0.1, second.score) * 10) / 10, words: words, line: line ? { t: line.t, text: String(line.text).slice(0, 220) } : null,
+      // The runners-up ("season x number" and score): a file whose name gives one of them keeps its name (see resolveEpisode).
+      alts: scored.slice(1, 4).filter(function (x) { return x.score > 0; }).map(function (x) { return { key: x.d.e.key || x.d.e.season + 'x' + x.d.e.number, score: Math.round(x.score * 10) / 10 }; }) };
   }
 
   // inSeason: the episodes of the season the file's name gives and the seasons either side (lists don't agree on
@@ -1049,7 +1053,7 @@
     var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-') + '\u0002' + (show || '') + (nt ? '\u0002' + Object.keys(nt).join(' ') : '');
     if (cardMemo.has(key)) {
       var hit = cardMemo.get(key);
-      return hit && { entry: entries[hit.i], score: hit.score };
+      return hit && { entry: entries[hit.i], score: hit.score, longer: hit.l >= 0 ? entries[hit.l] : null };
     }
     var res = matchCardTextNow(texts, entries, near, show, nt);
     // "SpongeBob SquarePants" on the logo is one letter-pair away from the episode "SpongeBob SpareParts": a
@@ -1062,7 +1066,7 @@
       if (fit(show) <= fit(res.entry.name)) res = null;
     }
     if (cardMemo.size > 5000) cardMemo.clear();
-    cardMemo.set(key, res && { i: entries.indexOf(res.entry), score: res.score });
+    cardMemo.set(key, res && { i: entries.indexOf(res.entry), score: res.score, l: res.longer ? entries.indexOf(res.longer) : -1 });
     return res;
   }
   // Opening credits ("Story by Jon Colton Barry", "Storyboards by …", "Created by …") are read on the frames around a
@@ -1145,7 +1149,8 @@
         // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
         // score counts as before. Anywhere else the words themselves have to show up.
         var nearOne = near && near.indexOf(e) >= 0;
-        var ws = wordScore(name, tokens, blob, perReading);
+        var seenWords = [];
+        var ws = wordScore(name, tokens, blob, perReading, seenWords);
         // Two weaker signs together: some words show up, and the whole title is close letter for
         // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
         var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
@@ -1157,13 +1162,20 @@
           if (!others.some(function (w) { return !!wordHit(w, tokens, blob); })) best = 0;
         }
         // (subIn: how long the reading was that the title's letters were found in, for the check below.)
-        if (!top1 || best > top1.score) top1 = { entry: e, score: best, ws: ws, scattered: subIn > t.length * 1.6, tokens: tokens };
+        if (!top1 || best > top1.score) top1 = { entry: e, score: best, ws: ws, scattered: subIn > t.length * 1.25, tokens: tokens, words: seenWords };
       });
       if (top1) scored.push(top1);
     });
     scored.sort(function (a, b) { return b.score - a.score || squash(b.entry.name).length - squash(a.entry.name).length; });
     var top = scored[0], next = scored[1];
     if (!top) return null;
+    // A title inside a longer one ("Unfair Science Fair" in "Unfair Science Fair Redux (Another Story)"): when words
+    // only the longer one has were read ("Redux"), and it fits about as well, it's the longer one.
+    var longer = scored.filter(function (o) {
+      return o !== top && o.score >= top.score - 0.15 && squash(o.entry.name).indexOf(squash(top.entry.name)) >= 0 &&
+        o.words.some(function (w) { return cardWords(top.entry.name).indexOf(w) < 0; });
+    })[0];
+    if (longer) { top = longer; next = scored.filter(function (o) { return o !== longer; })[0]; }
     // "Mermaid Man and Barnacle Boy" vs "... II": same words; prefer the one the text fits best,
     // but don't call it a win if a different title is about as good.
     var rival = next && squash(top.entry.name).indexOf(squash(next.entry.name)) < 0 && squash(next.entry.name).indexOf(squash(top.entry.name)) < 0 ? next : scored.filter(function (o) {
@@ -1177,7 +1189,8 @@
     // Only a loose letter-for-letter likeness, and not one of the title's words seen: needs more
     // ("ae So ZENON ~¥) 0) TC" is not "As Seen on TV").
     if (!top.ws && isNear) need = Math.max(need, 0.6);
-    // A short title with none of its words read, its letters scattered through a long smudge ("& 4 rg Jig A; ESLER we
+    // A short title with none of its words read, its letters scattered through a longer smudge ("pd i to ps TY A rs" is
+    // 0.67 like "Flop Starz"; "& 4 rg Jig A; ESLER we
     // NL" is 0.64 like "Got Game?"), is chance: the likeness has to be clearer. (A short rough reading that's little
     // more than the title, "P a kto" for "Plankton!", is another matter.)
     if (!top.ws && top.scattered && squash(top.entry.name).length < 10) need = Math.max(need, 0.7);
@@ -1187,6 +1200,12 @@
     var letters = {}; squash(top.entry.name).split('').forEach(function (c) { letters[c] = 1; });
     if (!top.ws && Object.keys(letters).length <= 5) need = Math.max(need, 0.8);
     if (top.score < need) return null;
+    // A rival whose every word read is also one of this title's, with more of this title's words read besides ("Bee
+    // Story" from "Story", next to "...Science Fair Redux (Another Story)"), is no real alternative.
+    if (rival && rival.words.length && top.words.length >= rival.words.length + 2 && rival.words.every(function (w) { return top.words.indexOf(w) >= 0; })) rival = null;
+    // ...nor is one that only looks alike letter for letter, none of its words read, next to a title with three or more
+    // of its words read ("Bee Story" in "...(Another Story)").
+    if (rival && !rival.ws && top.words.length >= 3) rival = null;
     if (rival && top.score - rival.score < margin && top.score < 0.9) return null;
     // Another title shares most of the words ("The Battle of Bikini Bottom", "The Curse of Bikini Bottom"): the
     // word that tells them apart has to be read cleanly, not just guessed from a near miss ("BetTo").
@@ -1195,7 +1214,11 @@
       if (own.length && own.length < cardWords(top.entry.name).filter(function (w) { return !CARD_STOP[w]; }).length &&
         !own.some(function (w) { return cleanHit(w, top.tokens); })) return null;
     }
-    return { entry: top.entry, score: Math.round(top.score * 100) / 100 };
+    // A title that's the start of a longer one ("Unfair Science Fair", "Unfair Science Fair Redux (Another Story)"): the
+    // rest may just not have been read yet (the scanner then looks again a moment later).
+    var tq = squash(top.entry.name);
+    var longerE = (entries || []).filter(function (e) { return e !== top.entry && e.number != null && squash(e.name).length > tq.length + 3 && squash(e.name).indexOf(tq) === 0; })[0] || null;
+    return { entry: top.entry, score: Math.round(top.score * 100) / 100, longer: longerE };
   }
 
   /**
@@ -1345,7 +1368,7 @@
       cardsIn.forEach(function (c, ci) {
         // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
         var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
-          : c.heard ? (heardEntry(c) ? { entry: heardEntry(c), score: 1.5, heard: true, hs: c.heard.score || 0, hm: c.heard.margin || 0 } : null)
+          : c.heard ? (heardEntry(c) ? { entry: heardEntry(c), score: 1.5, heard: true, hs: c.heard.score || 0, hm: c.heard.margin || 0, alts: c.heard.alts || [] } : null)
             : matchCardText(c.texts, pool, near, ctx.show || parsed.title, inSeason, ctx.notTitle);
         var slot = c.mark ? 'm' + ci : c.part;
         if (mm && (!best[slot] || mm.score > best[slot].score)) best[slot] = Object.assign({ t: c.t }, mm);
@@ -1363,7 +1386,10 @@
       var namedE = namedM && namedM.entries && namedM.entries.length === 1 ? namedM.entries[0] : null;
       if (namedE && !(namedE.season === found[0].season && namedE.number === found[0].number)) {
         var b0 = best[Object.keys(best)[0]];
-        if (cardHow === 'heard' && !(b0.hm >= 2 && b0.hs >= 10)) found = [];
+        // What was heard fits the episode the name gives nearly as well (at least half as well: the runner-up, say):
+        // listening only narrowed it down, and the name settles it.
+        var namedAlt = (b0.alts || []).filter(function (a) { return a.key === namedE.season + 'x' + namedE.number; })[0];
+        if (cardHow === 'heard' && (!(b0.hm >= 2 && b0.hs >= 10) || (namedAlt && namedAlt.score >= b0.hs * 0.5))) found = [];
         else return out(found, cardHow, false, 'The file’s name says “' + namedE.name + '”, but ' + (cardHow === 'heard' ? 'what’s said at the start fits ' : 'its title card reads ') +
           'S' + pad2(found[0].season) + 'E' + pad2(found[0].number) + ' “' + found[0].name + '”. Check which it is.');
       }

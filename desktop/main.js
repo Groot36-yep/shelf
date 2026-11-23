@@ -876,7 +876,7 @@ if (gotLock) app.whenReady().then(() => {
               try { m = await hear(src ? src.url : f, p.from, hearList, secs, seen.heard >= 2 ? seen.seasons : null, seen); } catch (e) { if (cardCancel) break; }
               if (!m) continue;
               seen.heard++; seen.seasons.push(m.entry.season);
-              r.texts.push({ part: p.part, t: m.line ? m.line.t : Math.round(p.from), start: Math.round(p.from), texts: [], heard: { name: m.entry.name, key: m.entry.key, quote: m.line ? m.line.text : '', words: m.words, score: m.score, margin: m.margin } });
+              r.texts.push({ part: p.part, t: m.line ? m.line.t : Math.round(p.from), start: Math.round(p.from), texts: [], heard: { name: m.entry.name, key: m.entry.key, quote: m.line ? m.line.text : '', words: m.words, score: m.score, margin: m.margin, alts: m.alts || [] } });
               send({ kind: 'found', path: f, index: i, total: files.length, t: m.line ? m.line.t : p.from, part: p.part, title: m.entry.name, heard: true });
             }
             if (lp.n === 1 && r.texts.some((x) => x.heard) && !foundParts.size) parts = 1; // one episode, heard
