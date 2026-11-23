@@ -1042,6 +1042,8 @@
   // where seasons start: TVmaze's SpongeBob season 8 is everyone else's 7). A card from further away counts only
   // when it's read almost perfectly: otherwise the best title of those seasons (when one is read well enough).
   var OTHER_SEASON = 0.85;
+  // A reading this good is clear enough to overrule a file's name that gives matching titles and numbers (see resolveFrom).
+  var CLEAR_READ = 0.85;
   // notTitle: words this show puts on screen in many of its videos that were never their title (its credits, "Story By
   // Jennifer Keene", learned while reading; see otherCardWords). They're left out of the readings, so "Story" can't
   // pass for "Storm" ("Imperfect Storm") — except where a title has that word itself ("Bee Story"), which still counts
@@ -1414,6 +1416,14 @@
       var says = function (e) { return nameSays.indexOf(e) >= 0; };
       if (Object.keys(best).some(function (k) { return !best[k].heard && says(best[k].entry); })) {
         Object.keys(best).forEach(function (k) { if (best[k].heard && !says(best[k].entry)) delete best[k]; });
+        // And when the name gives titles that fit its own numbers ("S01E30E31 Sleepy Time - Suds"), a rough reading of
+        // another episode doesn't overrule it either ("SUS / STS / SUAS" on the bubbly Suds card read as "Scaredy
+        // Pants", credits read as "The String"). A clear reading, or a card you marked, still does.
+        var lastNo = parsed.episodeEnd || parsed.episode;
+        var nameFits = !!(namedAll && namedAll.season === season && namedAll.entries.length && parsed.episode != null &&
+          namedAll.entries.every(function (e) { return e.number >= parsed.episode && e.number <= lastNo; }));
+        // (Nor does one from another season: a garbled credits frame "read" as season 11's "The String".)
+        if (nameFits) Object.keys(best).forEach(function (k) { var b = best[k]; if (!b.heard && (b.score < CLEAR_READ || b.entry.season !== season) && !says(b.entry)) delete best[k]; });
       }
       // Known only by listening, in a later cartoon: its title card is where Shelf looked for it (the lettering
       // couldn't be read), not where the words were heard ("suds" said two minutes in).

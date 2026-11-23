@@ -225,6 +225,18 @@ withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { min
 withFile('SpongeBob SquarePants S01E04E05 Bubblestand - Ripped Pants.mkv', { minutes: 24, parts: 2, cards: [{ part: 0, texts: ['Ripped Pants'] }] }, 'S1E4-E5');
 withFile('SpongeBob SquarePants S01E04 Bubblestand.mkv', { minutes: 24, parts: 2, cards: [{ part: 0, texts: ['x7 Q# ]'] }, { part: 1, texts: ['Ripped Pants'] }] }, 'S1E4-E5');
 withFile('SpongeBob SquarePants S01E04E05.mkv', { minutes: 24 }, 'S1E4-E5');
+check('a name with titles that fit its numbers isn’t overruled by a rough reading (real season 1 files)', () => {
+  // Read in a 20-file run: the bubbly "Suds" card as "Scaredy Pants" (0.67), and garbled credits as season 11's "The String" (0.86).
+  const M = require('./fixtures/sb-s01-misreads.json'), list = SB.concat([{ season: 11, number: 53, name: 'The String', runtime: 11 }]);
+  for (const [name, f] of Object.entries(M)) {
+    const r = P.resolveEpisode(P.parseFilename(name), list, { mode: 'segments', sure: true, segmented: true, show: 'SpongeBob SquarePants', file: { minutes: f.minutes, parts: 2, cards: f.cards } });
+    const want = name.match(/E(\d+)/g).map((x) => +x.slice(1));
+    assert.ok(r && r.sure && r.number === want[0] && r.end === want[1], name + ' → ' + JSON.stringify(r && [r.number, r.end, r.sure, r.note]));
+  }
+  // A clear reading of another episode still counts: asked, not ignored.
+  const clear = P.resolveEpisode(P.parseFilename('SpongeBob SquarePants S01E30E31 Sleepy Time - Suds.mkv'), SB, { segmented: true, file: { minutes: 24, parts: 2, cards: [{ part: 0, t: 52, texts: ['SlEcPy TiME'] }, { part: 1, t: 725, texts: ['Scaredy Pants'] }] } });
+  assert.strictEqual(clear.sure, false);
+});
 check('a cartoon known by listening has its title card where Shelf looked, not where the word was heard', () => {
   // From a real file: the "Suds" card (bubble lettering) couldn't be read at 12:04; "suds" was heard at 14:22.
   const f = { minutes: 24.4, parts: 2, cards: [{ part: 0, t: 52, texts: ['SlEcPy TiME'] }, { part: 1, t: 725, texts: ['la) LAD d 2 1'] }, { part: 1, t: 724, texts: ['la) LAD d'] }, { part: 1, t: 744, texts: ['NN. & 1%)'] },

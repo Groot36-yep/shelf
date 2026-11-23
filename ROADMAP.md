@@ -22,6 +22,10 @@ Where things stand, and what's left to do. Newest first.
 - **Listening can't overrule the name and a title card.** The theme song "sounding like" another episode split a
   correctly named file in two; a hearing that disagrees with both is now ignored, and only episodes the file holds
   show up in Inspect.
+- **A rough reading can't overrule a name whose titles fit its numbers.** On a whole season of SpongeBob (20 files),
+  the bubbly "Suds" card read as "Scaredy Pants" and garbled credits read as season 11's "The String" split two
+  correctly named files; now a contrary reading only counts when it's clear (or a card you marked). Season 1: 20 of 20
+  right, with nothing to ask.
 - **Title cards known by listening are placed where the card is**, where Shelf looked for it (Suds at 12:05), not
   where the word was said (14:22), and Inspect labels them "heard".
 
