@@ -29,6 +29,17 @@ Where things stand, and what's left to do. Newest first.
 - **Title cards known by listening are placed where the card is**, where Shelf looked for it (Suds at 12:05), not
   where the word was said (14:22), and Inspect labels them "heard".
 
+- **Fixes from a code review:**
+  - Opening a server video in Inspect that can't be read no longer locks up later server actions until Shelf
+    restarts.
+  - MusicBrainz and AcoustID lookups give up after 30 seconds instead of waiting forever, so one stuck request no
+    longer holds up every music lookup after it.
+  - Quitting stops the speech reader and picture jobs.
+  - Songs made smaller get the album's cover.jpg too.
+  - Undoing a split on your server gives the original its name back before removing the pieces, and its undo record
+    is written safely.
+  - Server Files no longer redraws the whole folder on every click or arrow key.
+  - The app's own test now checks its results.
 ## Done (2.8.0)
 - **Every episode in Check All has a picture, and never a black one.** Episodes known from their file name or from
   what was heard used to show none; now each shows a moment of the video (where a card was, where the words were
