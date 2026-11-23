@@ -3,6 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const assert = require('assert');
 const { _electron: electron } = require(process.env.PLAYWRIGHT || 'playwright');
 
 const ROOT = path.join(__dirname, '..');
@@ -41,8 +42,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await win.route('**/*', handle);
   await win.waitForLoadState();
   console.log('version:', await win.textContent('#appVersion'));
-  console.log('url:', win.url(), '| native:', await win.evaluate(() => document.documentElement.classList.contains('native')),
-    '| page can use Node:', await win.evaluate(() => typeof require !== 'undefined' || typeof process !== 'undefined'));
+  const native = await win.evaluate(() => document.documentElement.classList.contains('native'));
+  const pageNode = await win.evaluate(() => typeof require !== 'undefined' || typeof process !== 'undefined');
+  console.log('url:', win.url(), '| native:', native, '| page can use Node:', pageNode);
+  // The window is Shelf's own page, with Shelf's bridge, and never Node.
+  assert.strictEqual(win.url(), 'app://shelf/index.html');
+  assert.strictEqual(native, true, 'the desktop bridge is there');
+  assert.strictEqual(pageNode, false, 'the page must not be able to use Node');
+  assert.match(await win.textContent('#appVersion'), new RegExp(require('../package.json').version.replace(/\./g, '\\.')));
   await win.click('#menuBtn'); await win.click('#mainMenu [data-open=settings]');
   await win.click('#setTabs [data-page=keys]'); await win.fill('#keyInput', 'test-key'); await win.dispatchEvent('#keyInput', 'change');
   await win.keyboard.press('Escape'); await sleep(300);
@@ -51,18 +58,36 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (await win.evaluate(() => window.Shelf.items().length === 4 && window.Shelf.items().every((x) => !['pending', 'matching'].includes(x.status)))) break;
     await sleep(250);
   }
-  console.log('matched:', await win.evaluate(() => window.Shelf.items().map((i) => i.name + ' -> ' + i.status)));
+  const matched = await win.evaluate(() => window.Shelf.items().map((i) => i.name + ' -> ' + i.status));
+  console.log('matched:', matched);
+  assert.strictEqual(matched.length, 4);
+  assert.ok(matched.every((m) => / -> matched$/.test(m)), 'every file matched');
   await win.click('#renameBtn');
   await win.click('#pickLib'); await sleep(400);
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT });
   await win.click('#renameNow'); await sleep(1500);
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.relative(lib, path.join(d, e.name))]);
-  console.log('library now:', walk(lib));
+  const named = walk(lib).map((p) => p.split(path.sep).join('/')).sort();
+  console.log('library now:', named);
   console.log('downloads now:', fs.readdirSync(videos));
-  console.log('undo button showing:', await win.isVisible('#undoBar'));
+  assert.deepStrictEqual(named, [
+    'Movies/Charade (1963)/Charade (1963).mkv',
+    'Movies/Weird Name (2001)/Weird Name (2001).mkv',
+    'TV Shows/Bonanza {tmdb-3456}/Season 01/Bonanza - S01E01 - A Rose for Lotta.en.srt',
+    'TV Shows/Bonanza {tmdb-3456}/Season 01/Bonanza - S01E01 - A Rose for Lotta.mkv'
+  ], 'named and filed the Plex way (subtitles with their video)');
+  assert.deepStrictEqual(fs.readdirSync(videos), [], 'moved out of Downloads');
+  const undoShown = await win.isVisible('#undoBar');
+  console.log('undo button showing:', undoShown);
+  assert.ok(undoShown, 'Undo is offered');
   await win.click('#undoBar'); await sleep(1000);
-  console.log('after undo -> downloads:', fs.readdirSync(videos), '| library files:', walk(lib).length);
+  const back = fs.readdirSync(videos).sort();
+  console.log('after undo -> downloads:', back, '| library files:', walk(lib).length);
+  assert.deepStrictEqual(back, ['bonanza.s01e01.en.srt', 'bonanza.s01e01.mkv', 'charade.1963.1080p.mkv', "weird 'name' $(x) 2001.mkv"], 'Undo put every file back');
+  assert.strictEqual(walk(lib).length, 0, 'and left nothing in the library');
   await app.close();
   console.log('ERRORS:', errors);
+  assert.deepStrictEqual(errors, [], 'no errors in the window');
   fs.rmSync(tmp, { recursive: true, force: true });
-})().catch((e) => { console.error(e); process.exit(1); });
+  console.log('App test passed');
+})().catch((e) => { console.log('FAIL', e.message); process.exit(1); });

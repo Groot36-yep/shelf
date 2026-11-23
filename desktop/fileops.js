@@ -303,18 +303,20 @@ async function runTagged(op, from, to, dir, caseOnly, mode, opts, res, journal) 
     }
   }
   if (!journal.done.includes(rec)) journal.done.push(rec);
-  // The album's cover as a picture in its folder (once, never over one that's there).
-  if (want && want.folder) {
-    const pic = path.join(dir, 'cover.jpg');
-    if (!(await exists(pic))) {
-      const big = await opts.coverFor(want, 1200).catch(() => null);
-      if (big && /jpe?g/i.test(big.mime)) {
-        await fsp.writeFile(pic, big.data, { flag: 'wx' }).then(() => journal.done.push({ made: pic, size: big.data.length }), () => {});
-      }
-    }
-  }
+  await folderCover(want, dir, opts, journal);
   if (opts.journalPath) await writeJournal(opts.journalPath, journal);
   res.ok = true; res.to = to; res.tagged = !res.note;
+}
+
+// The album's cover as a picture in its folder (once, never over one that's there; Undo removes it).
+async function folderCover(want, dir, opts, journal) {
+  if (!want || !want.folder || !opts.coverFor) return;
+  const pic = path.join(dir, 'cover.jpg');
+  if (await exists(pic)) return;
+  const big = await opts.coverFor(want, 1200).catch(() => null);
+  if (big && /jpe?g/i.test(big.mime)) {
+    await fsp.writeFile(pic, big.data, { flag: 'wx' }).then(() => journal.done.push({ made: pic, size: big.data.length }), () => {});
+  }
 }
 
 /**
@@ -336,6 +338,8 @@ async function runShrink(op, from, to, dir, format, mode, opts, res, journal) {
     else rec.keptOriginal = true;
   }
   journal.done.push(rec);
+  // (Its album's cover.jpg too, as for a song that's only renamed.)
+  await folderCover(op.music.cover && opts.coverFor ? op.music.cover : null, dir, opts, journal);
   if (opts.journalPath) await writeJournal(opts.journalPath, journal);
   res.ok = true; res.to = to; res.converted = format; res.trashed = !!rec.trashed;
 }

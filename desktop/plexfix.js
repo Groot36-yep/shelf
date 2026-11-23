@@ -261,7 +261,13 @@ function setup(ctx, api) {
   });
 
   async function readJournal() { try { return JSON.parse(await fsp.readFile(journalFile(), 'utf8')); } catch (e) { return null; } }
-  async function writeJournal(j) { await fsp.mkdir(path.dirname(journalFile()), { recursive: true }); await fsp.writeFile(journalFile(), JSON.stringify(j)); }
+  // (Written whole to a temporary file, then put in place: a crash part way never leaves a broken one.)
+  async function writeJournal(j) {
+    await fsp.mkdir(path.dirname(journalFile()), { recursive: true });
+    const tmp = journalFile() + '.tmp';
+    await fsp.writeFile(tmp, JSON.stringify(j));
+    await fsp.rename(tmp, journalFile());
+  }
 
   // Remove a folder (and its parents, up to the library folder) only when it's empty.
   async function tidy(s, dir, root) {
@@ -515,11 +521,12 @@ function setup(ctx, api) {
     await withSession(async (s) => {
       for (const rec of j.done.slice().reverse()) {
         const { from, to } = rec;
-        if (rec.split) { // a split: its pieces go, and the original gets its name back
+        if (rec.split) { // a split: the original gets its name back, then its pieces go
           try {
             if (!(await s.stat(rec.kept)) || (await s.stat(from))) { kept++; continue; }
-            for (const m of rec.split) await s.unlink(m).catch(() => {});
+            // (In this order: if the original can't get its name back, the pieces stay, so the episodes never vanish.)
             await s.rename(rec.kept, from, false);
+            for (const m of rec.split) await s.unlink(m).catch(() => {});
             undone++;
             const lib = libraries().find((l) => l.folders.some((f) => from.startsWith(S.cleanRoot(f) + '/')));
             if (lib) { touched.add(lib.key); for (const m of rec.split) await tidy(s, posix.dirname(m), S.cleanRoot(lib.folders.find((f) => m.startsWith(S.cleanRoot(f) + '/')) || lib.folders[0])); }

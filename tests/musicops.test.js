@@ -122,7 +122,17 @@ const run = (args) => execFileSync(ff, ['-hide_banner', '-loglevel', 'error', '-
   const bad = path.join(src, '03 Bad.flac'); fs.writeFileSync(bad, Buffer.alloc(4000, 3));
   ({ results } = await fileops.run([Object.assign({}, shrinkOp, { source: bad, file: '03 - Bad.ogg' })], { library: lib, mode: 'move', allowed: new Set([bad]), journalPath: path.join(hist, '7.json'), coverFor, trash }));
   assert.ok(!results[0].ok && fs.existsSync(bad) && binned.length === 1, JSON.stringify(results[0]));
-  ok('made smaller (FLAC → Ogg Vorbis): tags and cover along; copy keeps the FLAC, move bins it only once the Ogg is checked; Undo');
+  // With the album's folder picture on, a song made smaller gets its cover.jpg too (and Undo removes it).
+  fs.renameSync(flac + '.binned', flac); // (back from the pretend bin)
+  const toAlbum = ['Music', 'ABBA', 'More ABBA Gold (1993)'];
+  j = path.join(hist, '8.json');
+  ({ results } = await fileops.run([Object.assign({}, shrinkOp, { folder: toAlbum, music: Object.assign({}, shrinkOp.music, { cover: { release: 'R1', group: 'G1', folder: true } }) })],
+    { library: lib, mode: 'copy', allowed: new Set([flac]), journalPath: j, coverFor }));
+  const pic2 = path.join(lib, ...toAlbum, 'cover.jpg');
+  assert.ok(results[0].ok && fs.existsSync(pic2) && fs.readFileSync(pic2).equals(coverBytes), 'cover.jpg for a song made smaller');
+  u = await fileops.undo(j);
+  assert.ok(u.undone === 1 && !fs.existsSync(pic2), 'Undo removes it');
+  ok('made smaller (FLAC → Ogg Vorbis): tags and cover along; copy keeps the FLAC, move bins it only once the Ogg is checked; cover.jpg; Undo');
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(passed + ' music rename checks passed');

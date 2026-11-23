@@ -218,13 +218,16 @@
       var have = covers[a.key];
       if (have && (have.src === src || !src)) return have.p;
       if (!src) return null;
+      // (Another edition's cover replaces this album's: the old picture is freed once the new one is on screen.)
+      var old = have && have.url;
       var entry = covers[a.key] = { src: src, url: null };
       entry.p = (song ? thumbOf(song.fullPath) : native.mbCover(caa.id, caa.group || '', 250).then(function (c) { return c ? blobUrl(c.data, c.mime) : null; }))
         .catch(function () { return null; })
         .then(function (u) {
-          if (covers[a.key] !== entry) return u;
+          if (covers[a.key] !== entry) { if (u && /^blob:/.test(u)) URL.revokeObjectURL(u); return null; }
           entry.url = u;
           if (u) document.querySelectorAll('.album-cover[data-cover="' + a.cid + '"]').forEach(function (box) { showCover(box, u); });
+          if (old && old !== u && /^blob:/.test(old)) URL.revokeObjectURL(old);
           return u;
         });
       return entry.p;
