@@ -139,6 +139,38 @@ jobs:
           Stop-Shelf
           exit $bad
 
+      - name: Installing over an older Shelf keeps its shortcuts and taskbar pin
+        shell: pwsh
+        run: |
+          # Shelf is installed from the step before. Mark its shortcuts, add a stand-in taskbar pin, run the
+          # installer again the way you would by hand (no --updated), and check nothing was deleted and remade.
+          $sh = New-Object -ComObject WScript.Shell
+          $links = @(
+            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Shelf.lnk'),
+            (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Shelf.lnk')
+          )
+          $pinDir = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+          New-Item -ItemType Directory -Force $pinDir | Out-Null
+          $pin = Join-Path $pinDir 'Shelf.lnk'
+          Copy-Item $links[1] $pin -Force
+          $bad = 0
+          foreach ($l in $links + $pin) {
+            if (-not (Test-Path $l)) { Write-Host "::error::No shortcut at $l after installing"; $bad++; continue }
+            $s = $sh.CreateShortcut($l); $s.Description = 'kept-by-update-check'; $s.Save()
+          }
+          if ($bad) { exit $bad }
+          $setup = Get-ChildItem dist -Filter 'Shelf-Setup-*.exe' | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          Start-Sleep 5
+          foreach ($l in $links + $pin) {
+            if (-not (Test-Path $l)) { Write-Host "::error::The update deleted $l"; $bad++; continue }
+            $s = $sh.CreateShortcut($l)
+            if ($s.Description -ne 'kept-by-update-check') { Write-Host "::error::The update remade $l instead of keeping it"; $bad++ }
+            elseif (-not (Test-Path $s.TargetPath)) { Write-Host "::error::$l points at a missing $($s.TargetPath)"; $bad++ }
+          }
+          if (-not $bad) { Write-Host "::notice::Shortcuts and the taskbar pin were kept through an update" }
+          exit $bad
+
       - name: The shipped app refuses to run scripts (RunAsNode fuse off)
         shell: pwsh
         run: |
