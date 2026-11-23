@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.7.0)
 - **Reading title cards is about a fifth quicker, and keeps learning.** Shelf hears the silent gap before each
   cartoon (under a second) and looks just after it first, instead of first going through minutes of video; when that
   finds the card, a video takes 2–5 seconds instead of 8–13. What it learns about each show (when its cards come,
@@ -10,6 +10,9 @@ Where things stand, and what's left to do. Newest first.
   it. Credits no longer pass for a title ("Story By …" was read as "Imperfect Storm"), a title read from one passing
   frame must be read twice, and a title Shelf turned down can't come back in the list. 34 test videos: 420 s → 331 s,
   with as many or more cards found.
+- **Fewer wrong titles.** A one-word title is no longer made of letters from two different words: a half-read
+  "Two Faces of Squidward" ("Sou DwArd") was taken for "UpWard". Pressing Stop while Shelf listens to an episode
+  keeps the title cards it already read in that video.
 - **Shelf's own key for your server is always a good one.** The SSH library spoiled about one new key in 256 (the
   server then turned it away); Shelf now checks each key it makes and makes another if needed.
 

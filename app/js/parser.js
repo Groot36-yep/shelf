@@ -862,7 +862,10 @@
     }
     if (real.length === 1 && real[0].length <= 8) {
       var only = real[0], i0 = ws.indexOf(only);
-      var close = only.length <= 5 ? hit[i0] : tokens.some(function (t) { return Math.abs(t.length - only.length) <= 1 && editDist(only, t, 1) <= 1; }) || fuzzyFind(only, blob) <= 1;
+      // (Run together with other words, it's looked for inside one word the reader read, not across two: "Sou DwArd",
+      // a half-read Squidward, holds "udward", one letter from "UpWard", only once its two words are joined.)
+      var close = only.length <= 5 ? hit[i0] : tokens.some(function (t) { return Math.abs(t.length - only.length) <= 1 && editDist(only, t, 1) <= 1; }) ||
+        tokens.some(function (t) { return t.length > only.length && fuzzyFind(only, t) <= 1; });
       if (!close || close === 'weak') hit[i0] = 0;
     }
     // A 4-letter word with one wrong letter only counts when another word of the title was read
