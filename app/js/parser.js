@@ -511,6 +511,38 @@
         r.resolution = r.resolution || rj.resolution;
       }
     }
+    // A video in a season's folder with no episode number in its name ("Cake Boss/Season 1/Cake Boss - recording A.mkv",
+    // or a release folder "Cake Boss S01/Cake Boss - The Big Day.mkv") is still one of the show's episodes: which one
+    // is worked out from its title if it gives one, or from what's in the video (title cards, or what's said).
+    // (A plain folder, "Harry Potter/Harry Potter and the Chamber of Secrets.mkv", says nothing of seasons: a movie.)
+    if (r.kind !== 'episode' && (r.isVideo || r.isSubtitle) && showDir) {
+      var relSeason = seasonAt >= 0 ? folderSeason : null;
+      if (seasonAt === -1) {
+        var rm = showDir.match(/[\s._-](?:S(\d{1,2})|Season[\s._]?(\d{1,2}))(?:[\s._-].*)?$/i);
+        if (rm) relSeason = parseInt(rm[1] || rm[2], 10);
+      }
+      if (relSeason != null) {
+        var nb = splitExt(fileName).base;
+        if (r.isSubtitle) nb = peelSubtitle(nb).base;
+        nb = cleanSpaces(nb.replace(/[._]+/g, ' '));
+        var showWords = normalizeForCompare(showDir.replace(/[\s._-]+(?:S\d{1,2}|Season[\s._]?\d{1,2})(?:[\s._-].*)?$/i, '').replace(/\s*[({[].*$/, ''));
+        // The show's name at the start of the file's name is left out of the episode's title.
+        var words = nb.split(/\s+/), k = 0, acc = '';
+        for (var wi = 0; wi < words.length; wi++) {
+          acc = normalizeForCompare(words.slice(0, wi + 1).join(' '));
+          if (acc === showWords) { k = wi + 1; break; }
+          if (showWords.indexOf(acc) !== 0) break;
+        }
+        var rest = stripJunk(cleanSpaces(words.slice(k).join(' ').replace(/^\s*[-–:]+\s*/, '')));
+        r.kind = 'episode';
+        r.title = '';
+        r.year = null;
+        r.season = relSeason;
+        r.episode = null;
+        r.episodeTitle = titleCase(cleanSpaces(rest.text));
+        r.resolution = r.resolution || rest.resolution;
+      }
+    }
     if (r.kind !== 'episode' || !showDir) return r;
 
     // The show folder fills in what the file name doesn't say: the title, year or country.
@@ -775,7 +807,12 @@
     edCache.set(key, out);
     return out;
   }
-  var CARD_STOP = { the: 1, a: 1, an: 1, of: 1, and: 1, in: 1, to: 1, for: 1, on: 1, at: 1, or: 1, not: 1 };
+  // (Also "it", "is", "do", "be": "WHAT should we do today?", sung in a Phineas and Ferb, isn't "What Do It Do?".)
+  var CARD_STOP = { the: 1, a: 1, an: 1, of: 1, and: 1, in: 1, to: 1, for: 1, on: 1, at: 1, or: 1, not: 1, it: 1, is: 1, do: 1, be: 1 };
+  // (...though "What Do It Do?" read letter for letter is still that title, not a one-word one.)
+  var CARD_SHORT = { it: 1, is: 1, do: 1, be: 1 };
+  var CARD_EVERYDAY = {}; ('what who how why where when you your we me my all one two get got go out up no yes day time new ' +
+    'big good best this that there here now let').split(' ').forEach(function (w) { CARD_EVERYDAY[w] = 1; });
   // How much of a title's words appear in what was read (each word allowed a few OCR slips, more for long words).
   // Readings of the same frame are pooled: one version may catch "SPONGEBOB'S", another "LAST", another "STAND".
   // How a word of a title shows up in a set of words read: 1 = clearly, 0 < x < 1 = a near miss
@@ -812,6 +849,9 @@
     var real = ws.filter(function (w) { return !CARD_STOP[w]; });
     // A one-word title must stand out: read in a short, clean reading (the title on its own), or in
     // at least two versions of the frame. Inside a jumble ("Gone a A rr RS \ - LIN — ER") it's chance.
+    // A title whose only real word is an everyday one ("What Do It Do?": "what") is never made by that word: it's in
+    // half of what's read ("WHAT should we do today?"). Only the whole title, letter for letter, counts.
+    if (real.length === 1 && CARD_EVERYDAY[real[0]]) return 0;
     if (real.length === 1) {
       var w1 = real[0], j1 = ws.indexOf(w1);
       var homes = perReading.filter(function (rt) { var h = wordHit(w1, rt); return h === 1 || h === 'weak' || h >= 0.5; });
@@ -883,6 +923,18 @@
     'want going know think let lets see look come go yes all about after again also back because before being both each even first ' +
     'make many more most much new only other own same should still such take thing things through time two way also episode season show').split(' ');
   var heardStop = {}; HEARD_STOP.forEach(function (w) { heardStop[w] = 1; });
+  // Everyday words, said in any conversation: they count for about a third as much as rarer ones. (A description
+  // that has "absolutely", "nothing" and "doing" fits half of what any cartoon says; "roulette", "fossil", "Pisa" don't.)
+  // (As heardWords leaves them: "nothing" → "noth", "everything" → "everyth".)
+  var HEARD_COMMON = ('absolutely actually really noth someth anyth everyth doing doesn didn don isn wasn aren won ' +
+    'best ever never always good great better worse little big day today tonight night morning people guy man woman ' +
+    'kind sure maybe need try said say tell told give put keep call feel mean work real happy fun cool nice love thank ' +
+    'please sorry stop wait start help ready done find found week year old last next whole every around away down place ' +
+    'home life world everyone everybody anyone someone somebody friend mom dad family kid boy girl hand head live play ' +
+    'run walk talk hear watch wanna gotta guess huh wow cause yet already ago long lot lots fine bad hard easy fast ' +
+    'together whatever ever happen year minute hour second three four five idea part head left stuff course doesn ' +
+    'lady gentlemen evening welcome hello').split(' ');
+  var heardCommon = {}; HEARD_COMMON.forEach(function (w) { heardCommon[w] = 1; });
   function heardWords(s) {
     return String(s || '').toLowerCase().replace(/[’']s\b/g, '').replace(/[^a-z0-9]+/g, ' ').split(' ').map(function (w) {
       if (w.length > 5 && /ing$/.test(w)) w = w.slice(0, -3);
@@ -913,7 +965,8 @@
       // A word of the title counts double when another word of the title is said with it (or it's the whole title).
       name.forEach(function (w) { set[w] = name.length === 1 || name.some(function (x) { return x !== w && close(w, x); }) ? 2 : Math.max(set[w] || 0, 1); });
       [name, about].forEach(function (ws) { ws.forEach(function (w, k) { if (k) pairs[ws[k - 1] + ' ' + w] = 1; }); });
-      return { e: e, set: set, pairs: pairs, len: Object.keys(set).length };
+      var aboutSet = {}; about.forEach(function (w) { aboutSet[w] = 1; });
+      return { e: e, set: set, pairs: pairs, len: Object.keys(set).length, name: name, about: aboutSet };
     });
     var df = {};
     docs.forEach(function (d) { Object.keys(d.set).forEach(function (w) { df[w] = (df[w] || 0) + 1; }); });
@@ -921,27 +974,47 @@
     // How telling a word is: words in many of the show's descriptions (its hosts, "test", "myth") count for
     // next to nothing, however often they're said.
     var floor = 0.35 * Math.log(N + 1);
-    var idf = function (w) { return Math.max(0, Math.log((N + 1) / ((df[w] || 0) + 0.5)) - floor); };
+    var idf = function (w) { return Math.max(0, Math.log((N + 1) / ((df[w] || 0) + 0.5)) - floor) * (heardCommon[w] ? 0.35 : 1); };
     var scored = docs.map(function (d) {
-      var sc = 0, hits = [];
+      var sc = 0, hits = [], ab = 0;
       Object.keys(d.set).forEach(function (w) {
         if (!saidSet[w]) return;
         var v = idf(w); if (v <= 0.05) return;
         sc += v * d.set[w]; hits.push({ w: w, v: v * d.set[w] });
+        if (d.about[w]) ab += v; // the same, from the description alone (each word once)
       });
       Object.keys(d.pairs).forEach(function (p) { if (saidPairs[p]) sc += 1.5 * (idf(p.split(' ')[0]) + idf(p.split(' ')[1])) / 2; });
       // Long descriptions share more words by chance (short ones aren't helped: an episode with only a title
       // would otherwise win on one or two common words).
       sc = sc / Math.max(1, 0.6 + 0.4 * d.len / avg);
+      ab = ab / Math.max(1, 0.6 + 0.4 * d.len / avg);
       // The show's other files are in these seasons: this file very likely is too (or next to them).
-      if (opts.seasons && opts.seasons.length) sc *= opts.seasons.some(function (n) { return Math.abs(n - d.e.season) <= 1; }) ? 1.3 : 0.75;
-      return { d: d, score: sc, hits: hits.sort(function (a, b) { return b.v - a.v; }) };
+      if (opts.seasons && opts.seasons.length) { var f = opts.seasons.some(function (n) { return Math.abs(n - d.e.season) <= 1; }) ? 1.3 : 0.75; sc *= f; ab *= f; }
+      return { d: d, score: sc, about: ab, hits: hits.sort(function (a, b) { return b.v - a.v; }) };
     }).sort(function (a, b) { return b.score - a.score; });
     // (opts.explain: the best few with their scores and words, for tuning.)
     if (opts.explain) return scored.slice(0, 4).map(function (x) { return { name: x.d.e.name, season: x.d.e.season, number: x.d.e.number, score: Math.round(x.score * 10) / 10, words: x.hits.slice(0, 8).map(function (h) { return h.w + ':' + h.v.toFixed(1); }) }; });
     var best = scored[0], second = scored[1] || { score: 0 };
     // A clear winner: well ahead of the next (a little less far ahead will do when the evidence is strong).
     if (!best || best.score < 4 || best.hits.length < 2 || best.score < second.score * (best.score >= 15 ? 1.4 : 1.6)) return null;
+    // Characters say ordinary words that happen to be in a title ("Good evening, ladies and gentlemen" isn't "Ladies and
+    // Gentlemen, Meet Max Modem!"; "the best Cirque I've ever been to" isn't "The Best Lazy Day Ever"). So the answer
+    // has to rest mostly on what the episode is about (two fifths of the evidence at least), unless most of its title
+    // was heard.
+    var tw = best.d.name.filter(function (w, k, a) { return a.indexOf(w) === k; });
+    var titleHeard = tw.length && tw.filter(function (w) { return saidSet[w]; }).length >= Math.max(2, Math.ceil(tw.length * 0.75));
+    // ...or one whole part of it said word for word, if that's no everyday phrase: Mythbusters' titles list their
+    // myths ("Explosive Decompression, Frog Giggin', Rear Axle"), and "as we test the myth of explosive decompression"
+    // names that episode even where the list has no description.
+    if (!titleHeard) titleHeard = String(best.d.e.name).split(/[,;:&!?()]+|\s[-–]\s/).some(function (part) {
+      var pw = heardWords(part);
+      if (pw.length < 2 || pw.some(function (w) { return heardCommon[w]; })) return false;
+      return (at[pw[0]] || []).some(function (i) { return pw.every(function (w, k) { return said[i + k] === w; }); });
+    });
+    // ...or two of its unusual words ("hic", "boom" for Dora's "Hic-Boom-Ohhh"): only everyday words of a title, said in
+    // passing, need the description's backing.
+    if (!titleHeard) titleHeard = tw.filter(function (w) { return saidSet[w] && !heardCommon[w]; }).length >= 2;
+    if (!titleHeard && best.about < best.score * 0.4) return null;
     var words = best.hits.slice(0, 8).map(function (h) { return h.w; });
     // The sentence that shows it best.
     var line = '', lineScore = 0;
@@ -954,16 +1027,31 @@
     return { entry: best.d.e, score: Math.round(best.score * 10) / 10, margin: Math.round(best.score / Math.max(0.1, second.score) * 10) / 10, words: words, line: line ? { t: line.t, text: String(line.text).slice(0, 220) } : null };
   }
 
-  function matchCardText(texts, entries, near, show) {
-    var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-') + '\u0002' + (show || '');
+  // inSeason: the episodes of the season the file's name gives and the seasons either side (lists don't agree on
+  // where seasons start: TVmaze's SpongeBob season 8 is everyone else's 7). A card from further away counts only
+  // when it's read almost perfectly: otherwise the best title of those seasons (when one is read well enough).
+  var OTHER_SEASON = 0.85;
+  // notTitle: words this show puts on screen in many of its videos that were never their title (its credits, "Story By
+  // Jennifer Keene", learned while reading; see otherCardWords). They're left out of the readings, so "Story" can't
+  // pass for "Storm" ("Imperfect Storm") — except where a title has that word itself ("Bee Story"), which still counts
+  // for it once more of that title is read too.
+  function matchCardText(texts, entries, near, show, inSeason, notTitle) {
+    var nt = null;
+    (Array.isArray(notTitle) ? notTitle : []).forEach(function (w) { if (typeof w === 'string' && w) (nt = nt || {})[w] = 1; });
+    var res = matchCardTextAll(texts, entries, near, show, nt);
+    if (!res || !inSeason || !inSeason.length || inSeason.indexOf(res.entry) >= 0 || res.score >= OTHER_SEASON) return res;
+    return matchCardTextAll(texts, inSeason, near && near.filter(function (e) { return inSeason.indexOf(e) >= 0; }), show, nt);
+  }
+  function matchCardTextAll(texts, entries, near, show, nt) {
+    var key = JSON.stringify(texts) + '\u0002' + listKey(entries || []) + '\u0002' + (near ? listKey(near) : '-') + '\u0002' + (show || '') + (nt ? '\u0002' + Object.keys(nt).join(' ') : '');
     if (cardMemo.has(key)) {
       var hit = cardMemo.get(key);
       return hit && { entry: entries[hit.i], score: hit.score };
     }
-    var res = matchCardTextNow(texts, entries, near);
+    var res = matchCardTextNow(texts, entries, near, show, nt);
     // "SpongeBob SquarePants" on the logo is one letter-pair away from the episode "SpongeBob SpareParts": a
     // reading that fits the show's name at least as well as the title is the logo, not that episode's card.
-    if (res && show && titleSimilarity(res.entry.name, show) >= 0.6) {
+    if (res && show && !afterShowName(res.entry.name, show) && titleSimilarity(res.entry.name, show) >= 0.6) {
       var fit = function (name) {
         var t = squash(name);
         return Math.min.apply(null, (Array.isArray(texts) ? texts : [texts]).map(function (x) { return fuzzyFind(t, squash(x)) / t.length; }).concat([1]));
@@ -974,42 +1062,82 @@
     cardMemo.set(key, res && { i: entries.indexOf(res.entry), score: res.score });
     return res;
   }
-  function matchCardTextNow(texts, entries, near) {
-    var all = (Array.isArray(texts) ? texts : [texts]);
+  // Opening credits ("Story by Jon Colton Barry", "Storyboards by …", "Created by …") are read on the frames around a
+  // title card. Their words aren't part of any title, and "Story" or "Written" in them made titles like "Bee Story"
+  // seem read: from the credit's first word to the end of its line is left out. (OCR slips: "Storvbsards By".)
+  var CREDIT_LINE = /\b(?:stor[a-z]*|writ[a-z]*|direct[a-z]*|creat[a-z]*|develop[a-z]*|produc[a-z]*|teleplay|music|animat[a-z]*|supervis[a-z]*|executive|starring|voices?)\b[^\n]{0,30}?\bb[yv]\b[^\n]*/gi;
+  function dropCredits(x) { return String(x || '').replace(CREDIT_LINE, ' '); }
+  // What one video read on screen besides its titles (credits that slip past the above, a logo, the channel's mark):
+  // the words of its readings that aren't in the titles found in it, each once. Those read like this in many of a
+  // show's videos are its usual words (matchCardText's notTitle). (Words of 4 letters or more: shorter ones are mostly
+  // specks read as letters, "pry", "ree", in every jumble.)
+  function otherCardWords(readings, titles) {
+    var theirs = {}, out = {};
+    (titles || []).forEach(function (n) { cardWords(n).forEach(function (w) { theirs[w] = 1; }); });
+    (readings || []).forEach(function (x) { cardWords(x).forEach(function (w) { if (w.length >= 4 && w.length <= 20 && /^[a-z]+$/.test(w) && !CARD_STOP[w] && !theirs[w]) out[w] = 1; }); });
+    return Object.keys(out);
+  }
+  // A title that starts with the show's name ("Phineas and Ferb Get Busted!"): the words after it. The show's name
+  // is on its logo and on many of its titles, so only the rest tells them apart. null when it doesn't.
+  function afterShowName(name, show) {
+    var sw = cardWords(show), nw = cardWords(name);
+    if (!sw.length || nw.length <= sw.length || sw.some(function (w, i) { return nw[i] !== w; })) return null;
+    var rest = nw.slice(sw.length).join(' ');
+    return squash(rest).length >= 5 ? rest : null;
+  }
+  // A reading without the show's usual words (nt), except those of the title it's held against (own).
+  function dropUsual(x, nt, own) {
+    return x.split(/(\s+)/).map(function (c) { var ws = cardWords(c); return ws.length && ws.every(function (w) { return nt[w] && !own[w]; }) ? ' ' : c; }).join('');
+  }
+  function matchCardTextNow(texts, entries, near, show, nt) {
+    var all = (Array.isArray(texts) ? texts : [texts]).map(dropCredits);
     // A title card reads as a few words. A busy picture reads as a long jumble, and the more
     // jumble there is, the easier it is for a title to "appear" by chance. So long readings only
     // count for long words read exactly; the looser comparisons use the short readings.
-    var noisy = function (x) { return cardWords(x).length > 14; };
-    var clean = all.filter(function (x) { return !noisy(x); });
-    var s = clean.map(squash).filter(function (x) { return x.length >= 3; });
-    var tokens = [], seenTok = {};
-    var perReading = clean.map(function (x) { return cardWords(x).filter(function (w) { return w.length >= 2; }); });
-    perReading.forEach(function (ws) { ws.forEach(function (w) { if (!seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
-    all.filter(noisy).forEach(function (x) { cardWords(x).forEach(function (w) { if (w.length >= 6 && !seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
-    if (!s.length && !tokens.length) return null;
-    var blob = s.join(' ');
+    // (Judged on all it read: leaving the show's usual words out mustn't make a jumble pass for a clean reading.)
+    var noisy = all.map(function (x) { return cardWords(x).length > 14; });
+    var readAs = function (own) {
+      var some = nt ? all.map(function (x) { return dropUsual(x, nt, own); }) : all;
+      var clean = some.filter(function (x, i) { return !noisy[i]; });
+      var s = clean.map(squash).filter(function (x) { return x.length >= 3; });
+      var tokens = [], seenTok = {};
+      var perReading = clean.map(function (x) { return cardWords(x).filter(function (w) { return w.length >= 2; }); });
+      perReading.forEach(function (ws) { ws.forEach(function (w) { if (!seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
+      some.filter(function (x, i) { return noisy[i]; }).forEach(function (x) { cardWords(x).forEach(function (w) { if (w.length >= 6 && !seenTok[w]) { seenTok[w] = 1; tokens.push(w); } }); });
+      return { clean: clean, s: s, tokens: tokens, perReading: perReading, blob: s.join(' ') };
+    };
+    // Most titles have none of the show's usual words: they share one reading; the few that do get their own.
+    var views = { '': readAs({}) };
+    if (!nt && !views[''].s.length && !views[''].tokens.length) return null;
     var scored = [];
     (entries || []).forEach(function (e) {
       if (e.number == null) return;
+      var its = {}, usual = nt ? cardWords(e.name).filter(function (w) { return nt[w]; }) : [];
+      usual.forEach(function (w) { its[w] = 1; });
+      var view = views[usual.join(' ')] || (views[usual.join(' ')] = readAs(its));
+      var clean = view.clean, s = view.s, tokens = view.tokens, perReading = view.perReading, blob = view.blob;
       // "Legends of Bikini Bottom: The Main Drain": the card shows only the part after the colon, so that
       // part counts on its own too (when it's specific enough to).
       var names = [e.name], ci = e.name.indexOf(': ');
       if (ci > 0 && squash(e.name.slice(ci + 2)).length >= 8) names.push(e.name.slice(ci + 2));
+      // "Phineas and Ferb Get Busted!" is judged by "Get Busted" alone (the logo reads as the rest).
+      var rest = show && afterShowName(e.name, show);
+      if (rest) names = [rest];
       var top1 = null;
       names.forEach(function (name) {
         var t = squash(name);
         if (t.length < 4) return;
         // Letters in a row, spaces ignored: only trusted when it's a near-perfect fit (long garbage can
         // otherwise look like a long title), else the word-by-word score decides.
-        var sub = 0;
+        var sub = 0, subIn = 0;
         // A one-word title only counts letter-for-letter in a short reading that's little more than the title
         // ("porters, + old" holds "sold" only by running two words together).
-        var oneWord = cardWords(name).filter(function (w) { return !CARD_STOP[w]; }).length === 1;
+        var oneWord = cardWords(name).filter(function (w) { return !CARD_STOP[w] || CARD_SHORT[w]; }).length === 1;
         (oneWord ? clean.filter(function (x) { return cardWords(x).length <= 3; }).map(squash).filter(function (x) { return x.length <= t.length + Math.max(2, Math.round(t.length * 0.3)); }) : s).forEach(function (x) {
           var d = fuzzyFind(t, x);
           var sc = 1 - d / t.length;
           if (t.length <= 5 && d > 0) sc = 0; // short titles ("Suds", "Texas") must be exact
-          if (sc > sub) sub = sc;
+          if (sc > sub) { sub = sc; subIn = x.length; }
         });
         // Titles near where this file should be are a small, likely pool: there the letters-in-a-row
         // score counts as before. Anywhere else the words themselves have to show up.
@@ -1018,7 +1146,15 @@
         // Two weaker signs together: some words show up, and the whole title is close letter for
         // letter ("MeR mid WAN BaRanclEboy TV" ≈ "Mermaid Man and Barnacle Boy IV").
         var best = Math.max(sub >= 0.8 || nearOne || (ws > 0 && sub >= 0.7) ? sub : 0, ws);
-        if (!top1 || best > top1.score) top1 = { entry: e, score: best, ws: ws };
+        // A title with one of the show's usual words in it ("Bee Story", where every video reads "Story By …") keeps that
+        // word, but is only that title when more of it is read too: another of its words, or all of it letter for letter.
+        // Else the credit that no longer passes for "Imperfect Storm" would pass for "Bee Story".
+        if (usual.length && sub < 0.8 && cardWords(name).some(function (w) { return its[w]; })) {
+          var others = cardWords(name).filter(function (w) { return !CARD_STOP[w] && !its[w]; });
+          if (!others.some(function (w) { return !!wordHit(w, tokens, blob); })) best = 0;
+        }
+        // (subIn: how long the reading was that the title's letters were found in, for the check below.)
+        if (!top1 || best > top1.score) top1 = { entry: e, score: best, ws: ws, scattered: subIn > t.length * 1.6, tokens: tokens };
       });
       if (top1) scored.push(top1);
     });
@@ -1038,6 +1174,10 @@
     // Only a loose letter-for-letter likeness, and not one of the title's words seen: needs more
     // ("ae So ZENON ~¥) 0) TC" is not "As Seen on TV").
     if (!top.ws && isNear) need = Math.max(need, 0.6);
+    // A short title with none of its words read, its letters scattered through a long smudge ("& 4 rg Jig A; ESLER we
+    // NL" is 0.64 like "Got Game?"), is chance: the likeness has to be clearer. (A short rough reading that's little
+    // more than the title, "P a kto" for "Plankton!", is another matter.)
+    if (!top.ws && top.scattered && squash(top.entry.name).length < 10) need = Math.max(need, 0.7);
     // ...and a title made of only a few different letters, repeated ("Choo Choo": c, h, o), all the more: those
     // turn up in any jumble ("oo… Coup… hg oot" is 0.63 like it). Without one of its words read, it has to be
     // close letter for letter.
@@ -1050,7 +1190,7 @@
     if (rival && rival.score >= 0.5) {
       var theirs = cardWords(rival.entry.name), own = cardWords(top.entry.name).filter(function (w) { return !CARD_STOP[w] && theirs.indexOf(w) < 0; });
       if (own.length && own.length < cardWords(top.entry.name).filter(function (w) { return !CARD_STOP[w]; }).length &&
-        !own.some(function (w) { return cleanHit(w, tokens); })) return null;
+        !own.some(function (w) { return cleanHit(w, top.tokens); })) return null;
     }
     return { entry: top.entry, score: Math.round(top.score * 100) / 100 };
   }
@@ -1094,7 +1234,8 @@
   }
 
   /**
-   * Which listed episode(s) this file is. ctx: { mode: 'segments'|'halfhours', sure }.
+   * Which listed episode(s) this file is. ctx: { mode: 'segments'|'halfhours', sure }; ctx.notTitle: the show's usual
+   * words on screen, never a title (see matchCardText).
    * Returns { season, number, end, name, how: 'title'|'number'|'halfhour'|'date', sure, note } or null.
    */
   function resolveEpisode(parsed, list, ctx) {
@@ -1181,6 +1322,8 @@
       var exp = expected();
       var pool = (list || []).filter(function (e) { return e.number != null; });
       // An episode recognised by listening (desktop/listen.js): its place in the list, "season x number".
+      // The name's season, when it gives one (see matchCardText).
+      var inSeason = parsed.season != null ? pool.filter(function (e) { return Math.abs(e.season - parsed.season) <= 1; }) : null;
       var heardEntry = function (c) { var k = String(c.heard.key || '').split('x'); return pool.filter(function (e) { return e.season === +k[0] && e.number === +k[1]; })[0] || null; };
       var best = {};
       // Title cards you marked yourself each count on their own, and a reading near one (within two
@@ -1192,7 +1335,7 @@
       // video. (Reading the video allowed the same, so a card it stopped at is never thrown away here.)
       var anchors = exp.concat(noNumber ? [] : seasonList.filter(function (e) { return e.number === (parsed.episode || 1); }));
       cardsIn.forEach(function (c) {
-        var a0 = c.mark ? c.mark : c.heard ? heardEntry(c) : (matchCardText(c.texts, pool, null, ctx.show || parsed.title) || {}).entry;
+        var a0 = c.mark ? c.mark : c.heard ? heardEntry(c) : (matchCardText(c.texts, pool, null, ctx.show || parsed.title, inSeason, ctx.notTitle) || {}).entry;
         if (a0) anchors.push(a0);
       });
       var near = seasonList.filter(function (e) { return anchors.some(function (x) { return x.season === e.season && Math.abs(x.number - e.number) <= 6; }); });
@@ -1200,7 +1343,7 @@
         // A title card you marked yourself: no reading needed, and it beats anything Shelf read.
         var mm = c.mark ? pool.filter(function (e) { return e.season === c.mark.season && e.number === c.mark.number; }).map(function (e) { return { entry: e, score: 2 }; })[0] || null
           : c.heard ? (heardEntry(c) ? { entry: heardEntry(c), score: 1.5, heard: true, hs: c.heard.score || 0, hm: c.heard.margin || 0 } : null)
-            : matchCardText(c.texts, pool, near, ctx.show || parsed.title);
+            : matchCardText(c.texts, pool, near, ctx.show || parsed.title, inSeason, ctx.notTitle);
         var slot = c.mark ? 'm' + ci : c.part;
         if (mm && (!best[slot] || mm.score > best[slot].score)) best[slot] = Object.assign({ t: c.t }, mm);
       });
@@ -1367,6 +1510,7 @@
     resolveEpisode: resolveEpisode,
     matchByTitle: matchByTitle,
     matchCardText: matchCardText,
+    otherCardWords: otherCardWords,
     matchHeard: matchHeard,
     heardWords: heardWords,
     joinNames: joinNames,

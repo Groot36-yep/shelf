@@ -96,6 +96,17 @@ const secretPath = (name) => path.join(app.getPath('userData'), SECRETS[name] ||
 
 function readPrefs() { try { return JSON.parse(fs.readFileSync(prefsPath(), 'utf8')); } catch (e) { return {}; } }
 function writePrefs(p) { fs.mkdirSync(path.dirname(prefsPath()), { recursive: true }); fs.writeFileSync(prefsPath(), JSON.stringify(p)); }
+// What reading title cards taught Shelf about each show (when its cards come, whether it has any), kept between scans:
+// the next folder of a show starts already knowing it, and it keeps getting better the more of the show is read.
+// Only timings, counts and the show's usual words (said, and on screen), by the show's name; at most the 200 shows read last.
+const learnedPath = () => path.join(app.getPath('userData'), 'learned-cards.json');
+function readLearned() { try { const j = JSON.parse(fs.readFileSync(learnedPath(), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch (e) { return {}; } }
+function writeLearned(all) {
+  const keep = Object.keys(all).sort((a, b) => (all[b].at || 0) - (all[a].at || 0)).slice(0, 200);
+  const tmp = learnedPath() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))));
+  fs.renameSync(tmp, learnedPath());
+}
 // The app icon styles (see appicon.js). Shortcuts are changed only for installed Shelf (or a test's own).
 function shortcutsOk() {
   if (process.platform !== 'win32') return false;
@@ -678,13 +689,50 @@ if (gotLock) app.whenReady().then(() => {
     const out = {};
     // What Shelf learns about each show as it goes: a show whose first videos have no readable title card but
     // whose episodes were recognised by listening is only listened to from then on (much quicker).
-    const showSeen = new Map(); // show → { files, cards, heard }
+    // It starts from what earlier scans of the show learned (see learnedPath). (A show only listened to is still read
+    // for cards once each scan, so a wrong early judgement isn't kept for ever.)
+    const learned = readLearned(), keepLast = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'number' && isFinite(x)).slice(-12) : []);
+    const showSeen = new Map(); // show → { files, cards, heard, ... }
+    const seenFor = (show) => {
+      if (showSeen.has(show)) return showSeen.get(show);
+      const k = (show && learned[show]) || {}, num = (x) => Math.max(0, Math.min(1e6, Math.floor(Number(x) || 0)));
+      const s = {
+        files: Math.min(num(k.files), 1), cards: num(k.cards), heard: num(k.heard), seasons: [], listened: num(k.listened),
+        words: new Map(Array.isArray(k.words) ? k.words.filter((w) => Array.isArray(w) && typeof w[0] === 'string').map((w) => [w[0], num(w[1])]) : []),
+        looked: num(k.looked), onScreen: new Map(Array.isArray(k.onScreen) ? k.onScreen.filter((w) => Array.isArray(w) && typeof w[0] === 'string' && /^[a-z]{4,20}$/.test(w[0])).slice(0, 300).map((w) => [w[0], num(w[1])]) : []),
+        firstCard: keepLast(k.firstCard), afterBlack: keepLast(k.afterBlack), afterQuiet: keepLast(k.afterQuiet), quietLen: keepLast(k.quietLen), quickAll: !!k.quickAll
+      };
+      showSeen.set(show, s);
+      return s;
+    };
+    // (Saved after each video, so a scan stopped part way still teaches the next one.)
+    const rememberShow = (show, s) => {
+      if (!show) return;
+      const words = [...s.words].filter(([, n]) => n >= Math.max(2, s.listened * 0.3)).sort((a, b) => b[1] - a[1]).slice(0, 300);
+      const onScreen = [...s.onScreen].filter(([, n]) => n >= Math.max(2, s.looked * 0.15)).sort((a, b) => b[1] - a[1]).slice(0, 300);
+      learned[show] = { at: Date.now(), files: s.files, cards: s.cards, heard: s.heard, listened: s.listened, words, looked: s.looked, onScreen, quickAll: s.quickAll,
+        firstCard: keepLast(s.firstCard), afterBlack: keepLast(s.afterBlack), afterQuiet: keepLast(s.afterQuiet), quietLen: keepLast(s.quietLen) };
+      try { writeLearned(learned); } catch (e) { /* not kept: the next scan learns it again */ }
+    };
+    // Words on screen in a good share of the show's videos (at least three) that were never their title: its credits
+    // ("Story By Jennifer Keene" read as "Imperfect Storm"), its logo. They don't count towards a title (see matchCardText).
+    const usualOnScreen = (s) => (s.looked >= 3 ? [...s.onScreen].filter(([, n]) => n >= Math.max(3, s.looked * 0.25)).sort((a, b) => b[1] - a[1]).slice(0, 200).map(([w]) => w) : []);
     const canListen = listener().ready();
     // The stretches to listen to: the start of each part without a title card read. One episode as long as the
     // video (Mythbusters, Dora): just its start. Several cartoons in one video: the start of each.
+    const runSecs = scan.runSecs, partsIn = scan.partsIn; // (see scan.js)
+    // The middle of the last few values (null when there are none).
+    const lastFew = (a) => (a.length ? a.slice(-5).sort((x, y) => x - y)[Math.min(a.length, 5) >> 1] : null);
+    // How long after a silence this show's cards usually come, commonest first (at most three). Some shows always
+    // wait the same moment (SpongeBob: 1.1-1.4 s); Phineas and Ferb waits 1, 4.5 or 10 s, depending on the episode.
+    const usualGaps = (a) => {
+      const groups = [];
+      a.slice(-12).forEach((v, k) => { const g = groups.find((x) => Math.abs(x.v - v) <= 0.6); if (g) { g.n++; g.k = k; } else groups.push({ v, n: 1, k }); });
+      return groups.sort((x, y) => y.n - x.n || y.k - x.k).slice(0, 3).map((g) => g.v);
+    };
     function listenPlan(secs, usualMins, parts, found) {
       const d = secs || 1320;
-      const one = !parts || parts <= 1 || (usualMins && usualMins * 60 >= d * 0.6);
+      const one = !parts || parts <= 1 || partsIn(d, usualMins) === 1;
       const n = one ? 1 : parts;
       const plan = [];
       for (let k = 0; k < n; k++) if (!found.has(k)) plan.push({ part: k, from: k ? Math.max(0, (d * k) / n - 20) : 0 });
@@ -712,12 +760,15 @@ if (gotLock) app.whenReady().then(() => {
     // video tool decoding, and reading is mostly the text reader): about a third quicker for a folder of videos.
     // (Videos on this computer only; one on the server is fetched over SSH and read only when it's its turn.)
     const ahead = new Map(); // file → { secs, stills }
+    // (Not for a show whose title cards the quick look found in its last video: its thumbnails are seldom needed.)
     function prepareAhead(f) {
       if (!f || onServer.has(f) || ahead.has(f) || deep) return;
+      const sn = seenFor(showFor.get(f));
+      if (sn && sn.quickAll) return;
       const mins = (runtimesFor.get(f) || []).filter((m) => m > 0).sort((a, b) => a - b), usual = mins.length ? mins[mins.length >> 1] : 0;
       const p = probe.duration(f).then((secs) => {
-        const oneEp = !!(usual && secs && usual * 60 >= secs * 0.6);
-        return { secs, oneEp, stills: scan.prepareStills(f, secs, oneEp ? 1 : 0) };
+        const n = partsIn(secs, usual);
+        return { secs, n, stills: scan.prepareStills(f, secs, n) };
       });
       p.catch(() => {});
       ahead.set(f, p);
@@ -729,6 +780,10 @@ if (gotLock) app.whenReady().then(() => {
         const mins = runtimesFor.get(f) || [];
         const entries = titlesFor.get(f).map((name, n) => ({ name, number: n + 1, season: 1, runtime: mins[n] || null }));
         const near = entries.filter((e) => nearFor.get(f).has(e.name));
+        // The episodes of the season the file's name gives and those either side (a card from further away must be
+        // read almost perfectly; see matchCardText).
+        const sn0 = seasonFor.get(f), fk = keysFor.get(f) || [];
+        const inSeason = sn0 == null ? null : entries.filter((e, n) => Math.abs(+String(fk[n] || '').split('x')[0] - sn0) <= 1);
         // The show's usual episode length (the middle one of those listed), which a double-length episode stands out from.
         const known = mins.filter((m) => m > 0).sort((a, b) => a - b), usual = known.length ? known[known.length >> 1] : 0;
         let src = null, secs = null;
@@ -747,37 +802,53 @@ if (gotLock) app.whenReady().then(() => {
         }
         send({ kind: 'start', path: f, index: i, total: files.length, file: remote ? path.posix.basename(f) : path.basename(f) });
         let last = 0;
-        const seen = showSeen.get(showFor.get(f)) || { files: 0, cards: 0, heard: 0, seasons: [], words: new Map(), listened: 0, firstCard: [] };
-        showSeen.set(showFor.get(f), seen);
-        const foundParts = new Set(), foundSeasons = new Set();
+        const seen = seenFor(showFor.get(f));
+        const foundParts = new Set(), foundSeasons = new Set(), foundNames = [];
+        const notTitle = usualOnScreen(seen);
         // Two videos of this show in, no title card read, but listening worked: just listen.
         const skipCards = canListen && !deep && seen.files >= 2 && seen.cards === 0 && seen.heard > 0;
         try {
-          // The show's episodes are about as long as this video: one episode, so only its start has a title card.
-          const oneEp = !!(usual && secs && usual * 60 >= secs * 0.6);
+          // How many episodes the video holds, by the show's usual episode length (one: only its start has a title
+          // card). 0 when the list gives no lengths: then by the video's length alone.
+          const nParts = partsIn(secs, usual);
           // The next video's still moments, found meanwhile (unless this show is only listened to now).
           if (!skipCards && !(seen.files >= 1 && seen.cards === 0 && seen.heard > 0)) prepareAhead(files[i + 1]);
           const r = skipCards ? { texts: [], parts: 0 } : await scan.scanFile(src ? src.url : f, secs, {
-            deep, maxParts: oneEp ? 1 : 0, stills: made && made.oneEp === oneEp ? made.stills : null,
+            deep, maxParts: nParts, stills: made && made.n === nParts ? made.stills : null,
             // Where the first title card was in this show's other videos (the middle of the last few).
-            cardAt: seen.firstCard.length ? seen.firstCard.slice(-5).sort((a, b) => a - b)[Math.min(seen.firstCard.length, 5) >> 1] : null,
-            isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f)),
+            cardAt: lastFew(seen.firstCard),
+            // How long after a fade to black, and after a silence (and how long that was), this show's cards were.
+            cardAfterBlack: lastFew(seen.afterBlack), cardAfterQuiet: usualGaps(seen.afterQuiet), cardQuietLen: lastFew(seen.quietLen),
+            // The quick look a moment after the silences, unless this show's cards never come after one.
+            quick: !(seen.cards >= 3 && !seen.afterQuiet.length),
+            isMatch: (texts) => P.matchCardText(texts, entries, near, showFor.get(f), inSeason, notTitle),
             // An episode as long as the video (give or take the credits), and clearly longer than the show's usual one:
             // it's the only one in there. Online lists get lengths wrong (TVmaze has 11-minute "Squid's Day Off" at
             // 30), so one listed as longer than the whole video, or a show listing every cartoon at the half-hour's
             // length, never stops the search early.
             fillsVideo: (hit) => {
               const m = hit && hit.entry && hit.entry.runtime;
-              return !!(m && usual && m >= usual * 1.4 && m * 60 >= secs * 0.7 && m * 60 <= secs * 1.15);
+              return !!(m && usual && m >= usual * 1.4 && runSecs(m) >= secs * 0.7 && runSecs(m) <= secs * 1.15);
             },
             cancelled: () => cardCancel,
             // What Shelf is looking at right now (a small picture, only sent to this window) and what it found.
             onPeek: (pk) => send({ kind: 'peek', path: f, index: i, total: files.length, t: pk.t, part: pk.part, image: { w: pk.image.w, h: pk.image.h, data: pk.image.data } }),
-            onFound: (fd) => { foundParts.add(fd.part); if (fd.part === 0) seen.firstCard.push(fd.t); const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
+            onFound: (fd) => { foundParts.add(fd.part); foundNames.push(fd.hit.entry.name); if (fd.part === 0) seen.firstCard.push(fd.t); if (fd.afterBlack != null) seen.afterBlack.push(fd.afterBlack); if (fd.afterQuiet != null) { seen.afterQuiet.push(fd.afterQuiet); seen.quietLen.push(fd.quietLen); } const fk = String((keysFor.get(f) || [])[fd.hit.entry.number - 1] || '').split('x')[0]; if (fk) foundSeasons.add(+fk); send({ kind: 'found', path: f, index: i, total: files.length, t: fd.t, part: fd.part, title: fd.hit.entry.name }); },
             onProgress: (frac) => { const now = Date.now(); if (now - last > 150 || frac >= 1) { last = now; send({ kind: 'step', path: f, index: i, total: files.length, frac }); } }
           });
-          let parts = r.parts || scan.windowsFor(secs, oneEp ? 1 : 0).length;
+          let parts = r.parts || scan.windowsFor(secs, nParts).length;
           seen.files++; if (foundParts.size) seen.cards++;
+          // (Every card found in it was found by the quick look.)
+          seen.quickAll = foundParts.size > 0 && (r.quickHits || 0) >= foundParts.size;
+          // What else this video read on screen (each word once), towards the show's usual words. (Not a Deep Scan's: it
+          // reads far more frames than a scan usually does, credits and all.)
+          const readings = r.texts.flatMap((x) => x.texts || []);
+          if (!deep && readings.length) {
+            seen.looked++;
+            for (const w of P.otherCardWords(readings, foundNames)) seen.onScreen.set(w, (seen.onScreen.get(w) || 0) + 1);
+            // (Most of it is one-off jumble: only the commonest are kept once there are many.)
+            if (seen.onScreen.size > 4000) seen.onScreen = new Map([...seen.onScreen].sort((a, b) => b[1] - a[1]).slice(0, 2000));
+          }
           // Parts without a title card: listen to their start.
           const titles = titlesFor.get(f), abouts = aboutsFor.get(f), keys = keysFor.get(f);
           // (Only when the list describes the episodes around this one: there's nothing to match words with otherwise,
@@ -808,12 +879,14 @@ if (gotLock) app.whenReady().then(() => {
             }
             if (lp.n === 1 && r.texts.some((x) => x.heard) && !foundParts.size) parts = 1; // one episode, heard
           }
-          out[f] = { secs, parts, texts: r.texts };
+          // (With the show's usual words, which the window leaves out when it judges these readings again.)
+          out[f] = { secs, parts, texts: r.texts, notTitle: usualOnScreen(seen) };
         } catch (e) {
           out[f] = { secs, error: String(e.message || e).slice(0, 200) };
         } finally {
           if (src) await src.done();
         }
+        if (!deep) rememberShow(showFor.get(f), seen); // (Deep Scan reads everything anyway, and isn't how this show usually goes)
         send({ kind: 'file', path: f, index: i, total: files.length, result: out[f], stopped: cardCancel });
       }
     }
@@ -1074,7 +1147,7 @@ if (gotLock) app.whenReady().then(() => {
     plexSend.forgetAll();
     plexFix.forget();
     xfer.forget();
-    for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
+    for (const p of Object.keys(SECRETS).map(secretPath).concat([prefsPath(), learnedPath(), legacyJournal(), path.join(app.getPath('userData'), 'startup.log')])) fs.rmSync(p, { force: true });
     fs.rmSync(historyDir(), { recursive: true, force: true });
     fs.rmSync(path.join(app.getPath('userData'), 'lookups'), { recursive: true, force: true });
     logLines = [];

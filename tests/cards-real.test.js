@@ -67,5 +67,21 @@ for (const f of ALL.files) {
     else check('all ' + key + ' at ' + r.t, () => assert.ok(!m || real.includes(m.entry.name), 'matched ' + (m && m.entry.name + ' ' + m.score) + ' from ' + JSON.stringify(r.texts).slice(0, 300)));
   }
 }
+// The same 19, judged without the words on screen in the show's other videos (as a scan learns them, see
+// otherCardWords), on a far lower bar than a scan's (in just two videos: "created", "nickelodeon", "fall", "late" and
+// jumble): every card is still found, and nothing else named.
+const onScreen = new Map();
+for (const f of ALL.files) for (const w of P.otherCardWords(f.readings.flatMap((r) => r.texts), Object.values(f.found))) onScreen.set(w, (onScreen.get(w) || 0) + 1);
+const usual = [...onScreen].filter(([, n]) => n >= 2).map(([w]) => w);
+check('words learned from the 19', () => assert.ok(usual.includes('created') && usual.includes('nickelodeon'), JSON.stringify(usual)));
+for (const f of ALL.files) {
+  const key = Object.keys(REAL).find((k) => f.name.includes(k)), real = REAL[key];
+  for (const r of f.readings) {
+    if (!r.texts.length) continue;
+    const m = P.matchCardText(r.texts, POOL, null, null, null, usual), want = f.found[String(r.t)];
+    if (want) check('usual words left out: ' + key + ' card at ' + r.t, () => assert.ok(m && m.entry.name === want, 'want ' + want + ', got ' + (m && m.entry.name)));
+    else check('usual words left out: ' + key + ' at ' + r.t, () => assert.ok(!m || real.includes(m.entry.name), 'matched ' + (m && m.entry.name + ' ' + m.score)));
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

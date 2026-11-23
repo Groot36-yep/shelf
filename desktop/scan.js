@@ -51,6 +51,8 @@ function runCapture(cmd, args, timeoutMs, maxBytes) {
 const TW = 96, TH = 72, RATE = 2; // tiny grey thumbnails, 2 per second
 // The thumbnails, on the graphics card when that's faster for this video (see hwaccel.js), else
 // (or if the card fails) on the processor.
+// (Every frame is decoded: skipping the ones no other frame is built from was 30-40% quicker, but lost the short still
+// moment straight after a fade where Phineas and Ferb's "Voyage to the Bottom of Buford" card is.)
 async function thumbnails(file, from, len) {
   const seek = ['-ss', String(Math.max(0, from)), '-t', String(len)];
   const run = (input, vf) => runCapture(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-nostdin'].concat(input, seek, ['-i', file,
@@ -92,6 +94,39 @@ async function stills(file, from, len) {
   }
   runs.blacks = blacks;
   return runs;
+}
+
+// ---- 1b. Quiet moments: the black gap before a cartoon is silent too ----
+// Measured on 16 SpongeBob and Phineas and Ferb videos: every title card came the same moment after a silent gap
+// as after the black fade (give or take 0.2 s). Finding the silences takes the sound alone, about a tenth of the
+// time thumbnails take, so once a show's cards are known to come, say, 1.3 s after the gap, Shelf can look there
+// straight away and needn't make thumbnails at all. → [{ a, b }] (seconds), none for a video without sound.
+function quietGaps(file, from, len) {
+  return new Promise((resolve) => {
+    let err = '', child;
+    try {
+      child = spawn(ffmpegPath(), ['-hide_banner', '-nostats', '-nostdin', '-ss', String(Math.max(0, from)), '-t', String(len), '-i', file,
+        '-vn', '-sn', '-dn', '-af', 'silencedetect=n=-45dB:d=0.4', '-f', 'null', '-'], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) { return resolve([]); }
+    const timer = setTimeout(() => child.kill(), 60000);
+    child.stderr.on('data', (d) => { if (err.length < 200000) err += d; });
+    child.on('error', () => { clearTimeout(timer); resolve([]); });
+    child.on('close', () => {
+      clearTimeout(timer);
+      const out = []; let a = null;
+      for (const line of err.split(/\r?\n/)) {
+        let m;
+        if ((m = /silence_start: (-?[\d.]+)/.exec(line))) a = Math.max(0, +m[1]);
+        else if ((m = /silence_end: ([\d.]+)/.exec(line))) { out.push({ a: from + (a == null ? 0 : a), b: from + +m[1] }); a = null; }
+      }
+      resolve(out);
+    });
+  });
+}
+// The latest gap (black or silent) a moment before t: how long after it the card at t came, and how long the gap was.
+function gapBefore(gaps, t) {
+  const g = (gaps || []).filter((x) => x.b - x.a >= 0.4 && x.b <= t + 0.3 && t - x.b <= 12).pop();
+  return g ? { after: Math.round((t - g.b) * 10) / 10, len: Math.round((g.b - g.a) * 10) / 10 } : null;
 }
 
 // Order still moments by how likely each is to be a title card: right after a black moment is
@@ -455,10 +490,22 @@ async function cleanStale() {
  * secs: running time (or null). Returns [{ from, len, likely }] — `likely` is where its
  * title card most often is (after the theme song for the first cartoon), tried first.
  */
+// An episode's running time (seconds) from its listed length (minutes). Lists often give the TV slot instead: TVmaze
+// has every 11-minute Phineas and Ferb cartoon at 15 minutes, and half-hour shows at 30. A whole quarter-hour is taken
+// as about three quarters of it (11 of 15, 22 of 30, 44 of 60); other lengths as they are.
+function runSecs(mins) { return (mins % 15 === 0 ? mins * 0.75 : mins) * 60; }
+// How many episodes a video of secs holds, by the show's usual episode length in minutes (0: not known).
+function partsIn(secs, usualMins) {
+  if (!secs || !usualMins) return 0;
+  return Math.max(1, Math.min(4, Math.round(secs / runSecs(usualMins))));
+}
+
 function windowsFor(secs, maxParts) {
   const d = secs || 1320;
-  // maxParts: 1 for a show whose episodes are as long as the video (one episode, not several cartoons).
-  const parts = Math.max(1, Math.min(maxParts || 4, 4, Math.round(d / 660)));
+  // maxParts: how many episodes the video holds, worked out from the show's episode length (1 for a show whose
+  // episodes are as long as the video; 3 for 7-minute shorts in a half-hour). 0 when that isn't known: then one
+  // cartoon per 11 minutes.
+  const parts = maxParts ? Math.min(maxParts, 4) : Math.max(1, Math.min(4, Math.round(d / 660)));
   const out = [];
   for (let i = 0; i < parts; i++) {
     const start = (d * i) / parts;
@@ -490,34 +537,55 @@ function prepareStills(file, secs, maxParts) {
 /**
  * Read the title cards of one video.
  * opts.isMatch(texts) → true once the readings match a known title (Shelf then stops for that part).
- * Returns { texts: [{ part, t, texts }], frames }.
+ * opts.cardAt / cardAfterBlack / cardAfterQuiet (one or a few, commonest first) / cardQuietLen: what was learned about
+ * this show's cards in its other videos; opts.quick: false to skip the quick look (see below).
+ * Returns { texts: [{ part, t, texts }], frames, parts, quickTried, quickHits }.
  */
 async function scanFile(file, secs, opts) {
   opts = opts || {};
   await cleanStale();
   const texts = [];
   let frames = 0;
+  // The part being read: its still moments (null until made), and its black fades and silences (to note how long
+  // after one a card came).
+  let runs = null, curBlacks = [], curQuiet = [];
   const wins = windowsFor(secs, opts.maxParts);
   let parts = wins.length; // fewer when the first card names an episode that fills the video
   // How far along this video is, 0..1 (each cartoon's part is an equal share).
   const report = (part, frac) => { if (opts.onProgress) opts.onProgress(Math.min(1, (part + frac) / wins.length)); };
+  // The quick look (opts.quick, on unless the show's gaps never led to a card): a moment after the silent gaps, before
+  // any thumbnails. Once this show's card timing is known, the quick look usually finds the card, so a part's
+  // thumbnails are only made if it doesn't; until then they're made meanwhile, as before.
+  const quick = opts.quick !== false;
+  const afterQuiet = [].concat(opts.cardAfterQuiet == null ? [] : opts.cardAfterQuiet);
+  const learned = opts.cardAt != null || afterQuiet.length > 0;
+  const quietAll = quick ? wins.map((w) => quietGaps(file, w.from, w.len)) : [];
+  let quickTried = 0, quickHits = 0;
   // (Made ahead, while the video before this one was being read, when that was possible.)
-  const allStills = opts.stills || prepareStills(file, secs, opts.maxParts);
+  const allStills = opts.stills || (quick && learned ? [] : prepareStills(file, secs, opts.maxParts));
+  const stillsFor = (i) => allStills[i] || (allStills[i] = stills(file, wins[i].from, wins[i].len));
   // One still moment, read for part i. likely: one of the few likeliest (or straight after a black moment),
   // which get every version of the picture; the rest only the quick ones. strict: the title must also be
-  // named by one reading on its own (not only by many noisy readings pooled). → the match, or null.
-  const readFrame = async (run, i, likely, strict) => {
+  // named by one reading on its own (not only by many noisy readings pooled); 2: by two readings on their own (of
+  // all the versions read side by side). → the match, or null.
+  // (A frame that can't be read — a moment the video tool can't seek to, say — is passed over: one bad frame never
+  // costs the whole video what was already read in it.)
+  const readFrame = (run, i, likely, strict) => (run ? readFrameNow(run, i, likely, strict) : Promise.resolve(null)).catch(() => null);
+  const readFrameNow = async (run, i, likely, strict) => {
     frames++;
     const read = [];
     const imgs = await frameVariants(file, run.t, likely);
     if (opts.onPeek && imgs.preview) opts.onPeek({ part: i, t: run.t, image: imgs.preview });
     let hit = null;
+    const after = []; // what the versions read side by side with the one that matched read (only to confirm it)
     // All versions are read side by side, then judged in order, so the answer is the same as
     // reading them one at a time (a few extra readings at most).
     const tryImgs = async (list, psm) => {
-      for (const text of await readMany(list, psm)) {
+      const got = await readMany(list, psm);
+      for (let j = 0; j < got.length; j++) {
+        const text = got[j];
         if (text.replace(/[^A-Za-z]/g, '').length >= 3) read.push(text.slice(0, 300));
-        if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) return;
+        if (opts.isMatch && read.length && (hit = opts.isMatch(read, i))) { after.push(...got.slice(j + 1).map((x) => x.slice(0, 300))); return; }
       }
     };
     await tryImgs(imgs);
@@ -527,37 +595,106 @@ async function scanFile(file, secs, opts) {
     if (!hit && likely) await tryImgs(await frameVariants(file, run.t, false, 960));
     // Cards often fade in: near the end of the still moment the lettering is at its clearest.
     if (!hit && likely && run.secs >= 1.5) await tryImgs(await frameVariants(file, run.start + run.secs - 0.4, true));
-    if (hit && strict && !read.some((x) => { const m = opts.isMatch([x], i); return m && (!hit.entry || m.entry === hit.entry); })) hit = null;
-    if (read.length) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
+    const names = (x) => { const m = x.replace(/[^A-Za-z]/g, '').length >= 3 && opts.isMatch([x], i); return !!m && (!hit.entry || m.entry === hit.entry); };
+    if (hit && strict && read.concat(strict === 2 ? after : []).filter(names).length < (strict === 2 ? 2 : 1)) { hit = null; run.unsure = true; }
+    // (Not the readings of a title turned down here: the window judges the readings again, more loosely, and would
+    // bring it back.)
+    if (read.length && !run.unsure) texts.push({ part: i, t: Math.round(run.t * 10) / 10, start: Math.round(run.start * 10) / 10, secs: run.secs, texts: read });
     if (opts.onFrame) opts.onFrame();
-    if (hit && opts.onFound) opts.onFound({ part: i, t: run.t, hit });
+    if (hit && opts.onFound) {
+      // How long after the fade to black (and the silence) before it the card was (shows put their cards at the same
+      // place each time), and how long that silence was. (Found before the thumbnails were made: the silence stands
+      // in for the fade, which it matched within 0.2 s on every card measured.)
+      const hush = gapBefore(curQuiet, run.t), fade = runs ? gapBefore(curBlacks, run.t) : hush;
+      opts.onFound({ part: i, t: run.t, hit, afterBlack: fade ? fade.after : null, afterQuiet: hush ? hush.after : null, quietLen: hush ? hush.len : null });
+    }
     return hit;
   };
   for (let i = 0; i < wins.length; i++) {
     if (opts.cancelled && opts.cancelled()) break;
     report(i, 0.02);
-    const runs = await allStills[i];
-    report(i, 0.2);
-    // Most likely spots first; at most 30 still moments per cartoon. Where this show's first title card was in
-    // the videos read before this one (most shows put it in the same place every time) comes first of all.
+    // Where this show's first title card was in the videos read before this one (most shows put it in the same
+    // place every time).
     const seenAt = i === 0 && opts.cardAt != null && opts.cardAt >= wins[i].from && opts.cardAt <= wins[i].from + wins[i].len ? opts.cardAt : null;
-    const tryRuns = rankRuns(runs, seenAt != null ? seenAt : wins[i].likely).slice(0, i ? 45 : 30);
-    if (seenAt != null) {
-      const near = tryRuns.findIndex((r) => Math.abs(r.t - seenAt) <= 3);
-      if (near > 0) tryRuns.unshift(tryRuns.splice(near, 1)[0]);
-    }
     let k = 0, found = false, foundHit = null;
-    // Title cards come straight after a black fade, often fading in: besides the still moments, look
-    // a moment after the black fades nearest to where a card is expected.
-    const probeBlacks = fadeOrder(runs.blacks, wins[i].likely).slice(0, 2);
-    const probes = [].concat(...probeBlacks.map((b) => [0.8, 1.6].map((d) => ({ t: b.b + d, start: b.b, secs: 0, probe: true, rightAfterBlack: true }))));
-    if (tryRuns.length > 4) tryRuns.splice(4, 0, ...probes); else tryRuns.push(...probes);
-    for (const run of tryRuns) {
-      if (opts.cancelled && opts.cancelled()) break;
-      report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
-      // The likeliest few frames (and any straight after a black moment) get every version of the picture.
-      const hit = await readFrame(run, i, k <= 4 || run.rightAfterBlack);
-      if (hit) { found = true; foundHit = hit; break; } // found this cartoon's card
+    runs = null; curBlacks = [];
+    const tried = []; // moments a moment after a fade already read for this part
+    // The quick look: the silent gap likeliest to be the one before this cartoon (a long one, near where its card is
+    // expected, as long as this show's were; on Phineas and Ferb and SpongeBob it always was), and only the next 12
+    // seconds of video made into thumbnails. Read first: the moment as long after the gap as this show's cards
+    // usually came; then its still moments (cards hold still), the likeliest first (near when this show's cards came,
+    // and long); then the other moments this show's cards came after a gap, and where the first card was in this
+    // show's other videos. A title read at a moment that isn't a still one counts only when two of the frame's
+    // versions each name it (a jumble on an ordinary frame once read as "Spa Day"); else the usual search follows.
+    curQuiet = quick ? await quietAll[i] : [];
+    if (quick && (curQuiet.length || seenAt != null)) {
+      const near = seenAt != null ? seenAt : wins[i].likely, len = opts.cardQuietLen;
+      const gap = curQuiet.filter((q) => q.b - q.a >= 0.4 && q.b < wins[i].from + wins[i].len - 2)
+        .map((q) => ({ q, score: -Math.min(q.b - q.a, 2) + Math.abs(q.b - near) / 120 + (len ? Math.abs(q.b - q.a - len) : 0) }))
+        .sort((x, y) => x.score - y.score).map((x) => x.q)[0];
+      const looks = [];
+      if (gap) {
+        const soon = await stills(file, gap.b, 12).catch(() => null);
+        const dist = (t) => (afterQuiet.length ? Math.min(...afterQuiet.map((d) => Math.abs(t - gap.b - d))) : 0);
+        if (afterQuiet.length) looks.push({ t: gap.b + afterQuiet[0], start: gap.b, secs: 0 });
+        (soon || []).filter((r) => r.secs >= 1).map((r) => ({ r, score: dist(r.t) / 2 - Math.min(r.secs, 4) }))
+          .sort((x, y) => x.score - y.score).slice(0, 2).forEach((x) => looks.push({ t: x.r.t, start: x.r.start, secs: x.r.secs }));
+        afterQuiet.slice(1).forEach((d) => looks.push({ t: gap.b + d, start: gap.b, secs: 0 }));
+        if (!afterQuiet.length && !looks.length) looks.push({ t: gap.b + 1.2, start: gap.b, secs: 0 });
+      }
+      if (seenAt != null) looks.push({ t: seenAt, start: seenAt, secs: 0 });
+      for (const look of looks.filter((l, j) => !looks.slice(0, j).some((o) => Math.abs(o.t - l.t) < 1)).slice(0, 3)) {
+        if (opts.cancelled && opts.cancelled()) break;
+        report(i, 0.1);
+        quickTried++;
+        const run = { t: look.t, start: look.start, secs: look.secs, probe: true, rightAfterBlack: true };
+        const hit = await readFrame(run, i, true, look.secs ? 0 : 2);
+        if (hit) { found = true; foundHit = hit; quickHits++; break; }
+        // (Read just as the usual search reads it, which so needn't again; but a title read there and not confirmed
+        // is judged again the usual way.)
+        if (!run.unsure && !look.secs) tried.push(look.t);
+      }
+    }
+    if (!found) {
+      runs = await stillsFor(i);
+      curBlacks = runs.blacks || [];
+      report(i, 0.2);
+      // Most likely spots first; at most 30 still moments per cartoon. Where this show's first title card was in
+      // the videos read before this one comes first of all.
+      const tryRuns = rankRuns(runs, seenAt != null ? seenAt : wins[i].likely).slice(0, i ? 45 : 30);
+      if (seenAt != null) {
+        const near = tryRuns.findIndex((r) => Math.abs(r.t - seenAt) <= 3);
+        if (near > 0) tryRuns.unshift(tryRuns.splice(near, 1)[0]);
+      }
+      // Title cards come after a black fade, often fading in, sometimes over a moving picture (Phineas and Ferb's, a few
+      // seconds in, over a panning shot): besides the still moments, look a moment after the black fades nearest to
+      // where a card is expected. Once this show's cards have been found, exactly as long after the fade as they were
+      // (give or take a little), and before anything else: usually the first look finds it.
+      const after = opts.cardAfterBlack;
+      const probeBlacks = fadeOrder(runs.blacks, seenAt != null ? seenAt : wins[i].likely).slice(0, 2);
+      const offsets = after != null ? [after, after + 0.8, after - 0.8].filter((d) => d >= 0.3) : [0.8, 1.6, 3.2];
+      const probes = [].concat(...probeBlacks.map((b) => offsets.map((d) => ({ t: b.b + d, start: b.b, secs: 0, probe: true, rightAfterBlack: true }))));
+      // (The exact moment after the likeliest fade first; the rest after the likeliest still moments.)
+      if (after != null && probes.length) tryRuns.unshift(probes.shift());
+      if (tryRuns.length > 4) tryRuns.splice(after != null ? 5 : 4, 0, ...probes); else tryRuns.push(...probes);
+      // Once this show's cards have been found in its other videos, at most 20 moments: of 57 cards found on
+      // Phineas and Ferb and SpongeBob, 56 were among the first 6 read and one was the 18th, while a part whose card
+      // can't be read went on through 36-51 (most of the time a folder took). Deep Scan still looks everywhere.
+      let stillsRead = 0, budget = opts.cardAt != null || opts.cardAfterBlack != null || afterQuiet.length ? 20 : Infinity;
+      for (const run of tryRuns) {
+        if (opts.cancelled && opts.cancelled()) break;
+        if (budget <= 0) break;
+        report(i, 0.2 + 0.8 * (k++ / tryRuns.length));
+        // The likeliest few still moments (and any look straight after a black moment) get every version of the picture.
+        // (The looks after a fade don't use up the still moments' turns: those found most of the cards before.)
+        // (A look a moment after a fade the quick look already took isn't taken again. Still moments are read again:
+        // the usual search reads one's last frame too, where a card fading in is clearest, and the quick look's
+        // thumbnails of only 12 seconds can end a still moment elsewhere; "Out of Toon" was missed that way.)
+        if (!run || (run.probe && tried.some((t) => Math.abs(t - run.t) < 0.5))) continue;
+        budget--;
+        const hit = await readFrame(run, i, (!run.probe && ++stillsRead <= 4) || run.rightAfterBlack);
+        if (hit) { found = true; foundHit = hit; break; } // found this cartoon's card
+      }
     }
     // The second cartoon's card isn't where it usually is: a long first cartoon, or a show segment before it
     // (Patchy the Pirate's), pushes it later. Look further on, at the moments straight after a fade to black.
@@ -566,6 +703,7 @@ async function scanFile(file, secs, opts) {
       const from = wins[i].from + wins[i].len, len = Math.min(360, (secs || 1320) - 40 - from);
       const later = len >= 30 ? await stills(file, from, len).catch(() => null) : null;
       if (later) {
+        curBlacks = later.blacks || [];
         const cands = rankRuns(later, from).filter((r) => r.rightAfterBlack).slice(0, 6);
         fadeOrder(later.blacks, from).filter((b) => b.b - b.a >= 0.8).slice(0, 3)
           .forEach((b) => cands.push({ t: b.b + 1, start: b.b, secs: 0, probe: true, rightAfterBlack: true }));
@@ -652,7 +790,7 @@ async function scanFile(file, secs, opts) {
     }
   }
   report(wins.length, 0);
-  return { texts, frames, parts };
+  return { texts, frames, parts, quickTried, quickHits };
 }
 
-module.exports = { scanFile, prepareStills, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, readText, readMany, ffmpegPath, stills, frameVariants, letteringLayers, levelled, OCR_READERS };
+module.exports = { scanFile, prepareStills, stopOcr, stopOcrSoon, readersRunning: () => readers.length, windowsFor, runSecs, partsIn, readText, readMany, ffmpegPath, stills, quietGaps, frameVariants, letteringLayers, levelled, OCR_READERS };
