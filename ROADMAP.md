@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.8.0)
 - **Every episode in Check All has a picture, and never a black one.** Episodes known from their file name or from
   what was heard used to show none; now each shows a moment of the video (where a card was, where the words were
   said, or about a minute in). A frame that's the black of a fade is passed over for one a moment later.
