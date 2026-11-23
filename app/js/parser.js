@@ -1414,7 +1414,7 @@
         // Only a later cartoon's card was read, and nothing listed aired with it: something comes before it in the
         // file (a first cartoon whose card couldn't be read), so it can't be the whole file.
         if (found.length === 1 && best[0] == null && !marks.length && (file.parts || 1) > 1 && !(g && g.length > 1)) {
-          return out(found, cardHow, false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Watch & Fix to add it, or pick it in the file’s details.');
+          return out(found, cardHow, false, 'Shelf read the title card of a later cartoon (' + found[0].name + ') but not the first one. Use Inspect… to add it, or pick it in the file’s details.');
         }
         if (g && g.length > found.length && (ctx.mode === 'halfhours' || parts > 1 || !together)) {
           // Only trust that guess if the file's own number points at the same half-hour.

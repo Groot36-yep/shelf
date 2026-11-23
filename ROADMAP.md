@@ -6,14 +6,14 @@ Where things stand, and what's left to do. Newest first.
 - **Every episode in Check All has a picture, and never a black one.** Episodes known from their file name or from
   what was heard used to show none; now each shows a moment of the video (where a card was, where the words were
   said, or about a minute in). A frame that's the black of a fade is passed over for one a moment later.
-- **Watch & Fix** (it was "Check Episodes") opens on the title card, or about a minute in, instead of the black first
+- **Inspect** (it was "Check Episodes") opens on the title card, or about a minute in, instead of the black first
   frame, and its picture strips come about twice as fast (made in four pieces at once) and instantly the second time.
-- **Clearer buttons.** Check Episodes… → Watch & Fix…, Fix… → Watch & Fix…, Take Off the
+- **Clearer buttons.** Check Episodes… → Inspect…, Fix… → Inspect…, Take Off the
   List → Remove from List, and "Is this the right one?" → "Which show is this?". The other shows fold away behind
   "Not this show?" when Shelf is sure.
 - **Deep Scan by itself.** After Read Title Cards, the videos it couldn't recognise get a closer look straight
   away, without asking again (Settings → TV: Deep scan by itself). Deep Scan says what it does, and looks like a button.
-- **Your marks teach Shelf.** A title card you mark in Watch & Fix tells Shelf where that show's cards are, and its
+- **Your marks teach Shelf.** A title card you mark in Inspect tells Shelf where that show's cards are, and its
   next scans look there first.
 - **Fewer wrong titles, more found:** a video split off a longer one has its card read from its first seconds
   ("Unfair Science Fair Redux": not found before, now in 8 seconds); a title that starts like another ("Unfair Science

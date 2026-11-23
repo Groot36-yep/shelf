@@ -42,7 +42,7 @@ something. Shelf sends no cookies and no "referrer".
 - **Updates** only when you click it: Shelf asks GitHub for its latest release page. If you choose to
   install, it downloads the file from Shelf's own GitHub releases and checks it against the SHA-256
   fingerprint GitHub publishes before running it. Nothing about you or your files is sent.
-- Before Shelf looks inside a video (title cards, Watch & Fix, lengths) it asks in its own
+- Before Shelf looks inside a video (title cards, Inspect, lengths) it asks in its own
   permission window. Only a click in that window says yes: the main window can't answer it.
 - The app asks for no permissions (camera, microphone, location, notifications) and can't open
   other websites inside its window. Links open in your normal browser.

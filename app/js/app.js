@@ -854,7 +854,7 @@
       var c0 = current(vids[0]);
       $('rvTitle').textContent = 'Check All';
       $('rvTitle').textContent = Object.keys(shows).length === 1 ? 'Check All: ' + c0.title : 'Check All';
-      $('rvSub').textContent = 'Each episode with how Shelf knows it: the title card it read, what it heard, or just the file name. Anything wrong? Watch & Fix plays it so you can change it.';
+      $('rvSub').textContent = 'Each episode with how Shelf knows it: the title card it read, what it heard, or just the file name. Anything wrong? Inspect… plays it so you can change it.';
       renderReview();
       var d = $('reviewSheet'); if (!d.open) d.showModal();
       setTimeout(function () { var first = $('rvBody').querySelector('.rv-card.is-need') || $('rvBody').querySelector('.rv-card'); if (first) first.focus(); }, 60);
@@ -956,7 +956,7 @@
     var info = [eps,
       el('div', { class: 'rv-new', title: names.join('\n') + '\n\nNow: ' + v.name }, names.map(function (n) { return el('div', { text: n }); })),
       el('div', { class: 'rv-was', title: v.name, text: 'Now: ' + v.name })];
-    if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Watch & Fix plays it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
+    if (need) info.push(el('p', { class: 'rv-why', text: !v.episode ? 'Shelf couldn’t tell which episode this is. Inspect… plays it so you can pick.' : v.epProblem || v.error || reasonFor(v) }));
     if (v.split) v.split.pieces.slice(0, -1).forEach(function (pc, k) { info.push(rvCut(v, k)); });
     var acts = [];
     if (iss && iss.kind === 'apart' && !v.split) iss.actions.forEach(function (a) {
@@ -964,7 +964,7 @@
     });
     else if (rvCanRight(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-right' + (need ? ' pill-primary' : ''), 'aria-pressed': !need && v.checked ? 'true' : 'false',
       text: !need && v.checked ? '✓ Checked' : need ? 'It’s Right' : 'Looks Right', title: 'This is right (Enter)', onclick: function () { rvSettle([v]).then(function () { renderReview(v.id); rvNext(v.id); }); } }));
-    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-fix' + (acts.length ? '' : ' pill-primary'), text: 'Watch & Fix…', title: 'Play it to see which episode it is, and change it (F)', onclick: function () { rvFix(v); } }));
+    if (canLook(v)) acts.push(el('button', { type: 'button', class: 'pill small-pill rv-fix' + (acts.length ? '' : ' pill-primary'), text: 'Inspect…', title: 'Play it to see which episode it is, and change it (F)', onclick: function () { rvFix(v); } }));
     var proofsBox = el('div', { class: 'rv-proofs' + (rows.length > 1 ? ' is-many' : '') }, rows.map(function (e) { return rvProof(v, e, proofs); }));
     return el('article', { class: 'rv-card' + (need ? ' is-need' : ' is-ok') + (!need && v.checked ? ' is-checked' : '') + (rows.length > 1 || v.split ? ' is-wide' : ''), tabindex: '0', 'data-id': v.id, 'aria-label': rows.map(function (e) { return epCode(e) + ' ' + e.name; }).join(', ') + (need ? ', needs you' : ', ready') }, [
       proofsBox, el('div', { class: 'rv-info' }, info), el('div', { class: 'rv-acts' }, acts)
@@ -1184,7 +1184,7 @@
     }
     var iss = v.kind === 'episode' && c ? issueFor(item) : null;
     if (iss) {
-      var acts = iss.actions.filter(function (a) { return !/^Watch & Fix/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
+      var acts = iss.actions.filter(function (a) { return !/^Inspect/.test(a.label); }).map(function (a) { return { label: a.label, run: a.run, link: a.link, title: a.title }; });
       return { title: iss.kind === 'single' && v.episode ? v.episode.name + ': one long episode, or two?' : iss.title, text: iss.text, actions: acts, picks: iss.kind === 'check' };
     }
     var label = rowParts(item).code ? rowParts(item).code + ' ' + rowParts(item).name : name;
@@ -1220,7 +1220,7 @@
         return el('button', { type: 'button', class: 'answer' + (a.link ? ' link' : keyed === 1 && !a.link ? ' primary' : ''), title: a.title || (key ? 'Press ' + key : ''), onclick: function () { a.run(); } },
           [el('span', { text: a.label })].concat(key && keyed <= 9 ? [el('kbd', { text: key })] : []));
       });
-      if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Play the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Watch & Fix…' }), el('kbd', { text: 'E' })]));
+      if (canLook(v) && v.parsed.isVideo && v.kind === 'episode' && !scanning) btns.push(el('button', { type: 'button', class: 'answer link', title: 'Play the video and see for yourself (E)', onclick: function () { select(item.id); openEditor(item); } }, [el('span', { text: 'Inspect…' }), el('kbd', { text: 'E' })]));
       actions.replaceChildren.apply(actions, btns);
       box.classList.toggle('is-wide', btns.length > 3 || answers.reduce(function (n, a) { return n + a.label.length; }, 0) > 34);
     };
@@ -1346,7 +1346,7 @@
       rowsEp.forEach(function (e, i) {
         var thumb = null;
         if (e.card != null && src0.fullPath) {
-          thumb = el('button', { type: 'button', class: 'ep-thumb', title: 'The title card Shelf read (' + fmtClock(e.card) + '). Click to play it in Watch & Fix.', onclick: function () { openEditor(item); } });
+          thumb = el('button', { type: 'button', class: 'ep-thumb', title: 'The title card Shelf read (' + fmtClock(e.card) + '). Click to inspect it.', onclick: function () { openEditor(item); } });
           cardFrame(src0, e.card, 240).then(function (url) { if (url) thumb.appendChild(el('img', { src: url, alt: 'Title card' })); });
         }
         var row = el('div', { class: 'ep-card-row' + (thumb ? ' has-thumb' : ''), 'data-part': src0.split || rowsEp.length > 1 ? i % 2 : '' }, [
@@ -1378,7 +1378,7 @@
       badge.textContent = iss ? 'Needs a look' : src0.split ? 'Split' : /^✓/.test(why) ? 'Sure' : 'Probably';
       badge.className = 'ep-badge ' + (iss ? 'warn' : /^✓|^✂/.test(why) ? 'ok' : 'maybe');
       $('checkEps').hidden = !canLook(src0) || !src0.parsed.isVideo;
-      $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Watch & Fix…';
+      $('checkEps').textContent = src0.split ? 'Edit Split…' : 'Inspect…';
       $('checkEps').disabled = scanning;
       $('clearSplit').hidden = !src0.split;
       var canSplit = splittable(item);
@@ -2606,7 +2606,7 @@
           { label: 'Leave Plex As It Is', link: true, run: function () { v.plexFixed = true; applyStatus(v); render(); } }] };
     }
     var names = function (es) { return es.map(function (e) { return epCode(e) + ' “' + e.name + '”'; }); };
-    var look = canLook(v) ? [{ label: 'Watch & Fix…', title: 'Play the video to see for yourself', run: function () { openEditor(item); } }] : [];
+    var look = canLook(v) ? [{ label: 'Inspect…', title: 'Play the video to see for yourself', run: function () { openEditor(item); } }] : [];
     if (ep.needsSplit) {
       var es = ep.entries || [];
       return { kind: 'apart', title: 'This file holds ' + es.length + ' separate episodes',

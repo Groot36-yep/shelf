@@ -157,7 +157,7 @@
         <div class="ep-quick" id="epQuick" hidden role="group" aria-labelledby="epQuickLabel"><span class="ep-quick-k" id="epQuickLabel">Or is it…</span><div class="ep-quick-list" id="epQuickList"></div></div>
         <p class="ep-why" id="inspEpWhy"></p>
         <div class="insp-card-foot">
-          <button class="pill small-pill" type="button" id="checkEps" title="Play the video to see which episode it is: change it, mark its title card, or split it into one file per episode">Watch &amp; Fix…</button>
+          <button class="pill small-pill" type="button" id="checkEps" title="Play the video to see which episode it is: change it, mark its title card, or split it into one file per episode">Inspect…</button>
           <button class="pill small-pill" type="button" id="deepScan" title="Read far more of this video for its title cards than the quick read does (a minute or two; Shelf asks first)">Deep Scan</button>
           <span class="foot-flex"></span>
           <button class="link-btn" type="button" id="clearSplit" hidden>Don’t Split</button>
@@ -291,7 +291,7 @@
     </header>
     <div class="rv-body" id="rvBody" tabindex="-1"></div>
     <footer class="sheet-actions rv-foot">
-      <span class="rv-keys muted">Arrow keys to move · <kbd>Enter</kbd> right · <kbd>F</kbd> fix</span>
+      <span class="rv-keys muted">Arrow keys to move · <kbd>Enter</kbd> right · <kbd>F</kbd> inspect</span>
       <span class="rv-progress" id="rvProgress"></span>
       <button class="pill" type="button" id="rvRead" hidden title="Read the title cards of the episodes known only by their file name, to check them">Read Title Cards</button>
       <button class="pill" type="button" id="rvAllRight">Mark All Right</button>
@@ -1000,11 +1000,11 @@
   </form>
 </dialog>
 
-<!-- Watch & Fix window: play the video, check its episodes (and split it, if you choose) -->
+<!-- Inspect window: play the video, check its episodes (and split it, if you choose) -->
 <dialog class="sheet editor-sheet" id="editorSheet" aria-labelledby="edTitle">
   <header class="ed-header">
     <div class="ed-titles">
-      <h2 id="edTitle" class="sheet-title">Watch &amp; Fix</h2>
+      <h2 id="edTitle" class="sheet-title">Inspect</h2>
       <p id="edFile"></p>
     </div>
     <div class="segmented ed-mode" role="group" aria-label="Keep as one file or split" id="edMode">

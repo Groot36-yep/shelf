@@ -627,7 +627,7 @@ if (gotLock) app.whenReady().then(() => {
   // Shelf can also show you the frame of a title card it read, and find where to split.
   const lookApproved = new Set();
   // The frame of a title card Shelf read (a small JPEG, straight to this window; never saved).
-  // Title cards you marked in Watch & Fix teach Shelf this show: how long after the silent gap before a cartoon its
+  // Title cards you marked in Inspect teach Shelf this show: how long after the silent gap before a cartoon its
   // card comes (and, for the first cartoon, when). The next scan of the show looks there first (see learnedPath).
   // Only for a video you let Shelf look inside; at most a few marks; the show's name as the list knows it.
   handle('shelf:learnMarks', async (show, p, times) => {
@@ -1022,7 +1022,7 @@ if (gotLock) app.whenReady().then(() => {
     if (!approvedMedia.has(p)) {
       const batch = [p].concat(Array.isArray(also) ? also.filter(onServerVideo).slice(0, 500) : []);
       const yes = await askFirst(batch, {
-        kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Watch & Fix?', 'Open these # videos in Watch & Fix?'),
+        kind: 'open', ok: 'Open Video', title: n(batch, 'Inspect this video?', 'Inspect these # videos?'),
         lead: 'Shelf plays the video from your Plex server in its own window, so you can see which episodes it holds and mark their title cards.',
         points: [{ icon: 'lock', text: 'Played over your SSH connection, only the parts you watch' }, { icon: 'trash', text: 'Nothing is saved, and nothing is installed on the server' }, { icon: 'keep', text: 'Nothing changes until you click Rename Now' }]
       });
@@ -1054,7 +1054,7 @@ if (gotLock) app.whenReady().then(() => {
     }
     const batch = pickedVideos([p].concat(Array.isArray(also) ? also.slice(0, 500) : []));
     const yes = await askFirst(batch, {
-      kind: 'open', ok: 'Open Video', title: n(batch, 'Open this video in Watch & Fix?', 'Open these # videos in Watch & Fix?'),
+      kind: 'open', ok: 'Open Video', title: n(batch, 'Inspect this video?', 'Inspect these # videos?'),
       lead: 'Shelf plays the video in its own window, so you can see which episodes it holds, where each one starts, and split it if you want.',
       points: [{ icon: 'keep', text: 'Nothing changes until you click Rename Now' }, { icon: 'keep', text: 'Your original file is always kept' }, { icon: 'lock', text: 'Nothing leaves this computer' }]
     });
