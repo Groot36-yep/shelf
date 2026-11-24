@@ -194,6 +194,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await win.fill('#xfName', 'Bonus');
   await win.click('#xfAskOk');
   await waitFor(async () => (await names('server')).includes('Bonus'), 'the rename');
+  // Ctrl+Z: the rename, then the new folder, newest first.
+  const here = '/srv/disk1/Movies/Big Movie (2001)/';
+  await win.click(row('server', 'Bonus'));
+  await win.keyboard.press('Control+z');
+  await waitFor(async () => (await names('server')).includes('Extras') && !(await names('server')).includes('Bonus'), 'Ctrl+Z renaming it back');
+  assert.match(await win.textContent('#toast'), /Undone: “Bonus” is “Extras” again/);
+  await win.keyboard.press('Control+z');
+  await waitFor(async () => !(await names('server')).includes('Extras'), 'Ctrl+Z removing the new folder');
+  assert.ok(!srv.dirs.has(here + 'Extras'));
+  await win.keyboard.press('Control+z'); await sleep(300);
+  assert.match(await win.textContent('#toast'), /Nothing to undo here/);
+  // A new folder that has something in it by then is left alone.
+  await win.click('.xf-pane[data-side=server] .xf-ibtn[aria-label="New folder"]');
+  await win.waitForSelector('.xf-ask[open] #xfName');
+  await win.fill('#xfName', 'Bonus');
+  await win.click('#xfAskOk');
+  await waitFor(async () => (await names('server')).includes('Bonus'), 'the new folder');
+  srv.dirs.add(here + 'Bonus/Inside');
+  await win.keyboard.press('Control+z'); await sleep(800);
+  assert.match(await win.textContent('#toast'), /has something in it now/);
+  assert.ok(srv.dirs.has(here + 'Bonus'), 'kept');
+  console.log('  ✓ Ctrl+Z undoes the rename, then the new folder; a folder with something in it is kept');
   await win.click(row('server', 'Bonus'));
   await win.click('.xf-pane[data-side=server] .xf-danger');
   await win.waitForSelector('.xf-ask[open]');

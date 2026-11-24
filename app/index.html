@@ -1020,6 +1020,12 @@
       <button type="button" data-mode="split" aria-pressed="false" title="Cut it into one file per episode">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="7.5" height="12" rx="2"/><rect x="13.5" y="6" width="7.5" height="12" rx="2"/></svg>Split Into Files</button>
     </div>
+    <div class="ed-undo" role="group" aria-label="Undo and redo">
+      <button class="ed-btn icon small" type="button" id="edUndo" title="Undo  (Ctrl+Z)" aria-label="Undo" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg></button>
+      <button class="ed-btn icon small" type="button" id="edRedo" title="Redo  (Ctrl+Y)" aria-label="Redo" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg></button>
+    </div>
     <div class="ed-help">
       <button class="ed-btn icon ed-keys-btn" type="button" id="edKeysBtn" aria-expanded="false" aria-controls="edKeys" title="Keyboard shortcuts  (?)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h1M9.5 10h1M13 10h1M16.5 10h1M7.5 14h9"/></svg><span>Shortcuts</span></button>
@@ -1037,6 +1043,7 @@
           <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Nudge the cut to the clean cutting point before / after</dd>
           <dt><kbd>P</kbd></dt><dd>Preview the cut (4 s either side)</dd>
           <dt><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></dt><dd>Zoom in / out / whole video</dd>
+          <dt><kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Y</kbd></dt><dd>Undo / redo a change to the episodes, cuts or marks</dd>
         </dl>
         <span>Scroll on the timeline to move along it; Ctrl + scroll (or pinch) to zoom.</span>
       </div>

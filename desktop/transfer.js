@@ -334,6 +334,29 @@ function setup(ctx, api) {
       return full;
     });
   });
+  // Undoing a new folder: it goes only while it's still empty (nothing you've put in it since is ever deleted).
+  handle('shelf:xferRmdir', async (side, full) => {
+    const empty = () => problem('NOT_EMPTY', 'That folder has something in it now, so Shelf left it.');
+    if (side === 'pc') {
+      const at = localDir(full);
+      if (!at || path.dirname(at) === at || systemFolder(at)) throw problem('FOLDER', 'Shelf won’t remove that folder.');
+      const kids = await fsp.readdir(at).catch((e) => { if (e.code === 'ENOENT') return null; throw problem('FOLDER', 'Couldn’t look in that folder.'); });
+      if (!kids) return { gone: true };
+      if (kids.length) throw empty();
+      await fsp.rmdir(at).catch((e) => { throw e.code === 'ENOTEMPTY' ? empty() : problem('FOLDER', 'Couldn’t remove that folder.'); });
+      return { gone: true };
+    }
+    return withSession(async (s) => {
+      const at = S.cleanRoot(full);
+      if (!at || protectedRemote(at)) throw problem('FOLDER', 'Shelf won’t remove that folder.');
+      const st = await s.stat(at);
+      if (!st) return { gone: true };
+      const kids = (await s.p((cb) => s.sftp.readdir(at, cb))).filter((k) => k.filename !== '.' && k.filename !== '..');
+      if (kids.length) throw empty();
+      await s.p((cb) => s.sftp.rmdir(at, cb)).catch((e) => { throw S.friendly(e, host()); });
+      return { gone: true };
+    });
+  });
   handle('shelf:xferRename', async (where, from, to) => withSession(async (s) => {
     const at = S.cleanRoot(where); from = cleanName(from); to = cleanName(to);
     if (!at || !from) throw problem('NAME', 'Pick something to rename.');

@@ -51,7 +51,8 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   for (let i = 0; i < 900; i++) { await sleep(200); if (await win.evaluate(() => window.Shelf.items().filter((x) => x.kind === 'episode' && x.fullPath).every((x) => x.cards) && document.getElementById('activity').hidden)) break; }
   await sleep(500);
   await pick(file); await sleep(300);
-  console.log('before:', JSON.stringify(await item()), '|', await win.textContent('#issueTitle'));
+  const before = await item();
+  console.log('before:', JSON.stringify(before), '|', await win.textContent('#issueTitle'));
   // (One card read in a 22-minute video of 11-minute cartoons: Shelf's guess for the second, to check.)
   assert.match(await win.textContent('#issueTitle'), /One long episode|Two episodes in this file/);
 
@@ -82,6 +83,21 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   assert.match(await win.textContent('#edMarkCard'), /Remove Mark/);
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT });
 
+  // ---- Ctrl+Z takes the mark back; Ctrl+Y puts it back ----
+  await win.evaluate(() => { document.activeElement.blur(); });
+  assert.ok(!(await win.isDisabled('#edUndo')), 'Undo is on');
+  await win.keyboard.press('Control+z'); await sleep(1200);
+  s = await item();
+  assert.deepStrictEqual(s.marks, [], 'Ctrl+Z: the mark is gone');
+  assert.strictEqual(await win.$$eval('#edCardList .ed-chip.is-manual', (x) => x.length), 0);
+  assert.match(await win.textContent('#edInfo'), /Undone/);
+  assert.ok(await win.isDisabled('#edUndo'), 'nothing left to undo');
+  await win.keyboard.press('Control+y'); await sleep(1200);
+  s = await item();
+  assert.deepStrictEqual(s.marks, ['7@664'], 'Ctrl+Y: back');
+  assert.deepStrictEqual(s.ep, [6, 7, 'card']);
+  console.log('  ✓ Ctrl+Z / Ctrl+Y in Inspect');
+
   // ---- Remove it, then mark it again and save ----
   await win.click('#edMarkCard'); await sleep(1200);
   s = await item();
@@ -107,6 +123,23 @@ const blank = (t, bg) => `drawbox=enable='between(t,${t},${t + 4})':color=${bg}:
   assert.ok(await win.isVisible('#epAdd'), '+ Add Another Episode');
   await win.click('#inspEpList .ep-card-row:nth-child(2) .ep-remove'); await sleep(600);
   assert.deepStrictEqual((await item()).ep.slice(0, 2), [6, null], 'removed again');
+
+  // ---- Ctrl+Z in the list: each change, newest first, back to before Inspect ----
+  await win.evaluate(() => { document.activeElement.blur(); });
+  const undo = async () => { await win.keyboard.press('Control+z'); await sleep(900); return (await item()).ep.slice(0, 2); };
+  assert.deepStrictEqual(await undo(), [6, 7], 'the removed episode is back');
+  assert.match(await win.textContent('#toast'), /Undone: the episodes for/);
+  assert.deepStrictEqual(await undo(), [6, null], 'before “more”');
+  assert.deepStrictEqual(await undo(), [6, 7], 'before “one”');
+  s = await item();
+  assert.deepStrictEqual(s.marks, ['7@664'], 'still with your mark');
+  await win.keyboard.press('Control+z'); await sleep(1200);
+  s = await item();
+  assert.match(await win.textContent('#toast'), /your changes in Inspect/);
+  assert.deepStrictEqual(s.marks, [], 'and before Inspect: no mark');
+  assert.deepStrictEqual(s.ep, before.ep, 'as Shelf had it');
+  assert.ok(s.block, 'and it asks you again');
+  console.log('  ✓ Ctrl+Z in the list, back to before Inspect');
 
   console.log('prompts:', JSON.stringify(await app.evaluate(() => global.__prompts)));
   assert.deepStrictEqual(errors, []);

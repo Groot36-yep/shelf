@@ -212,6 +212,9 @@
       ])
     ]);
     sheet.addEventListener('close', function () { drag = null; syncBackground(); });
+    sheet.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); undo(); }
+    });
     sheet.addEventListener('keydown', function (e) { if (e.key === 'F5') { e.preventDefault(); var s = activeSide(); load(s, panes[s].path, true); } });
     document.body.appendChild(sheet);
     native.onXfer(function (snap) { queue = snap; paintQueue(); });
@@ -617,6 +620,7 @@
     }).then(function (made) {
       if (!made) return;
       var name = made.split(/[\\/]/).pop();
+      done({ what: 'mkdir', side: side, dir: p.path, path: made, name: name });
       load(side, p.path, true).then(function () { p.sel = new Set([name]); p.anchor = p.focus = name; paint(side); scrollToFocus(side); });
     });
   }
@@ -633,11 +637,40 @@
     // Just the name, not the .mkv, is picked to start with.
     var dot = sel[0].dir ? -1 : from.lastIndexOf('.');
     if (dot > 0) input.setSelectionRange(0, dot);
+    var dir = p.path;
     q.then(function (to) {
       if (!to) return;
       var name = to.split('/').pop();
+      if (name !== from) done({ what: 'rename', side: 'server', dir: dir, from: from, to: name });
       load('server', p.path, true).then(function () { p.sel = new Set([name]); p.anchor = p.focus = name; paint('server'); scrollToFocus('server'); });
     });
+  }
+  // ---------- Undo (Ctrl+Z): renames and new folders, newest first ----------
+  // (Deleting on the server can't be undone: there's no recycle bin there. Copies aren't undone either.)
+  var history = [];
+  function done(step) { history.push(step); if (history.length > 50) history.shift(); }
+  function showIn(side, dir, name) {
+    var p = panes[side];
+    if (p.path !== dir) return;
+    load(side, dir, true).then(function () {
+      if (name && p.entries.some(function (e) { return e.name === name; })) { p.sel = new Set([name]); p.anchor = p.focus = name; }
+      paint(side); scrollToFocus(side);
+    });
+  }
+  var undoing = false;
+  function undo() {
+    if (undoing) return;
+    var step = history.pop();
+    if (!step) { toast('Nothing to undo here. (Renames and new folders can be undone; deleting can’t.)'); return; }
+    undoing = true;
+    var where = step.side === 'server' ? ' on your server' : '';
+    var call = step.what === 'rename' ? native.xferRename(step.dir, step.to, step.from) : native.xferRmdir(step.side, step.path);
+    call.then(function () {
+      if (step.what === 'rename') { toast('Undone: “' + step.to + '” is “' + step.from + '” again' + where + '.'); showIn(step.side, step.dir, step.from); }
+      else { toast('Undone: removed the new folder “' + step.name + '”' + where + '.'); showIn(step.side, step.dir, null); }
+    }, function (e) {
+      toast('Couldn’t undo that: ' + (why(e).text || 'it went wrong.'));
+    }).then(function () { undoing = false; });
   }
   function deleteSelected() {
     var p = panes.server, sel = selected('server');
@@ -772,5 +805,5 @@
   }
   var btn = $('filesBtn');
   if (btn) btn.addEventListener('click', open);
-  window.ShelfFiles = { open: open, _panes: panes, _queue: function () { return queue; } };
+  window.ShelfFiles = { open: open, undo: undo, _panes: panes, _queue: function () { return queue; }, _history: function () { return history; } };
 })();

@@ -216,7 +216,7 @@
     }
     $('edFile').textContent = o.name + (o.position ? '   ·   ' + o.position : '') + (o.remote ? '   ·   on your Plex server' : '');
     info('');
-    $('edBusy').hidden = true;
+    $('edBusy').hidden = true; $('edUndo').disabled = $('edRedo').disabled = true;
     video = $('edVideo');
     video.hidden = false; $('edFrame').hidden = true; $('edQuick').hidden = true; $('edFallback').hidden = true;
     seeking = false; pendingSeek = null;
@@ -586,11 +586,14 @@
   }
 
   // ---- Modes: one file vs split ----
+  function showMode() {
+    document.querySelectorAll('#edMode button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === st.mode ? 'true' : 'false'); });
+    $('editorSheet').classList.toggle('is-split', st.mode === 'split');
+  }
   function setMode(m, first) {
     if (!st) return;
     st.mode = m;
-    document.querySelectorAll('#edMode button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.mode === m ? 'true' : 'false'); });
-    $('editorSheet').classList.toggle('is-split', m === 'split');
+    showMode();
     if (m === 'split') {
       if (st.parts.length < 2) {
         // Splitting something we thought was one episode: start with two parts, the second being the next episode.
@@ -691,6 +694,7 @@
   // First guesses for cuts: before each part's title card, else from the episodes' lengths.
   function suggest() {
     st.suggested = true;
+    st.settling = (st.settling || 0) + 1; // (the cuts aren't settled until the gaps are found: one step for Undo)
     var n = st.parts.length, total = 0, acc = 0;
     st.parts.forEach(function (p) { total += (p.entry && p.entry.runtime) || 11; });
     var hints = [];
@@ -717,7 +721,7 @@
       info('Shelf’s suggestion: ' + why.join('; ') + '. Check the frames either side of it below, or Preview Cut.');
       return around(st.cuts[0]);
     }).catch(function (e) { if (st) info('Couldn’t find a gap (' + e.message + '). Move the playhead to where the next episode starts, then Move Cut to Playhead.'); })
-      .then(function () { if (!st) return; $('edBusy').hidden = true; drawAll(); seek(st.cuts[st.sel] - 3); });
+      .then(function () { if (!st || st.token !== tok) return; st.settling = Math.max(0, st.settling - 1); $('edBusy').hidden = true; drawAll(); seek(st.cuts[st.sel] - 3); });
   }
   function around(t) {
     return st.o.native.splitAround(st.token, t).then(function (q) {
@@ -740,8 +744,10 @@
   }
   function snapAndSet(i, t) {
     info('Setting cut ' + (i + 1) + '…');
+    st.settling = (st.settling || 0) + 1;
+    var tok = st.token, settled = function () { if (st && st.token === tok) st.settling = Math.max(0, st.settling - 1); return st && st.token === tok; };
     around(t).then(function () {
-      if (!st) return;
+      if (!settled()) return;
       var k = st.keys.slice().sort(function (a, b) { return Math.abs(a - t) - Math.abs(b - t); })[0];
       var at = k != null && Math.abs(k - t) < 6 ? k : t;
       st.cuts[i] = at;
@@ -750,7 +756,7 @@
         : ' (on a keyframe: a clean, lossless cut).'));
       st.justSet = i;
       drawAll(); seek(at);
-    });
+    }, function () { if (settled()) { st.cuts[i] = t; drawAll(); } });
   }
   function addCut() {
     if (!st || st.mode !== 'split') return;
@@ -884,7 +890,52 @@
   }
 
   // ---- The parts / episodes panel ----
-  function drawAll() { drawTimeline(); drawPanel(); }
+  function drawAll() { drawTimeline(); drawPanel(); track(); }
+
+  // ---- Undo (Ctrl+Z) and redo (Ctrl+Y): every change to the episodes, cuts and title-card marks in this window ----
+  function copyOf(s) {
+    var o = function (x) { return x ? Object.assign({}, x) : null; };
+    return { mode: s.mode, cuts: s.cuts.slice(), sel: s.sel, ordered: !!s.ordered, suggested: !!s.suggested,
+      parts: s.parts.map(function (p) { return { entry: o(p.entry) }; }), oneEntries: s.oneEntries.map(o), cards: s.cards.map(o) };
+  }
+  function sigOf(s) {
+    var e = function (x) { return x ? keyOf(x) + ':' + x.name : '-'; };
+    return JSON.stringify([s.mode, s.cuts, s.parts.map(function (p) { return e(p.entry); }), s.oneEntries.map(e), s.cards.map(function (c) { return [c.key, c.t, !!c.manual]; })]);
+  }
+  function marksSig() { return JSON.stringify(st.cards.filter(function (c) { return c.manual; }).map(function (c) { return [c.key, c.t]; })); }
+  // Called after every change is drawn: a change becomes one step back. (Not while a cut is still settling on its
+  // clean cutting point, or cuts are being suggested: those land as one step when they're done.)
+  function track() {
+    if (!st || st.settling) return;
+    var s = copyOf(st), k = sigOf(s), h = st.hist;
+    if (!h) { st.hist = { now: s, key: k, back: [], fwd: [] }; syncUndo(); return; }
+    if (k === h.key) { h.now = s; return; } // (only which cut is picked changed)
+    h.back.push(h.now);
+    if (h.back.length > 200) h.back.shift();
+    h.fwd = []; h.now = s; h.key = k;
+    syncUndo();
+  }
+  function syncUndo() {
+    var h = st && st.hist;
+    $('edUndo').disabled = !h || !h.back.length;
+    $('edRedo').disabled = !h || !h.fwd.length;
+  }
+  function undo(redo) {
+    if (!st || !st.hist) return;
+    if (st.settling) { info('One moment: Shelf is still placing a cut.'); return; }
+    var h = st.hist, from = redo ? h.fwd : h.back, to = redo ? h.back : h.fwd;
+    if (!from.length) { info(redo ? 'Nothing to redo.' : 'Nothing to undo.'); return; }
+    var marks = marksSig(), s = from.pop();
+    to.push(h.now);
+    var c = copyOf(s);
+    st.mode = c.mode; st.cuts = c.cuts; st.parts = c.parts; st.oneEntries = c.oneEntries; st.cards = c.cards;
+    st.ordered = c.ordered; st.suggested = c.suggested; st.sel = clamp(c.sel, 0, Math.max(0, st.cuts.length - 1));
+    st.newKey = null; st.justSet = null;
+    h.now = s; h.key = sigOf(s);
+    showMode(); drawAll(); syncUndo();
+    if (marksSig() !== marks) marksChanged();
+    info(redo ? 'Redone. Ctrl+Z undoes it again.' : 'Undone. Ctrl+Y puts it back.');
+  }
   // The order of the episodes: in one file, the order they play in (and are named in); split, which part is which
   // (the cuts stay where they are; the episodes move between the parts).
   function moveItem(from, to) {
@@ -1274,6 +1325,8 @@
     $('edZoomIn').addEventListener('click', function () { if (st) setZoom(st.zoom + 1); });
     $('edZoomOut').addEventListener('click', function () { if (st) setZoom(st.zoom - 1); });
     $('edZoomFit').addEventListener('click', function () { if (st) setZoom(0); });
+    $('edUndo').addEventListener('click', function () { undo(false); });
+    $('edRedo').addEventListener('click', function () { undo(true); });
     $('edCutHere').addEventListener('click', setCutHere);
     $('edMarkCard').addEventListener('click', markCard);
     $('edAddCut').addEventListener('click', addCut);
@@ -1290,6 +1343,10 @@
       if (!st || !$('editorSheet').open || !$('epBrowser').hidden) return;
       if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
       var k = ev.key, press = function (id) { ev.preventDefault(); hit($(id)); };
+      if (ev.ctrlKey || ev.metaKey) {
+        var lk = k.toLowerCase();
+        if (lk === 'z' || lk === 'y') { var re = lk === 'y' || ev.shiftKey; press(re ? 'edRedo' : 'edUndo'); undo(re); return; }
+      }
       if (k === ' ' || k === 'k' || k === 'K') { press('edPlay'); $('edPlay').click(); }
       else if (k === 'j' || k === 'J') { ev.preventDefault(); video.pause(); seek(st.t - 5); } // like video editors: J back, K pause, L play
       else if (k === 'l' || k === 'L') { ev.preventDefault(); if (st.playable) { if (video.paused) { st.stopAt = null; video.play(); } else { var r = Math.min(4, (video.playbackRate || 1) * 2); video.playbackRate = r; } } }

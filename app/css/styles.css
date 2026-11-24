@@ -796,6 +796,7 @@ body:has(#sendTray:not([hidden])) .toast { bottom: 150px; }
 .ed-mode button[aria-pressed="true"] { background: var(--text); color: #1B1713; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
 .ed-mode button:not([aria-pressed="true"]):hover { color: var(--text); background: var(--fill); }
 .ed-help { position: relative; flex: none; }
+.ed-undo { display: flex; gap: 4px; flex: none; }
 .ed-keys-btn span { font-size: 12px; }
 .ed-keys {
   position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: 380px; padding: 14px 16px; border-radius: 14px; font-size: 12px; color: var(--text-2);

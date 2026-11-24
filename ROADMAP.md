@@ -2,6 +2,14 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Ctrl+Z undoes more.** In the list: picking a show or episodes, Check All's "It's Right" and cut moves,
+  splitting, searching, and files taken off the list, newest first, then Rename Now as before (no more half-minute
+  limit for a removed file). In Inspect: Ctrl+Z / Ctrl+Y (and Undo / Redo buttons) for every change to the
+  episodes, cuts and marks, and the whole visit is one step in the list afterwards. In Server Files: renames and
+  new folders (a folder is only removed while it's empty).
+- **Server Files: pick several files and folders** by dragging a box, with Ctrl and Shift as in Windows.
+
 ## Done (2.9.0)
 - **Updating Shelf keeps it pinned to the taskbar.** Installing a new version over the old one used to remove
   Shelf's shortcuts and make new ones, which unpinned it. Now the shortcuts (and the pin) stay; a fresh set is made
