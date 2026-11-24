@@ -58,6 +58,7 @@
     <button type="button" role="menuitem" id="spaceBtn" hidden title="Delete the files Shelf set aside on your Plex server (originals of split videos, duplicate episodes) to get the space back"><span>Free Up Space on Server…</span></button>
     <button type="button" role="menuitem" id="shrinkBtn" hidden title="Find FLAC and other lossless songs in your Plex music folder and make them about a sixth of the size (Ogg Vorbis), sounding the same"><span>Make Music Smaller…</span></button>
     <button type="button" role="menuitem" id="dupesBtn" hidden title="Find episodes that are in more than one file on your Plex server (one file and separate files, or two copies), and keep one of each"><span>Find Duplicate Episodes…</span></button>
+    <button type="button" role="menuitem" id="missingBtn" title="See which episodes of a show you don’t have yet, in this list and on your Plex server"><span>Missing Episodes…</span></button>
     <button type="button" role="menuitem" id="updatesNav" title="Check for a newer version of Shelf (only when you click)"><span>Check for Updates</span><span class="update-dot" id="updateDot" hidden></span></button>
     <span class="menu-sep" role="separator"></span>
     <button type="button" role="menuitem" data-open="privacy"><span>Privacy</span></button>
@@ -890,6 +891,30 @@
   </form>
 </dialog>
 
+<!-- Missing episodes: a show's full episode list against the files you have (in the list and on your server). -->
+<dialog class="sheet dupes missing-sheet" id="missingSheet" aria-labelledby="msTitle">
+  <form method="dialog">
+    <div class="sheet-head">
+      <span class="sv-art" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12.5h5"/><path d="M8 16.5h2" stroke-dasharray="1 2.2"/></svg></span>
+      <div>
+        <h2 id="msTitle">Missing episodes</h2>
+        <p id="msLead">Pick a show to see which of its episodes you don’t have yet.</p>
+      </div>
+    </div>
+    <div class="dp-pref ms-pick">
+      <label for="msShow">Show</label>
+      <select id="msShow" class="text"></select>
+    </div>
+    <div class="ms-sum" id="msSum" role="status" aria-live="polite"></div>
+    <div class="dp-list ms-list" id="msList"></div>
+    <p class="row-help flush" id="msHelp"></p>
+    <div class="sheet-actions">
+      <button class="pill" type="button" id="msCopy" hidden title="Copy the missing episodes as text, one per line">Copy the List</button>
+      <button class="pill pill-primary" type="submit" value="ok">Done</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Make music smaller: lossless songs on your server → Ogg Vorbis / Opus next to them, originals set aside. -->
 <dialog class="sheet dupes" id="shrinkSheet" aria-labelledby="shTitle">
   <form method="dialog">
@@ -1174,9 +1199,11 @@
 <script src="js/musicui.js"></script>
 <script src="js/remember.js"></script>
 <script src="js/sources.js"></script>
+<script src="js/missing.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>
 <script src="js/send.js"></script>
+<script src="js/missingui.js"></script>
 <script src="js/transfer.js"></script>
 </body>
 </html>

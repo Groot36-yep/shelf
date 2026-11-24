@@ -134,6 +134,25 @@ episode, after asking once.
 Nothing is cut until **Rename Now**. Cuts don't re-encode, so quality is untouched; your original is
 kept, and **Undo** removes the pieces. See [ROADMAP.md](ROADMAP.md) for what's next.
 
+## Missing episodes: do you have every one?
+
+Click **Missing Episodes** on a show's heading in the list (or **Missing Episodes…** in the ⚙ menu) to see which
+episodes of the show you don't have yet, season by season: "Season 2: missing S02E07 Mermaid Man and Barnacle Boy III,
+S02E20 Gary Takes a Bath". When nothing is missing it says so: **You have all 77 episodes**.
+
+- **What it counts:** the show's files in the list (what Shelf worked out, what you picked in Inspect, and each piece
+  of a split), and, if you've set up Send to Plex, the files in the show's folder on your server (by their names,
+  read only: nothing on the server is changed). A file holding several episodes (`S01E01-E02-E03`, `S01E04E05`)
+  counts for each of them, and the same episode twice counts once.
+- **What it compares with:** the show's full episode list from The Movie Database, TheTVDB or TVmaze, in the
+  episode order you picked in Settings (the order Plex uses).
+- **Left out:** specials (season 0) are shown apart and never make a show look incomplete, and episodes that haven't
+  aired yet aren't counted as missing.
+- **Said apart:** episodes you have that aren't on the list (often files numbered in another episode order), and
+  files whose names don't say which episode they are.
+- From the ⚙ menu you can also pick a show that's only on your server. **Copy the List** copies the missing episodes
+  as text, one per line.
+
 ## Music
 
 Drop in a music folder like anything else. Shelf reads each song's tags, puts songs together into
@@ -247,9 +266,11 @@ to save files in the folders you pick. Shelf tells you if it isn't.
 
 ```
 app/              the window: index.html, styles, parsing (js/parser.js), lookups (js/sources.js), interface (js/app.js),
-                  music matching (js/music.js) and its part of the window (js/musicui.js)
+                  music matching (js/music.js) and its part of the window (js/musicui.js),
+                  missing episodes (js/missing.js, the counting; js/missingui.js, its sheet)
 desktop/          main.js (window + security), preload.js (the small bridge), fileops.js (the only code that touches files),
-                  server.js + plexsend.js (Send to Plex over SSH), transfer.js (Server Files), tags.js (music tags), musicbrainz.js (album lookups)
+                  server.js + plexsend.js (Send to Plex over SSH), transfer.js (Server Files), showcheck.js (a show's files on the server, for Missing Episodes),
+                  tags.js (music tags), musicbrainz.js (album lookups)
 tests/            npm test; app/tv/sources.smoke.js run the whole app end to end with mocked lookups
 index.html        the download page at groot36-yep.github.io/shelf
 ```

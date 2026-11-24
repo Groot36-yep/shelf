@@ -3,6 +3,12 @@
 Where things stand, and what's left to do. Newest first.
 
 ## Next release (not released yet)
+- **Missing Episodes: do you have every one?** A show's heading in the list (and the ⚙ menu) can show which of its
+  episodes you don't have yet, season by season, or "You have all 77 episodes". It counts the show's files in the
+  list and the ones in its folder on your Plex server (names only, nothing changed there), compared with the show's
+  full episode list in the order Plex uses. A file holding several episodes counts for each, your picks in Inspect
+  and splits count, specials are kept apart, and episodes that haven't aired yet aren't missing. Episodes numbered
+  in another order and files that don't say which episode they are are pointed out. Copy the List copies the gaps.
 - **Ctrl+Z undoes more.** In the list: picking a show or episodes, Check All's "It's Right" and cut moves,
   splitting, searching, and files taken off the list, newest first, then Rename Now as before (no more half-minute
   limit for a removed file). In Inspect: Ctrl+Z / Ctrl+Y (and Undo / Redo buttons) for every change to the

@@ -831,7 +831,10 @@
     // Check All: every episode of this show with how Shelf knows it, on one page.
     var checkBtn = tv && c && !busy ? el('button', { type: 'button', class: 'link-btn shelf-check', text: 'Check All' + (check ? ' (' + check + ')' : ''),
       title: 'See every episode of ' + title + ' with its title card or what was heard, and say they’re right', onclick: function () { openReview(showIdKey(c)); } }) : null;
-    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta, el('div', { class: 'shelf-links' }, [checkBtn, splitBtn])]), ask]);
+    // Missing Episodes (missingui.js): which episodes of this show you don't have, here or on your server.
+    var missBtn = tv && c && !busy && window.ShelfMissingUI ? el('button', { type: 'button', class: 'link-btn shelf-check shelf-missing', text: 'Missing Episodes',
+      title: 'See which episodes of ' + title + ' you don’t have yet (in this list and on your Plex server)', onclick: function () { window.ShelfMissingUI.open(showIdKey(c)); } }) : null;
+    return el('div', { class: 'shelf-head' }, [shelfPoster(sh, 'shelf-poster'), el('div', { class: 'shelf-titles' }, [el('h3', { text: title }), meta, el('div', { class: 'shelf-links' }, [checkBtn, missBtn, splitBtn])]), ask]);
   }
   // ---------- Check All: every episode of a show at a glance, with how Shelf knows it ----------
   // Each file gets a card: the title card Shelf read (its picture), or the words it heard (the quote, the telling
@@ -3315,5 +3318,27 @@
   }
   // After set-aside files were deleted, Undo may have nothing left to undo.
   function checkUndo() { canUndoAny().then(function (yes) { $('undoBar').hidden = !yes; render(); }); }
-  window.Shelf = { busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged, checkUndo: checkUndo, music: music };
+  // For Missing Episodes (missingui.js): the shows in the list with their files, and the shows' episode lists.
+  var tvShows = {
+    inList: function () {
+      var map = {}, out = [];
+      items.forEach(function (i) {
+        var c = i.kind === 'episode' && !i.linkTo && i.parsed.isVideo ? current(i) : null;
+        if (!c) return;
+        var k = showIdKey(c);
+        if (!map[k]) { map[k] = { key: k, show: c, items: [] }; out.push(map[k]); }
+        map[k].items.push(i);
+      });
+      // (Files still being looked up belong to no show yet: counted for the sheet to say so.)
+      out.busy = items.filter(function (i) { return i.kind === 'episode' && (i.status === 'pending' || i.status === 'matching'); }).length;
+      return out;
+    },
+    key: showIdKey,
+    episodes: function (c) { return listFor(c); },
+    byId: function (ids) { return S.showByIdFor(ids, keys()); },
+    search: function (title) { return S.searchShowsFor(title, keys()); },
+    service: tvService,
+    order: function () { return settings.order; }
+  };
+  window.Shelf = { tv: tvShows, busy: busy, addFiles: addFiles, items: function () { return items; }, setTheme: setTheme, fakeWindows: fakeWindows, _resolveAll: resolveAll, toast: toast, refresh: scheduleRender, serverChanged: serverChanged, checkUndo: checkUndo, music: music };
 })();
