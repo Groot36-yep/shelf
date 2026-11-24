@@ -2513,12 +2513,18 @@
   }
   // The same answer is kept until the readings, your marks or the list change (opening the window stays quick).
   function cardsForCached(v, list) {
-    var k = v._cardsFor;
-    if (k && k.cards === v.cards && k.marks === v.marks && k.list === list && k.nt === notTitleOf(current(v))) return k.out;
+    var k = v._cardsFor, peers = peerSig(v);
+    if (k && k.cards === v.cards && k.marks === v.marks && k.list === list && k.nt === notTitleOf(current(v)) && k.peers === peers) return k.out;
     var out = cardsFor(v, list);
-    v._cardsFor = { cards: v.cards, marks: v.marks, list: list, nt: notTitleOf(current(v)), out: out };
+    v._cardsFor = { cards: v.cards, marks: v.marks, list: list, nt: notTitleOf(current(v)), peers: peers, out: out };
     return out;
   }
+  // This show's other files, with where their title cards were read (an unread card's place is estimated from them).
+  function showPeers(v) {
+    var c = current(v), id = c && showIdKey(c);
+    return id ? items.filter(function (o) { return o !== v && o.kind === 'episode' && o.episode && o.episode.entries && current(o) && showIdKey(current(o)) === id; }) : [];
+  }
+  function peerSig(v) { return showPeers(v).map(function (o) { return (o.episode.entries || []).map(function (e) { return e.card; }).join(','); }).join(';'); }
   function cardsFor(v, list) {
     var out = {};
     (v.marks || []).forEach(function (m) {
@@ -2558,6 +2564,25 @@
       if ((v.marks || []).some(function (mk) { return Math.abs(mk.t - r.t) < 120; })) return; // near a card you marked: yours wins
       if (!out[k] || m.score > out[k].score) out[k] = { t: r.t, start: r.start != null ? r.start : r.t, key: k, name: m.entry.name, text: best && best.s > 0 ? best.t : '', score: m.score }; // (no reading on its own like the title: none shown, the picture says it)
     });
+    // An episode of this file whose title card couldn't be read (bubbly or wobbly lettering): about where it is, from
+    // where this show's other files with as many episodes have theirs (SpongeBob's first card is at 0:52 in each), and
+    // where Shelf looked in this one. Shown as an estimate, never as a card that was read.
+    if (!v.split) {
+      var peers = showPeers(v).filter(function (o) { return o.episode.entries.length === rows.length; });
+      var secs = v.secs || (v.minutes ? v.minutes * 60 : 0);
+      rows.forEach(function (e, idx) {
+        var k = e.season + 'x' + e.number;
+        if (out[k]) return;
+        var ts = peers.map(function (o) { return o.episode.entries[idx] && o.episode.entries[idx].card; }).filter(function (t) { return t != null; }).sort(function (a, b) { return a - b; });
+        if (ts.length < 2) return;
+        var usual = ts[ts.length >> 1];
+        var looked = (v.cards || []).filter(function (r) { return !r.heard && r.t != null && r.part === idx && Math.abs(r.t - usual) <= 30; })
+          .sort(function (a, b) { return Math.abs(a.t - usual) - Math.abs(b.t - usual); })[0];
+        var t = looked ? looked.t : usual;
+        if (secs && t >= secs) return;
+        out[k] = { t: t, start: t, key: k, name: e.name, text: '', score: 0, guess: true };
+      });
+    }
     return Object.keys(out).map(function (k) { return out[k]; });
   }
   function nameFor(v, entries) {
