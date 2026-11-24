@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('shelfNative', {
   xferListPC: (where) => ipcRenderer.invoke('shelf:xferListPC', String(where || '')),
   xferMkdir: (side, where, name) => ipcRenderer.invoke('shelf:xferMkdir', side === 'pc' ? 'pc' : 'server', String(where || ''), String(name || '')),
   xferRename: (where, from, to) => ipcRenderer.invoke('shelf:xferRename', String(where || ''), String(from || ''), String(to || '')),
+  xferRmdir: (side, full) => ipcRenderer.invoke('shelf:xferRmdir', side === 'pc' ? 'pc' : 'server', String(full || '')),
   xferDelete: (paths) => ipcRenderer.invoke('shelf:xferDelete', Array.isArray(paths) ? paths.map(String) : []),
   xferPlan: (direction, sources, dest) => ipcRenderer.invoke('shelf:xferPlan', direction === 'up' ? 'up' : 'down', Array.isArray(sources) ? sources.map(String) : [], String(dest || '')),
   xferGo: (id, policy) => ipcRenderer.invoke('shelf:xferGo', Number(id) || 0, {

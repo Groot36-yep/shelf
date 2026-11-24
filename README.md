@@ -55,9 +55,10 @@ Windows account.
 6. Have a Plex server? Click **Send to Plex** (see below).
 
 Shortcuts: **Ctrl+O** add files · **Ctrl+Shift+O** add a folder · **Ctrl+Enter** rename ·
-**Ctrl+Z** undo (again to go further back) · **Ctrl+,** settings · **Delete** remove from list (Ctrl+Z puts it back) ·
+**Ctrl+Z** undo (again to go further back: your picks of show and episodes, splits, files taken off the list, then renames) · **Ctrl+,** settings · **Delete** remove from list (Ctrl+Z puts it back) ·
 **Ctrl+F** find · **N** next file that needs you · **1–9** answer the Needs you card · **E** check the episodes in the video ·
-**Enter** open a file's details · **Esc** close them.
+**Enter** open a file's details · **Esc** close them. In Inspect, **Ctrl+Z** / **Ctrl+Y** undo and redo changes to
+the episodes, cuts and title-card marks; everything you changed there is also one Ctrl+Z in the list afterwards.
 
 ## What it understands
 
@@ -197,11 +198,13 @@ working while it sends.
 - **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
 - **Server Files…** (in the ⚙ menu) works like FileZilla: your server on the left, this PC on the right.
   Pick files or whole folders and click **Copy to This PC** or **Copy to Server**, or drag them across
-  (from File Explorer too). The transfers list shows speed and time left; pause, resume, cancel, and
+  (from File Explorer too). Pick several as in Windows: **Ctrl**+click, **Shift**+click for a run, **Ctrl+A**,
+  or click and drag from an empty spot (or a file's size or date) to draw a box around them. The transfers list shows speed and time left; pause, resume, cancel, and
   try again if one fails. Copies arrive under a temporary name and only get their real name once
   complete, keep their dates, and pick up where they stopped. Files already there: Shelf asks once
   (Skip, Replace or Keep Both), and skips ones with the same size and date. New Folder, Rename and
-  Delete work on the server (Delete asks first; it can't be undone).
+  Delete work on the server (Delete asks first; it can't be undone). **Ctrl+Z** undoes renames and new folders,
+  newest first (a new folder only while it's still empty).
 - **Fix My Plex Library…** (in the ⚙ menu) finds files already on your server that Plex couldn't match,
   hasn't added, or that aren't named the Plex way. You pick which shows to fix, and can open a show to
   pick just some of its seasons. **Include files that already look right** lists every file, so you can

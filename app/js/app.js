@@ -587,6 +587,7 @@
   }
 
   function choose(item, index) {
+    remember('your pick for “' + item.name + '”');
     if (item.linkTo) { item.linkTo = null; item.unlinked = true; } // picking for a subtitle on its own
     item.choice = index;
     item.confirmed = true;
@@ -910,6 +911,7 @@
   function rvCut(v, k) {
     var pcs = v.split.pieces, at = pcs[k].end;
     var move = function (d) {
+      remember('moving cut ' + (k + 1) + ' of “' + v.name + '”', 'cut:' + v.id + ':' + k);
       var lo = pcs[k].start + 30, hi = pcs[k + 1].end - 30, t = Math.max(lo, Math.min(hi, pcs[k].end + d));
       pcs[k].end = t; pcs[k + 1].start = t; v.confirmed = true; renderReview(v.id); scheduleRender();
     };
@@ -942,6 +944,7 @@
     return true;
   }
   function rvSettle(vs) {
+    remember(vs.length === 1 ? 'checking “' + vs[0].name + '”' : 'marking ' + vs.length + ' files right');
     var shows = {}, again = false;
     vs.forEach(function (v) { if (rvRight(v)) { again = true; var c = current(v); if (c) shows[showIdKey(c)] = c; } });
     var p = again ? Promise.all(Object.keys(shows).map(function (k) { return resolveShow(shows[k]); })) : Promise.resolve();
@@ -1775,7 +1778,6 @@
       var stop = native.onProgress(function (p) { btn.textContent = 'Renaming ' + p.done + ' of ' + p.total + '…'; });
       var sendAfter = !$('renameSendRow').hidden && $('renameSend').checked && window.ShelfSend && window.ShelfSend.ready();
       native.rename(ops, settings.mode).then(function (results) {
-        lastRemoved = null; // Ctrl+Z now undoes this rename, not an earlier Remove
         var ok = 0, skipped = 0, failed = 0, newPaths = [];
         results.forEach(function (r) {
           var item = byPath[r.source];
@@ -1788,7 +1790,7 @@
         });
         $('renameSheet').close();
         $('undoBar').hidden = !ok;
-        if (ok) lastOnServer = false;
+        if (ok) { lastOnServer = false; pushStep({ kind: 'rename' }); }
         render();
         toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (sendAfter && newPaths.length ? ' Sending to Plex…' : ''));
         if (sendAfter && newPaths.length) window.ShelfSend.afterRename(newPaths);
@@ -1822,6 +1824,7 @@
         });
         lastOnServer = ok > 0;
         $('undoBar').hidden = !ok;
+        if (ok) pushStep({ kind: 'rename' });
         render();
         toast('Renamed ' + ok + ' file' + (ok === 1 ? '' : 's') + ' on your Plex server' + (skipped ? ', skipped ' + skipped : '') + (failed ? ', ' + failed + ' failed (see details)' : '') + '.' + (subsLeft ? ' Left ' + subsLeft + ' subtitle file' + (subsLeft === 1 ? '' : 's') + ' of split videos as they were.' : '') + (res.rescanned ? ' Plex is rescanning.' : ''));
       }, function (err) { toast(String(err.message || 'Renaming on the server failed.').replace(/^Error invoking remote method '[^']*':\s*(\w*Error:\s*)?(\[[A-Z_]+\]\s*)?/, '')); });
@@ -1873,31 +1876,81 @@
       v._frames = null;
     });
   }
-  on('clearBtn', 'click', function () { dropFrames(items); items = []; music.clear(); showChoices = {}; selectedId = null; filter = 'all'; findText = ''; $('findInput').value = ''; drawerOpen = false; render(); });
+  on('clearBtn', 'click', function () { dropFrames(items); items = []; steps = []; music.clear(); showChoices = {}; selectedId = null; filter = 'all'; findText = ''; $('findInput').value = ''; drawerOpen = false; render(); });
   on('renameBtn', 'click', function () { openSheet('rename'); });
-  // Taking a file off the list can be undone (Ctrl+Z) for half a minute: a stray Delete costs nothing.
-  var lastRemoved = null;
+  // ---------- Undo (Ctrl+Z) ----------
+  // Newest first: files taken off the list, your picks (show, episodes, splits, checks, Inspect), and Rename Now
+  // (which the Undo button puts back, as before). Older renames come after, one Ctrl+Z each.
+  var steps = [];
+  // What your picks change on a file. (Shelf works the names out again from these.)
+  var PICKED = ['kind', 'choice', 'candidates', 'confirmed', 'handPicked', 'checked', 'status', 'error', 'showStatus', 'showError', 'showAmbiguous',
+    'manualEp', 'split', 'wantSplit', 'marks', 'linkTo', 'unlinked', 'needsKey'];
+  function copyField(k, x) { return k === 'candidates' ? (x || []).slice() : x && typeof x === 'object' ? JSON.parse(JSON.stringify(x)) : x; }
+  function fieldsOf(i) { var o = {}; PICKED.forEach(function (k) { o[k] = copyField(k, i[k]); }); return o; }
+  function fieldsSig(f) { return JSON.stringify(PICKED.map(function (k) { return k === 'candidates' ? (f[k] || []).map(function (c) { return c && showIdKey(c); }) : f[k] === undefined ? null : f[k]; })); }
+  function snapList() {
+    var out = [];
+    items.forEach(function (i) { if (i.kind !== 'track' && i.status !== 'done') out.push({ item: i, f: fieldsOf(i) }); });
+    return { list: out, showChoices: Object.assign({}, showChoices) };
+  }
+  function pushStep(s) { s.at = Date.now(); steps.push(s); if (steps.length > 60) steps.shift(); }
+  // Before a change: remember how things were. (A run of the same change, like nudging a cut, is one step.)
+  function remember(label, tag) {
+    var top = steps[steps.length - 1];
+    if (tag && top && top.tag === tag && Date.now() - top.at < 5000) { top.at = Date.now(); return; }
+    pushStep({ kind: 'list', label: label, tag: tag, snap: snapList() });
+  }
+  function restoreList(step) {
+    var shows = {}, changed = 0;
+    var show = function (i) { var c = i.kind === 'episode' && current(i); if (c) shows[showIdKey(c)] = c; };
+    step.snap.list.forEach(function (r) {
+      var i = r.item;
+      if (items.indexOf(i) < 0 || i.status === 'done' || fieldsSig(fieldsOf(i)) === fieldsSig(r.f)) return;
+      show(i);
+      PICKED.forEach(function (k) { if (r.f[k] === undefined) delete i[k]; else i[k] = copyField(k, r.f[k]); });
+      i._cardsFor = null;
+      show(i);
+      changed++;
+    });
+    if (!changed) return false;
+    showChoices = Object.assign({}, step.snap.showChoices);
+    var list = Object.keys(shows).map(function (k) { return shows[k]; });
+    work('Putting it back…', function () { return Promise.all(list.map(resolveShow)); }).then(render);
+    render();
+    toast('Undone: ' + step.label + '.');
+    return true;
+  }
+  function putBack(step) {
+    if (items.indexOf(step.item) >= 0) return false;
+    items.splice(Math.min(step.idx, items.length), 0, step.item);
+    selectedId = step.item.id;
+    if (step.item.kind === 'track') music.changed(step.item);
+    render();
+    toast('Put “' + step.item.name + '” back on the list.');
+    return true;
+  }
+  function undoStep() {
+    while (steps.length) {
+      var s = steps.pop();
+      if (s.kind === 'remove') { if (putBack(s)) return true; }
+      else if (s.kind === 'rename') { if (!$('undoBar').hidden) { $('undoBar').click(); return true; } }
+      else if (restoreList(s)) return true;
+    }
+    if (!$('undoBar').hidden) { $('undoBar').click(); return true; }
+    return false;
+  }
+  // Taking a file off the list can be undone (Ctrl+Z): a stray Delete costs nothing.
   on('removeBtn', 'click', function () {
     var idx = items.findIndex(function (i) { return i.id === selectedId; });
     if (idx < 0) return;
-    if (lastRemoved) dropFrames([lastRemoved.item]);
     var gone = items.splice(idx, 1)[0];
-    lastRemoved = { item: gone, idx: idx, at: Date.now() };
+    dropFrames([gone]); // (its pictures are made again if it comes back)
+    pushStep({ kind: 'remove', item: gone, idx: idx });
     if (gone.kind === 'track') music.changed(gone);
     selectedId = items.length ? items[Math.min(idx, items.length - 1)].id : null;
     render();
     toast('Took “' + gone.name + '” off the list. Ctrl+Z puts it back.');
   });
-  function restoreRemoved() {
-    if (!lastRemoved || Date.now() - lastRemoved.at > 30000) return false;
-    items.splice(Math.min(lastRemoved.idx, items.length), 0, lastRemoved.item);
-    selectedId = lastRemoved.item.id;
-    if (lastRemoved.item.kind === 'track') music.changed(lastRemoved.item);
-    lastRemoved = null;
-    render();
-    toast('Put it back on the list.');
-    return true;
-  }
 
   document.querySelectorAll('[data-open]').forEach(function (b) {
     b.addEventListener('click', function () { openSheet(b.dataset.open); });
@@ -1961,6 +2014,7 @@
     var item = itemById(selectedId);
     var q = $('searchInput').value.trim();
     if (!item || !q) return;
+    remember('your search for “' + item.name + '”');
     item.kind = $('searchKind').value;
     item.needsKey = false;
     if (item.linkTo) { item.linkTo = null; item.unlinked = true; }
@@ -2351,7 +2405,7 @@
     if (mod && k === 'o') { e.preventDefault(); if (e.shiftKey) pickFolder(); else pickFiles(); return; }
     if (mod && k === ',') { e.preventDefault(); if (!sheetOpen) openSheet('settings'); return; }
     if (mod && k === 'enter' && !sheetOpen) { e.preventDefault(); if (!$('renameBtn').disabled) openSheet('rename'); return; }
-    if (mod && k === 'z' && !typing && !sheetOpen) { if (restoreRemoved()) { e.preventDefault(); return; } if (!$('undoBar').hidden) { e.preventDefault(); $('undoBar').click(); } return; }
+    if (mod && k === 'z' && !e.shiftKey && !typing && !sheetOpen) { e.preventDefault(); if (!undoStep()) toast('Nothing to undo.'); return; }
     if ((mod && k === 'f') || (!mod && e.key === '/' && !typing && !sheetOpen)) { if (items.length) { e.preventDefault(); $('findInput').focus(); $('findInput').select(); } return; }
     if (sheetOpen || mod || e.altKey) return;
     if (e.key === 'Escape') {
@@ -2786,6 +2840,7 @@
 
   // You chose these episodes for one file.
   function useEntries(v, es, msg) {
+    remember('the episodes for “' + v.name + '”');
     var clean = es.map(function (e) { return { season: e.season, number: e.number, name: e.name, runtime: e.runtime || null, card: e.card != null ? e.card : null }; });
     // (In the order they play, which can differ from the list's: the name's numbers are the run they make.)
     var srt = byNumber(clean), first = srt[0], last = srt[srt.length - 1];
@@ -2859,6 +2914,7 @@
     if (scanning || !list.length) return;
     native.approveSplit(list.map(function (v) { return v.fullPath || v.remote; })).then(function (yes) {
       if (!yes) { toast('Cancelled. Nothing was split.'); return; }
+      remember('Split All');
       var job = busy('Finding where to split: 1 of ' + list.length + '…'), done = 0, pieces = 0;
       return list.reduce(function (p, v, k) {
         return p.then(function () {
@@ -2873,6 +2929,7 @@
   }
   // Split a video into one file per part, finding the gaps between them (no window needed).
   function autoSplit(v, parts, quiet) {
+    if (!quiet) remember('splitting “' + v.name + '”');
     var c = current(v);
     var secs0 = (v.minutes || 22) * 60;
     var hints = parts.slice(1).map(function (e, k) {
@@ -2905,6 +2962,8 @@
       return native.openSplit(v.fullPath || v.remote, also).then(function (r) {
         if (!r) { toast('Cancelled. The video wasn’t opened.'); return; }
         var wantSplit = v.wantSplit; v.wantSplit = false;
+        var before = snapList(), kept = false;
+        var keep = function () { if (!kept) { kept = true; pushStep({ kind: 'list', label: 'your changes in Inspect for “' + v.name + '”', snap: before }); } };
         var how = v.episode ? v.episode.how : 'number';
         var entries = v.episode && v.episode.entries && v.episode.entries.length
           ? v.episode.entries.map(function (e) { return Object.assign({ how: how }, e); })
@@ -2931,6 +2990,7 @@
           },
           onMarks: function (marks, secs) {
             // Your marks count like title cards Shelf read (and beat them). Shelf works the episodes out again.
+            keep();
             v.marks = marks; v.secs = secs || v.secs; v.manualEp = null; v.split = null; v._cardsFor = null;
             // ...and teach Shelf where this show's cards are, for its other videos.
             if (v.fullPath && native.learnMarks && c) native.learnMarks(c.title, v.fullPath, (marks || []).map(function (m) { return m.t; })).catch(function () {});
@@ -2943,6 +3003,7 @@
           onNext: nextItem ? function () { select(nextItem.id); openEditor(nextItem); } : null,
           preview: function (mode, ents) { return mode === 'split' ? ents.map(function (e) { return nameFor(v, [e]); }) : [nameFor(v, ents)]; },
           onSave: function (res) {
+            keep();
             if (res.mode === 'split') { v.split = { pieces: res.pieces }; toast('Will split into ' + res.pieces.length + ' files when you rename.'); }
             else {
               v.split = null;
@@ -2969,7 +3030,7 @@
     (linkedVideo(item) || item).wantSplit = true;
     openEditor(item);
   });
-  on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { v.split = null; render(); } });
+  on('clearSplit', 'click', function () { var item = itemById(selectedId); var v = item && (linkedVideo(item) || item); if (v) { remember('clearing the split of “' + v.name + '”'); v.split = null; render(); } });
   document.querySelectorAll('#epCount button').forEach(function (b) {
     b.addEventListener('click', function () { var item = itemById(selectedId); if (item && b.getAttribute('aria-pressed') !== 'true') setCount(item, b.dataset.count); });
   });
@@ -3249,6 +3310,7 @@
     items = items.filter(function (i) { return !(i.remote && gone[i.remote]); });
     if (selectedId && !itemById(selectedId)) selectedId = null;
     lastOnServer = true; $('undoBar').hidden = false;
+    pushStep({ kind: 'rename' });
     render();
   }
   // After set-aside files were deleted, Undo may have nothing left to undo.

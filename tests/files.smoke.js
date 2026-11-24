@@ -19,12 +19,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const A = crypto.randomBytes(3 << 20);
   const net = { mbps: 100000, ms: 0 };
-  const srv = await fake.start({ keep: true, net, content: {
+  const srvOpts = { keep: true, net, removeMs: 0 };
+  const srv = await fake.start(Object.assign(srvOpts, { content: {
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E01 - Pilot.mkv': A,
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E01 - Pilot.en.srt': 'subtitles',
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E02 - Second.mkv': crypto.randomBytes(1 << 20),
     '/srv/disk1/Movies/Big Movie (2001)/Big Movie (2001).mkv': crypto.randomBytes(10 << 20)
-  } });
+  } }));
   const shots = process.env.SHOTS;
   const shot = async (win, name) => { if (shots) await win.screenshot({ path: path.join(shots, name + '.png') }); };
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
@@ -132,6 +133,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await waitFor(async () => (await names('server')).includes('Holiday (2019).mkv'), 'the server side to show it');
   console.log('  ✓ dragging a file from this PC onto the server copies it there');
 
+  // ---- Picking several: a box dragged from an empty spot, Ctrl to toggle, Shift+click for a run ----
+  const picked = (side) => win.$$eval('.xf-pane[data-side=' + side + '] .xf-row[aria-selected="true"]', (r) => r.map((x) => x.dataset.name));
+  const pcRows = await win.$$('.xf-pane[data-side=pc] .xf-row');
+  const pcNames = await names('pc');
+  assert.ok(pcRows.length >= 4, 'enough files on this PC side to pick from: ' + pcNames.length);
+  const boxOf = async (k) => pcRows[k].boundingBox();
+  const r0 = await boxOf(0), r2 = await boxOf(2), r3 = await boxOf(3);
+  // From the date column of the first row (not its name) down to the third: those three.
+  await win.mouse.move(r0.x + r0.width - 20, r0.y + 8); await win.mouse.down();
+  await win.mouse.move(r2.x + r2.width - 60, r2.y + r2.height / 2, { steps: 6 });
+  if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT });
+  await win.mouse.up();
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(0, 3), 'the box picks the rows it touches');
+  // Ctrl + a box over the fourth: added; Ctrl + a box over the first: taken off.
+  await win.keyboard.down('Control');
+  await win.mouse.move(r3.x + r3.width - 20, r3.y + 4); await win.mouse.down(); await win.mouse.move(r3.x + r3.width - 40, r3.y + r3.height - 4, { steps: 4 }); await win.mouse.up();
+  await win.mouse.move(r0.x + r0.width - 20, r0.y + 4); await win.mouse.down(); await win.mouse.move(r0.x + r0.width - 40, r0.y + r0.height - 4, { steps: 4 }); await win.mouse.up();
+  await win.keyboard.up('Control');
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(1, 4), 'Ctrl toggles what the box touches');
+  // A click on a name, then Shift+click another: the run between them.
+  await win.click(row('pc', pcNames[0]) + ' .xf-name');
+  await win.click(row('pc', pcNames[3]) + ' .xf-name', { modifiers: ['Shift'] });
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(0, 4), 'Shift+click picks the run');
+  assert.match(await win.textContent('.xf-pane[data-side=pc] .xf-selinfo'), /selected$/, 'the footer counts what’s picked');
+  // A plain box elsewhere starts over.
+  await win.mouse.move(r2.x + r2.width - 20, r2.y + 4); await win.mouse.down(); await win.mouse.move(r2.x + r2.width - 40, r2.y + r2.height - 4, { steps: 4 }); await win.mouse.up();
+  assert.deepStrictEqual(await picked('pc'), [pcNames[2]]);
+  console.log('  ✓ picking several: a box from an empty spot, Ctrl to toggle, Shift+click for a run');
+
   // ---- Pause and Resume ----
   net.mbps = 30; net.ms = 2;
   await win.dblclick(row('server', 'Big Movie (2001)'));
@@ -165,6 +195,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await win.fill('#xfName', 'Bonus');
   await win.click('#xfAskOk');
   await waitFor(async () => (await names('server')).includes('Bonus'), 'the rename');
+  // Ctrl+Z: the rename, then the new folder, newest first.
+  const here = '/srv/disk1/Movies/Big Movie (2001)/';
+  await win.click(row('server', 'Bonus'));
+  await win.keyboard.press('Control+z');
+  await waitFor(async () => (await names('server')).includes('Extras') && !(await names('server')).includes('Bonus'), 'Ctrl+Z renaming it back');
+  assert.match(await win.textContent('#toast'), /Undone: “Bonus” is “Extras” again/);
+  await win.keyboard.press('Control+z');
+  await waitFor(async () => !(await names('server')).includes('Extras'), 'Ctrl+Z removing the new folder');
+  assert.ok(!srv.dirs.has(here + 'Extras'));
+  await win.keyboard.press('Control+z'); await sleep(300);
+  assert.match(await win.textContent('#toast'), /Nothing to undo here/);
+  // A new folder that has something in it by then is left alone.
+  await win.click('.xf-pane[data-side=server] .xf-ibtn[aria-label="New folder"]');
+  await win.waitForSelector('.xf-ask[open] #xfName');
+  await win.fill('#xfName', 'Bonus');
+  await win.click('#xfAskOk');
+  await waitFor(async () => (await names('server')).includes('Bonus'), 'the new folder');
+  srv.dirs.add(here + 'Bonus/Inside');
+  await win.keyboard.press('Control+z'); await sleep(800);
+  assert.match(await win.textContent('#toast'), /has something in it now/);
+  assert.ok(srv.dirs.has(here + 'Bonus'), 'kept');
+  console.log('  ✓ Ctrl+Z undoes the rename, then the new folder; a folder with something in it is kept');
   await win.click(row('server', 'Bonus'));
   await win.click('.xf-pane[data-side=server] .xf-danger');
   await win.waitForSelector('.xf-ask[open]');
@@ -174,6 +226,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await waitFor(async () => !(await names('server')).includes('Bonus'), 'deleting');
   assert.ok(!srv.dirs.has('/srv/disk1/Movies/Big Movie (2001)/Bonus'));
   console.log('  ✓ New Folder, Rename (F2) and Delete (asks first, says it can’t be undone) on the server');
+
+  // A bigger folder on a slower server: the question closes at once, and the server side says what's happening.
+  srv.dirs.add(here + 'Lots');
+  for (let i = 1; i <= 30; i++) srv.files.set(here + 'Lots/Episode ' + i + '.mkv', 1000);
+  srvOpts.removeMs = 400;
+  await win.click('.xf-pane[data-side=server] .xf-ibtn[aria-label="Refresh"]');
+  await waitFor(async () => (await names('server')).includes('Lots'), 'the bigger folder');
+  await win.click(row('server', 'Lots'));
+  await win.click('.xf-pane[data-side=server] .xf-danger');
+  await win.waitForSelector('.xf-ask[open]');
+  const t0 = Date.now();
+  await win.click('#xfAskOk');
+  await waitFor(async () => !(await win.$('.xf-ask[open]')), 'the question to close', 1500);
+  await win.waitForSelector('.xf-delbar:not([hidden])', { timeout: 1500 });
+  await waitFor(async () => /Deleting “Lots”… \d+ of 31/.test(await win.textContent('.xf-delbar')), 'the count');
+  assert.ok(await win.$(row('server', 'Lots') + '.is-deleting'), 'its row greyed out');
+  await shot(win, 'files-5-deleting');
+  const during = await win.textContent('.xf-delbar');
+  await waitFor(async () => !(await names('server')).includes('Lots'), 'deleting the folder', 30000);
+  assert.ok(await win.isHidden('.xf-delbar'), 'gone when done');
+  assert.ok(![...srv.files.keys()].some((f) => f.startsWith(here + 'Lots')) && !srv.dirs.has(here + 'Lots'));
+  const took = Date.now() - t0;
+  assert.ok(took < 5000, 'a few at a time (30 × 0.4 s one by one would be 12 s): ' + took + ' ms');
+  srvOpts.removeMs = 0;
+  console.log('  ✓ deleting says what’s happening (' + during.trim() + ') and takes ' + (took / 1000).toFixed(1) + ' s for 30 slow files');
 
   // ---- Both looks, light and dark ----
   if (shots) {

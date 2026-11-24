@@ -187,13 +187,15 @@ server = new Server({ hostKeys: [hostKey.private] }, (client) => {
         return a ? sftp.attrs(id, a) : sftp.status(id, STATUS_CODE.FAILURE);
       });
       sftp.on('CLOSE', (id, h) => { const st = handles.get(h.toString('hex')); if (st && st.read) reads.closes++; handles.delete(h.toString('hex')); sftp.status(id, STATUS_CODE.OK); });
-      sftp.on('REMOVE', (id, p) => {
+      // opts.removeMs: each delete's answer takes this long (a real server, over the network).
+      sftp.on('REMOVE', (id, p) => { if (opts.removeMs) setTimeout(() => remove(id, p), opts.removeMs); else remove(id, p); });
+      const remove = (id, p) => {
         if (!opts.keep) { files.delete(real(p)); return sftp.status(id, STATUS_CODE.OK); }
         const r = real(p);
         if (links.has(posix.normalize(p))) { links.delete(posix.normalize(p)); return sftp.status(id, STATUS_CODE.OK); }
         if (!files.has(r)) return sftp.status(id, dirs.has(r) ? STATUS_CODE.FAILURE : STATUS_CODE.NO_SUCH_FILE);
         files.delete(r); kept.delete(r); mtimes.delete(r); sftp.status(id, STATUS_CODE.OK);
-      });
+      };
       // Writing (a file sent to the server): only its size is kept.
       sftp.on('WRITE', (id, h, offset, data) => {
         const st = handles.get(h.toString('hex'));

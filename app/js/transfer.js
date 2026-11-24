@@ -212,9 +212,12 @@
       ])
     ]);
     sheet.addEventListener('close', function () { drag = null; syncBackground(); });
+    sheet.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); undo(); }
+    });
     sheet.addEventListener('keydown', function (e) { if (e.key === 'F5') { e.preventDefault(); var s = activeSide(); load(s, panes[s].path, true); } });
     document.body.appendChild(sheet);
-    native.onXfer(function (snap) { queue = snap; paintQueue(); });
+    native.onXfer(function (snap) { if (snap.deleting) { showDeleting(snap.deleting); return; } queue = snap; paintQueue(); });
     native.onXferDrop(function (d) {
       if (!sheet.open || !d.paths || !d.paths.length) return;
       if (d.where !== 'server') { toast('Drop files from File Explorer on the server side to copy them there.'); return; }
@@ -272,6 +275,7 @@
   function syncMsg(side) {
     var p = panes[side], m = p.el.msg;
     var text = p.loading && !p.entries.length ? 'Opening…' : p.error ? p.error : !p.entries.length && !p.loading ? 'This folder is empty.' : '';
+    if (side === 'server') syncDeleting();
     m.hidden = !text;
     m.className = 'xf-msg' + (p.error ? ' is-error' : '');
     m.textContent = text;
@@ -372,10 +376,67 @@
     p.focus = name;
     paintSel(side);
   }
+  // Is the pointer on a row's size or date (where a selection box starts; the name column drags the files)?
+  function besideName(row, e) {
+    var sz = row.querySelector('.xf-size');
+    return !!sz && e.clientX >= sz.getBoundingClientRect().left - 4;
+  }
+  // The selection box (see wireList).
+  function startBox(side, e) {
+    var p = panes[side], list = p.el.list;
+    e.preventDefault(); // (no file drag, no text selection)
+    list.focus({ preventScroll: true });
+    lastSide = side;
+    var toggle = e.ctrlKey || e.metaKey, base = toggle || e.shiftKey ? new Set(p.selBefore || p.sel) : new Set(); // (a plain box starts a new selection)
+    var lr = list.getBoundingClientRect();
+    var y0 = e.clientY - lr.top + list.scrollTop, x0 = e.clientX - lr.left + list.scrollLeft;
+    var box = null, px = e.clientX, py = e.clientY, raf = 0;
+    var byName = {};
+    p.entries.forEach(function (en) { byName[en.name] = en; });
+    function update() {
+      var r = list.getBoundingClientRect();
+      var y1 = Math.max(0, Math.min(list.scrollHeight, py - r.top + list.scrollTop));
+      var x1 = Math.max(0, Math.min(list.clientWidth, px - r.left)) + list.scrollLeft;
+      if (!box) {
+        if (Math.abs(y1 - y0) < 4 && Math.abs(x1 - x0) < 4) return;
+        box = el('div', { class: 'xf-box', 'aria-hidden': 'true' });
+        list.appendChild(box);
+        p.pendingOne = null;
+      }
+      var top = Math.min(y0, y1), h = Math.abs(y1 - y0), left = Math.min(x0, x1), w = Math.abs(x1 - x0);
+      box.style.top = top + 'px'; box.style.left = left + 'px'; box.style.width = w + 'px'; box.style.height = h + 'px';
+      var sel = new Set(base), first = null, last = null;
+      list.querySelectorAll('.xf-row').forEach(function (row) {
+        var a = row.offsetTop, b = a + row.offsetHeight, n = row.dataset.name;
+        if (!(b > top && a < top + h) || (byName[n] && byName[n].drive)) return;
+        if (toggle && base.has(n)) sel.delete(n); else sel.add(n);
+        if (first == null) first = n;
+        last = n;
+      });
+      p.sel = sel;
+      if (first != null) { p.anchor = y1 >= y0 ? first : last; p.focus = y1 >= y0 ? last : first; }
+      paintSel(side);
+    }
+    // Held near the top or bottom edge: the list scrolls, and the box keeps growing.
+    function tick() {
+      var r = list.getBoundingClientRect(), edge = 24, d = py < r.top + edge ? py - (r.top + edge) : py > r.bottom - edge ? py - (r.bottom - edge) : 0;
+      if (d && box) { list.scrollTop += Math.max(-30, Math.min(30, d / 2)); update(); }
+      raf = requestAnimationFrame(tick);
+    }
+    function move(ev) { px = ev.clientX; py = ev.clientY; update(); }
+    function up() {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      cancelAnimationFrame(raf);
+      if (box) box.remove();
+    }
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    raf = requestAnimationFrame(tick);
+  }
   function wireList(side) {
     var p = panes[side], list = p.el.list;
     list.addEventListener('mousedown', function (e) {
       lastSide = side;
+      p.selBefore = new Set(p.sel); // (a selection box starts from what was picked before this click)
       var row = rowOf(e.target);
       if (!row) { if (e.button === 0 && !e.ctrlKey && !e.shiftKey) { p.sel = new Set(); paintSel(side); } return; }
       var name = row.dataset.name;
@@ -383,6 +444,15 @@
       else if (e.ctrlKey || e.metaKey) pick(side, name, 'toggle');
       else if (!p.sel.has(name)) pick(side, name, 'one');
       else { p.focus = name; p.pendingOne = name; }
+    });
+    // Click and drag from an empty spot (below the files, or on a file's size or date) draws a box, and
+    // every file and folder it touches is picked, as in Windows. Ctrl toggles what it touches; Shift adds to what's
+    // picked. Dragging a name (or its icon) still copies the files to the other side.
+    list.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      var row = rowOf(e.target);
+      if (row && !besideName(row, e)) return;
+      startBox(side, e);
     });
     list.addEventListener('click', function (e) {
       var row = rowOf(e.target);
@@ -551,6 +621,7 @@
     }).then(function (made) {
       if (!made) return;
       var name = made.split(/[\\/]/).pop();
+      done({ what: 'mkdir', side: side, dir: p.path, path: made, name: name });
       load(side, p.path, true).then(function () { p.sel = new Set([name]); p.anchor = p.focus = name; paint(side); scrollToFocus(side); });
     });
   }
@@ -567,26 +638,77 @@
     // Just the name, not the .mkv, is picked to start with.
     var dot = sel[0].dir ? -1 : from.lastIndexOf('.');
     if (dot > 0) input.setSelectionRange(0, dot);
+    var dir = p.path;
     q.then(function (to) {
       if (!to) return;
       var name = to.split('/').pop();
+      if (name !== from) done({ what: 'rename', side: 'server', dir: dir, from: from, to: name });
       load('server', p.path, true).then(function () { p.sel = new Set([name]); p.anchor = p.focus = name; paint('server'); scrollToFocus('server'); });
     });
   }
+  // ---------- Undo (Ctrl+Z): renames and new folders, newest first ----------
+  // (Deleting on the server can't be undone: there's no recycle bin there. Copies aren't undone either.)
+  var history = [];
+  function done(step) { history.push(step); if (history.length > 50) history.shift(); }
+  function showIn(side, dir, name) {
+    var p = panes[side];
+    if (p.path !== dir) return;
+    load(side, dir, true).then(function () {
+      if (name && p.entries.some(function (e) { return e.name === name; })) { p.sel = new Set([name]); p.anchor = p.focus = name; }
+      paint(side); scrollToFocus(side);
+    });
+  }
+  var undoing = false;
+  function undo() {
+    if (undoing) return;
+    var step = history.pop();
+    if (!step) { toast('Nothing to undo here. (Renames and new folders can be undone; deleting can’t.)'); return; }
+    undoing = true;
+    var where = step.side === 'server' ? ' on your server' : '';
+    var call = step.what === 'rename' ? native.xferRename(step.dir, step.to, step.from) : native.xferRmdir(step.side, step.path);
+    call.then(function () {
+      if (step.what === 'rename') { toast('Undone: “' + step.to + '” is “' + step.from + '” again' + where + '.'); showIn(step.side, step.dir, step.from); }
+      else { toast('Undone: removed the new folder “' + step.name + '”' + where + '.'); showIn(step.side, step.dir, null); }
+    }, function (e) {
+      toast('Couldn’t undo that: ' + (why(e).text || 'it went wrong.'));
+    }).then(function () { undoing = false; });
+  }
+  // Deleting: the question closes at once, and the server side says what's happening ("Deleting… 12 of 40", the
+  // rows going greyed out) while you carry on. (It takes a few seconds: each file is a request to the server.)
+  var deleting = null; // { dir, names, done, total }
+  function showDeleting(d) { if (deleting) { deleting.done = d.done; deleting.total = d.total; syncDeleting(); } }
+  function syncDeleting() {
+    var p = panes.server;
+    if (!p.el) return;
+    var bar = p.el.delBar;
+    if (!bar) { bar = p.el.delBar = el('div', { class: 'xf-delbar', role: 'status', 'aria-live': 'polite' }); p.el.list.parentNode.appendChild(bar); }
+    bar.hidden = !deleting;
+    p.el.list.querySelectorAll('.xf-row').forEach(function (row) { row.classList.toggle('is-deleting', !!deleting && deleting.dir === p.path && deleting.names.indexOf(row.dataset.name) >= 0); });
+    if (p.el.del) p.el.del.disabled = !!deleting || !selected('server').length;
+    if (!deleting) return;
+    var what = deleting.names.length === 1 ? '“' + deleting.names[0] + '”' : plural(deleting.names.length, 'item');
+    bar.replaceChildren(el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      el('span', { text: deleting.total ? 'Deleting ' + what + '… ' + deleting.done.toLocaleString() + ' of ' + deleting.total.toLocaleString() : 'Deleting ' + what + '…' }));
+  }
   function deleteSelected() {
     var p = panes.server, sel = selected('server');
-    if (!sel.length) return;
-    var dirs = sel.filter(function (e) { return e.dir; }).length;
+    if (!sel.length || deleting) return;
+    var dirs = sel.filter(function (e) { return e.dir; }).length, dir = p.path;
     ask({
       title: sel.length === 1 ? 'Delete “' + sel[0].name + '” from your server?' : 'Delete ' + sel.length + ' items from your server?',
       lead: (sel.length > 1 ? quoteList(sel.map(function (e) { return e.name; }), sel.length) + '. ' : '') + (dirs ? 'Folders are deleted with everything in them. ' : ''),
       body: [el('p', { class: 'row-help flush sp-warn xf-warn', text: 'This can’t be undone: deleted files don’t go to a recycle bin on the server.' })],
-      art: 'trash', danger: true, ok: 'Delete', cls: 'xf-del',
-      check: function () { return native.xferDelete(sel.map(function (e) { return join('server', p.path, e.name); })); }
-    }).then(function (r) {
-      if (!r) return;
-      toast(r.failed.length ? 'Deleted ' + r.deleted + '. ' + plural(r.failed.length, 'item') + ' couldn’t be deleted: ' + r.failed[0].why : 'Deleted ' + plural(r.deleted, 'item') + ' from your server.');
-      load('server', p.path, true);
+      art: 'trash', danger: true, ok: 'Delete', cls: 'xf-del'
+    }).then(function (yes) {
+      if (!yes) return;
+      deleting = { dir: dir, names: sel.map(function (e) { return e.name; }), done: 0, total: 0 };
+      p.sel = new Set(); paintSel('server'); syncDeleting();
+      native.xferDelete(sel.map(function (e) { return join('server', dir, e.name); })).then(function (r) {
+        toast(r.failed.length ? 'Deleted ' + r.deleted + '. ' + plural(r.failed.length, 'item') + ' couldn’t be deleted: ' + r.failed[0].why : 'Deleted ' + plural(r.deleted, 'item') + ' from your server.');
+      }, function (e) { toast(why(e).text || 'Couldn’t delete that.'); }).then(function () {
+        deleting = null; syncDeleting();
+        if (panes.server.path === dir) load('server', dir, true);
+      });
     });
   }
 
@@ -706,5 +828,5 @@
   }
   var btn = $('filesBtn');
   if (btn) btn.addEventListener('click', open);
-  window.ShelfFiles = { open: open, _panes: panes, _queue: function () { return queue; } };
+  window.ShelfFiles = { open: open, undo: undo, _panes: panes, _queue: function () { return queue; }, _history: function () { return history; } };
 })();

@@ -34,7 +34,10 @@ const FF = require('ffmpeg-static');
     assert.throws(() => L.checkCut({ start: 0, end: 90, gain: -5 }));
     const args = L.applyArgs('in.mkv', 'out.mkv', { start: 1.5, end: 5.6, gain: -9 }, { codec: 'aac', kbps: 96 });
     assert.ok(args.includes('copy') && args.includes('-n'), 'picture copied, never over a file');
-    assert.ok(args.join(' ').includes("volume=volume=-9dB:enable='between(t,1.5,5.6)'"));
+    const af = args[args.indexOf('-af') + 1];
+    assert.ok(af.includes("volume=volume=-9dB:enable='between(t,1.5,5.6)'"), af);
+    assert.ok(af.startsWith('atrim=start_sample=1024,'), 'the AAC lead-in taken off in Matroska');
+    assert.ok(!L.applyArgs('in.mp4', 'out.mp4', { start: 1.5, end: 5.6, gain: -9 }, { codec: 'aac', kbps: 96 }).join(' ').includes('atrim'), 'not in MP4 (players skip it there)');
   });
 
   // A real (made-up) video: 1.5 s quiet, a loud 3-second tone, quiet, then a quieter "show" for 2.5 minutes.
@@ -56,6 +59,13 @@ const FF = require('ffmpeg-static');
     assert.strictEqual(fs.statSync(src).size, before);
     assert.ok(Math.abs((await probe.duration(out)) - secs) <= 1);
     assert.strictEqual(await L.measure(out, secs), null);
+    // In time with the picture: the logo starts exactly when it did, and its pitch is the same.
+    const pcm = (f) => { const b = execFileSync(FF, ['-v', 'error', '-t', '3', '-i', f, '-map', '0:a:0', '-ac', '1', '-ar', '48000', '-f', 'f32le', '-']); return new Float32Array(b.buffer, b.byteOffset, b.length / 4); };
+    const onset = (x) => x.findIndex((v) => Math.abs(v) > 0.05);
+    const pa = pcm(src), pb = pcm(out);
+    assert.ok(Math.abs(onset(pa) - onset(pb)) <= 48, 'starts within 1 ms: ' + onset(pa) + ' vs ' + onset(pb));
+    const crossings = (x, i0) => { let n = 0; for (let i = i0 + 1; i < i0 + 24000; i++) if ((x[i - 1] < 0) !== (x[i] < 0)) n++; return n; };
+    assert.ok(Math.abs(crossings(pa, 96000) - crossings(pb, 96000)) <= 2, 'the same pitch');
     await assert.rejects(L.apply(src, out, cut), /exists/i, 'never over a file that’s there');
   });
   await check('Rename Now: copy keeps the original, move sends it to the bin, Undo removes the new copy', async () => {
