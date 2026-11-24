@@ -217,7 +217,7 @@
     });
     sheet.addEventListener('keydown', function (e) { if (e.key === 'F5') { e.preventDefault(); var s = activeSide(); load(s, panes[s].path, true); } });
     document.body.appendChild(sheet);
-    native.onXfer(function (snap) { queue = snap; paintQueue(); });
+    native.onXfer(function (snap) { if (snap.deleting) { showDeleting(snap.deleting); return; } queue = snap; paintQueue(); });
     native.onXferDrop(function (d) {
       if (!sheet.open || !d.paths || !d.paths.length) return;
       if (d.where !== 'server') { toast('Drop files from File Explorer on the server side to copy them there.'); return; }
@@ -275,6 +275,7 @@
   function syncMsg(side) {
     var p = panes[side], m = p.el.msg;
     var text = p.loading && !p.entries.length ? 'Opening…' : p.error ? p.error : !p.entries.length && !p.loading ? 'This folder is empty.' : '';
+    if (side === 'server') syncDeleting();
     m.hidden = !text;
     m.className = 'xf-msg' + (p.error ? ' is-error' : '');
     m.textContent = text;
@@ -672,20 +673,42 @@
       toast('Couldn’t undo that: ' + (why(e).text || 'it went wrong.'));
     }).then(function () { undoing = false; });
   }
+  // Deleting: the question closes at once, and the server side says what's happening ("Deleting… 12 of 40", the
+  // rows going greyed out) while you carry on. (It takes a few seconds: each file is a request to the server.)
+  var deleting = null; // { dir, names, done, total }
+  function showDeleting(d) { if (deleting) { deleting.done = d.done; deleting.total = d.total; syncDeleting(); } }
+  function syncDeleting() {
+    var p = panes.server;
+    if (!p.el) return;
+    var bar = p.el.delBar;
+    if (!bar) { bar = p.el.delBar = el('div', { class: 'xf-delbar', role: 'status', 'aria-live': 'polite' }); p.el.list.parentNode.appendChild(bar); }
+    bar.hidden = !deleting;
+    p.el.list.querySelectorAll('.xf-row').forEach(function (row) { row.classList.toggle('is-deleting', !!deleting && deleting.dir === p.path && deleting.names.indexOf(row.dataset.name) >= 0); });
+    if (p.el.del) p.el.del.disabled = !!deleting || !selected('server').length;
+    if (!deleting) return;
+    var what = deleting.names.length === 1 ? '“' + deleting.names[0] + '”' : plural(deleting.names.length, 'item');
+    bar.replaceChildren(el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      el('span', { text: deleting.total ? 'Deleting ' + what + '… ' + deleting.done.toLocaleString() + ' of ' + deleting.total.toLocaleString() : 'Deleting ' + what + '…' }));
+  }
   function deleteSelected() {
     var p = panes.server, sel = selected('server');
-    if (!sel.length) return;
-    var dirs = sel.filter(function (e) { return e.dir; }).length;
+    if (!sel.length || deleting) return;
+    var dirs = sel.filter(function (e) { return e.dir; }).length, dir = p.path;
     ask({
       title: sel.length === 1 ? 'Delete “' + sel[0].name + '” from your server?' : 'Delete ' + sel.length + ' items from your server?',
       lead: (sel.length > 1 ? quoteList(sel.map(function (e) { return e.name; }), sel.length) + '. ' : '') + (dirs ? 'Folders are deleted with everything in them. ' : ''),
       body: [el('p', { class: 'row-help flush sp-warn xf-warn', text: 'This can’t be undone: deleted files don’t go to a recycle bin on the server.' })],
-      art: 'trash', danger: true, ok: 'Delete', cls: 'xf-del',
-      check: function () { return native.xferDelete(sel.map(function (e) { return join('server', p.path, e.name); })); }
-    }).then(function (r) {
-      if (!r) return;
-      toast(r.failed.length ? 'Deleted ' + r.deleted + '. ' + plural(r.failed.length, 'item') + ' couldn’t be deleted: ' + r.failed[0].why : 'Deleted ' + plural(r.deleted, 'item') + ' from your server.');
-      load('server', p.path, true);
+      art: 'trash', danger: true, ok: 'Delete', cls: 'xf-del'
+    }).then(function (yes) {
+      if (!yes) return;
+      deleting = { dir: dir, names: sel.map(function (e) { return e.name; }), done: 0, total: 0 };
+      p.sel = new Set(); paintSel('server'); syncDeleting();
+      native.xferDelete(sel.map(function (e) { return join('server', dir, e.name); })).then(function (r) {
+        toast(r.failed.length ? 'Deleted ' + r.deleted + '. ' + plural(r.failed.length, 'item') + ' couldn’t be deleted: ' + r.failed[0].why : 'Deleted ' + plural(r.deleted, 'item') + ' from your server.');
+      }, function (e) { toast(why(e).text || 'Couldn’t delete that.'); }).then(function () {
+        deleting = null; syncDeleting();
+        if (panes.server.path === dir) load('server', dir, true);
+      });
     });
   }
 

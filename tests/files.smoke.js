@@ -19,12 +19,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const A = crypto.randomBytes(3 << 20);
   const net = { mbps: 100000, ms: 0 };
-  const srv = await fake.start({ keep: true, net, content: {
+  const srvOpts = { keep: true, net, removeMs: 0 };
+  const srv = await fake.start(Object.assign(srvOpts, { content: {
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E01 - Pilot.mkv': A,
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E01 - Pilot.en.srt': 'subtitles',
     '/srv/disk1/TV/Show X/Season 01/Show X - S01E02 - Second.mkv': crypto.randomBytes(1 << 20),
     '/srv/disk1/Movies/Big Movie (2001)/Big Movie (2001).mkv': crypto.randomBytes(10 << 20)
-  } });
+  } }));
   const shots = process.env.SHOTS;
   const shot = async (win, name) => { if (shots) await win.screenshot({ path: path.join(shots, name + '.png') }); };
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-profile-'));
@@ -225,6 +226,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await waitFor(async () => !(await names('server')).includes('Bonus'), 'deleting');
   assert.ok(!srv.dirs.has('/srv/disk1/Movies/Big Movie (2001)/Bonus'));
   console.log('  ✓ New Folder, Rename (F2) and Delete (asks first, says it can’t be undone) on the server');
+
+  // A bigger folder on a slower server: the question closes at once, and the server side says what's happening.
+  srv.dirs.add(here + 'Lots');
+  for (let i = 1; i <= 30; i++) srv.files.set(here + 'Lots/Episode ' + i + '.mkv', 1000);
+  srvOpts.removeMs = 400;
+  await win.click('.xf-pane[data-side=server] .xf-ibtn[aria-label="Refresh"]');
+  await waitFor(async () => (await names('server')).includes('Lots'), 'the bigger folder');
+  await win.click(row('server', 'Lots'));
+  await win.click('.xf-pane[data-side=server] .xf-danger');
+  await win.waitForSelector('.xf-ask[open]');
+  const t0 = Date.now();
+  await win.click('#xfAskOk');
+  await waitFor(async () => !(await win.$('.xf-ask[open]')), 'the question to close', 1500);
+  await win.waitForSelector('.xf-delbar:not([hidden])', { timeout: 1500 });
+  await waitFor(async () => /Deleting “Lots”… \d+ of 31/.test(await win.textContent('.xf-delbar')), 'the count');
+  assert.ok(await win.$(row('server', 'Lots') + '.is-deleting'), 'its row greyed out');
+  await shot(win, 'files-5-deleting');
+  const during = await win.textContent('.xf-delbar');
+  await waitFor(async () => !(await names('server')).includes('Lots'), 'deleting the folder', 30000);
+  assert.ok(await win.isHidden('.xf-delbar'), 'gone when done');
+  assert.ok(![...srv.files.keys()].some((f) => f.startsWith(here + 'Lots')) && !srv.dirs.has(here + 'Lots'));
+  const took = Date.now() - t0;
+  assert.ok(took < 5000, 'a few at a time (30 × 0.4 s one by one would be 12 s): ' + took + ' ms');
+  srvOpts.removeMs = 0;
+  console.log('  ✓ deleting says what’s happening (' + during.trim() + ') and takes ' + (took / 1000).toFixed(1) + ' s for 30 slow files');
 
   // ---- Both looks, light and dark ----
   if (shots) {

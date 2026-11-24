@@ -416,11 +416,14 @@ function setup(ctx, api) {
     const results = [], gone = new Set();
     if (!list.length) return { results };
     await withSession(async (s) => {
-      for (const p of list) {
-        const r = { path: p };
-        results.push(r);
-        try { await s.unlink(p); r.ok = true; gone.add(p); spare.delete(p); } catch (e) { r.error = S.friendly(e, (cfg() || {}).host || '').message; }
-      }
+      // A few at a time (each is a request over the network: one by one is slow).
+      let i = 0;
+      await Promise.all(Array.from({ length: Math.min(8, list.length) }, async () => {
+        while (i < list.length) {
+          const p = list[i], r = results[i++] = { path: p };
+          try { await s.unlink(p); r.ok = true; gone.add(p); spare.delete(p); } catch (e) { r.error = S.friendly(e, (cfg() || {}).host || '').message; }
+        }
+      }));
     });
     // Undo can't bring these back any more: those changes leave its list.
     const j = await readJournal();

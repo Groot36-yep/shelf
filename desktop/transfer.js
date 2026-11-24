@@ -232,15 +232,42 @@ async function pull(s, remote, part, size, o) {
   return 'sha256';
 }
 
-/** Delete a server file or folder (and everything in it). Shortcuts are removed, never followed. */
-async function removeRemote(s, p, depth) {
-  const st = await s.p((cb) => s.sftp.lstat(p, cb)).catch((e) => { if (e.code === 2) return null; throw e; });
-  if (!st) return;
-  if (st.isDirectory() && (depth || 0) < 60) {
-    const kids = await s.p((cb) => s.sftp.readdir(p, cb));
-    for (const k of kids) if (k.filename !== '.' && k.filename !== '..') await removeRemote(s, posix.join(p, k.filename), (depth || 0) + 1);
-    await s.p((cb) => s.sftp.rmdir(p, cb));
-  } else await s.unlink(p);
+/**
+ * Delete server files and folders (and everything in them). Shortcuts are removed, never followed.
+ * First everything is listed (so the window can say "12 of 40"), then the files go a few at a time (a server
+ * answers one request at a time over the network, so one by one is slow), then the emptied folders, deepest first.
+ * onStep({ done, total }) after each. → [{ path, ok } | { path, error }] for each of `paths`.
+ */
+async function removeRemote(s, paths, onStep, friendly) {
+  const items = []; // { path, top, dir, depth }
+  const walk = async (p, top, depth) => {
+    const st = await s.p((cb) => s.sftp.lstat(p, cb)).catch((e) => { if (e.code === 2) return null; throw e; });
+    if (!st) return;
+    if (st.isDirectory() && depth < 60) {
+      const kids = await s.p((cb) => s.sftp.readdir(p, cb));
+      await eachLimit(kids.filter((k) => k.filename !== '.' && k.filename !== '..'), 8, async (k) => {
+        const kp = posix.join(p, k.filename);
+        if (k.attrs.isDirectory() && !k.attrs.isSymbolicLink()) await walk(kp, top, depth + 1);
+        else items.push({ path: kp, top, dir: false, depth: depth + 1 });
+      });
+      items.push({ path: p, top, dir: true, depth });
+    } else items.push({ path: p, top, dir: false, depth });
+  };
+  const bad = new Map(); // top path → why
+  for (const p of paths) await walk(p, p, 0).catch((e) => bad.set(p, friendly(e)));
+  const total = items.length;
+  let done = 0, last = 0;
+  const step = () => { done++; const now = Date.now(); if (onStep && (now - last > 150 || done === total)) { last = now; onStep({ done, total }); } };
+  if (onStep) onStep({ done: 0, total });
+  const one = async (it) => {
+    if (bad.has(it.top)) return step();
+    try { await (it.dir ? s.p((cb) => s.sftp.rmdir(it.path, cb)) : s.unlink(it.path)); } catch (e) { if (!bad.has(it.top)) bad.set(it.top, friendly(e)); }
+    step();
+  };
+  await eachLimit(items.filter((it) => !it.dir), 8, one);
+  const dirs = items.filter((it) => it.dir).sort((a, b) => b.depth - a.depth);
+  for (let d = dirs.length ? dirs[0].depth : -1; d >= 0; d--) await eachLimit(dirs.filter((it) => it.depth === d), 8, one);
+  return paths.map((p) => bad.has(p) ? { path: p, error: bad.get(p) } : { path: p, ok: true });
 }
 
 function setup(ctx, api) {
@@ -383,9 +410,8 @@ function setup(ctx, api) {
     const failed = [];
     let deleted = 0;
     await withSession(async (s) => {
-      for (const p of list) {
-        try { await removeRemote(s, p); deleted++; } catch (e) { failed.push({ name: posix.basename(p), why: S.friendly(e, host()).message }); }
-      }
+      const res = await removeRemote(s, list, (p) => send({ deleting: p }), (e) => S.friendly(e, host()).message);
+      for (const r of res) { if (r.ok) deleted++; else failed.push({ name: posix.basename(r.path), why: r.error }); }
     });
     log('Server Files: deleted ' + deleted + ' item' + (deleted === 1 ? '' : 's') + (failed.length ? ', ' + failed.length + ' couldn’t be' : ''));
     return { deleted, failed };
