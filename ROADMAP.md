@@ -2,6 +2,14 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Missing Episodes: do you have every one?** A show's heading in the list (and the ⚙ menu) can show which of its
+  episodes you don't have yet, season by season, or "You have all 77 episodes". It counts the show's files in the
+  list and the ones in its folder on your Plex server (names only, nothing changed there), compared with the show's
+  full episode list in the order Plex uses. A file holding several episodes counts for each, your picks in Inspect
+  and splits count, specials are kept apart, and episodes that haven't aired yet aren't missing. Episodes numbered
+  in another order and files that don't say which episode they are are pointed out. Copy the List copies the gaps.
+
 ## Done (2.9.0)
 - **Updating Shelf keeps it pinned to the taskbar.** Installing a new version over the old one used to remove
   Shelf's shortcuts and make new ones, which unpinned it. Now the shortcuts (and the pin) stay; a fresh set is made

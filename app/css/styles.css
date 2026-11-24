@@ -1880,3 +1880,30 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 /* (A picture still on its way shows nothing, not a broken-picture mark.) */
 .ed-thumb img:not([src]), .ed-part-pic img:not([src]), .rv-pic img:not([src]) { visibility: hidden; }
 .insp-quiet { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+
+/* ---------- Missing Episodes: a show's episode list against the files you have ---------- */
+.missing-sheet { width: min(600px, calc(100vw - 32px)); }
+.ms-pick label { flex: none; }
+.ms-pick select { flex: 1; min-width: 0; max-width: 100%; }
+.ms-sum { display: flex; flex-direction: column; gap: 10px; min-height: 44px; justify-content: center; }
+.ms-wait { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.ms-big { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; row-gap: 2px; }
+.ms-big b { grid-column: 1 / -1; font-family: var(--display); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+.ms-big small { grid-column: 1 / -1; font-size: 12.5px; color: var(--text-2); }
+.ms-big.is-done { grid-template-columns: 36px 1fr; }
+.ms-big.is-done b, .ms-big.is-done small { grid-column: 2; }
+.ms-tick { grid-row: 1 / span 2; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--green-bg); color: var(--green-text); font-size: 18px; font-weight: 700; }
+.ms-big.is-done b { color: var(--green-text); }
+.ms-big.is-gap b { color: var(--orange-text); }
+.ms-big.is-bad b { color: var(--red-text); }
+.ms-bar { display: block; height: 6px; border-radius: 999px; background: var(--fill-strong); overflow: hidden; }
+.ms-bar i { display: block; height: 100%; border-radius: inherit; background: var(--green); transition: width 0.4s ease; }
+.ms-list:empty { display: none; }
+.ms-ep { min-height: 36px; padding: 7px 14px; justify-content: flex-start; gap: 12px; font-size: 13px; }
+.ms-code { flex: none; font: 600 12px var(--mono); color: var(--code); }
+.ms-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-ep small { flex: none; font-size: 11.5px; }
+.ms-notes { display: flex; flex-direction: column; gap: 6px; }
+.ms-note { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--fill); font-size: 12.5px; line-height: 1.4; color: var(--text-2); }
+.ms-note.is-ok b { color: var(--green-text); }
+.ms-note.is-warn { background: var(--orange-bg); color: var(--orange-text); }

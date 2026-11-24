@@ -140,6 +140,9 @@ contextBridge.exposeInMainWorld('shelfNative', {
   plexSetAside: (paths) => ipcRenderer.invoke('shelf:plexSetAside', Array.isArray(paths) ? paths.map(String) : []),
   plexSpareList: () => ipcRenderer.invoke('shelf:plexSpareList'),
   plexSpareDelete: (paths) => ipcRenderer.invoke('shelf:plexSpareDelete', Array.isArray(paths) ? paths.map(String) : []),
+  // Missing Episodes: the show folders in your TV libraries on the server, and the video files in some of them.
+  showFolders: () => ipcRenderer.invoke('shelf:showFolders'),
+  showFiles: (paths) => ipcRenderer.invoke('shelf:showFiles', Array.isArray(paths) ? paths.slice(0, 12).map(String) : []),
   // Make Music Smaller: lossless songs on the server → Ogg Vorbis / Opus next to them (originals kept aside).
   plexShrinkList: () => ipcRenderer.invoke('shelf:plexShrinkList'),
   plexShrink: (paths, format) => ipcRenderer.invoke('shelf:plexShrink', Array.isArray(paths) ? paths.map(String) : [], format === 'opus' ? 'opus' : 'vorbis'),

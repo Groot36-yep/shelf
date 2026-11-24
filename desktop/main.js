@@ -1262,6 +1262,8 @@ if (gotLock) app.whenReady().then(() => {
   });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
+  // ---- Missing Episodes (which TV show folders the server has, and the files in one; names only) ----
+  require('./showcheck').setup({ log }, plexSend);
   // ---- Server Files (copy between your Plex server and this PC, over the same SSH login) ----
   const xfer = require('./transfer').setup({ app, log, readPrefs, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:xferProgress', msg); } }, plexSend);
   app.on('before-quit', () => xfer.close());
