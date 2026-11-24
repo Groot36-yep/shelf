@@ -530,7 +530,7 @@
     });
     st.cards.forEach(function (c) {
       if (c.t < v.a || c.t > v.b) return;
-      mk.push(el('div', { class: 'ed-card' + (c.manual ? ' is-manual' : ''), style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', 'data-card': c.key, title: 'Title card “' + c.name + '”, ' + (c.manual ? 'marked by you' : 'read') + ' at ' + fmt(c.t) + '. Click to go there.', text: c.name })]));
+      mk.push(el('div', { class: 'ed-card' + (c.manual ? ' is-manual' : ''), style: 'left:' + X(c.t) + '%' }, [el('button', { type: 'button', 'data-card': c.key, title: 'Title card “' + c.name + '”, ' + (c.manual ? 'marked by you at ' : c.guess ? 'about ' : c.heard ? 'about (heard) ' : 'read at ') + fmt(c.t) + '. Click to go there.', text: (c.guess ? '≈ ' : '') + c.name })]));
     });
     if (split) st.cuts.forEach(function (c, k) {
       if (c < v.a || c > v.b) return;
@@ -814,7 +814,7 @@
     if (st.playable) video.pause();
     if (st.zoom < 3) setZoom(3, c.t); else keepInView(c.t);
     seek(cardStart(c)); flash();
-    info(c.manual ? 'Title card “' + c.name + '”: you marked it at ' + fmt(c.t) + '.' : 'Title card “' + c.name + '”: Shelf read it at ' + fmt(c.t) + '. Step with ← → to see exactly where it starts.');
+    info(c.manual ? 'Title card “' + c.name + '”: you marked it at ' + fmt(c.t) + '.' : c.guess ? 'Title card “' + c.name + '”: about here (its lettering couldn’t be read). Step with ← → to find it, then Mark Title Card Here.' : 'Title card “' + c.name + '”: Shelf read it at ' + fmt(c.t) + '. Step with ← → to see exactly where it starts.');
   }
 
   // ---- Marking a title card yourself (for cards Shelf couldn't read) ----
@@ -943,7 +943,7 @@
       var part = st.mode === 'split' ? partAt(cardStart(c) + 0.5) : -1;
       return el('button', { type: 'button', class: 'ed-chip' + (c.manual ? ' is-manual' : ''), 'data-key': c.key, title: 'Go to the title card “' + c.name + '” (' + fmt(c.t) + ')' + (c.manual ? ', marked by you' : ''), onclick: function () { goCard(c); } }, [
         frameImg(c.t, 160, ''),
-        el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + fmt(c.t, false) }), c.manual ? el('i', { text: 'Marked by you' }) : null])
+        el('span', { class: 'ed-chip-txt' }, [el('b', { text: c.name }), el('span', { text: (part >= 0 ? 'Part ' + (part + 1) + ' · ' : '') + (c.guess ? 'about ' : '') + fmt(c.t, false) }), c.manual ? el('i', { text: 'Marked by you' }) : c.guess ? el('i', { text: 'Couldn’t be read' }) : null])
       ]);
     }));
     lastHead.card = null;
@@ -1055,6 +1055,14 @@
           el('div', { class: 'ed-proof-text' }, [
             el('span', { class: 'ed-sure hi', text: '✓ You marked this title card · ' + fmt(card.t, false) }),
             el('span', { text: 'Wrong spot? Go to it and click Remove Mark.' })
+          ])
+        ]));
+        else if (card.guess) row.push(el('div', { class: 'ed-proof' }, [
+          el('button', { type: 'button', class: 'ed-thumb', title: 'Go to where this episode’s title card should be', onclick: function () { goCard(card); } },
+            [frameImg(card.t, 320, 'Where its title card should be')]),
+          el('div', { class: 'ed-proof-text' }, [
+            el('span', { class: 'ed-sure mid', text: '≈ Title card about here · ' + fmt(card.t, false) }),
+            el('span', { text: 'Its lettering couldn’t be read; this is where this show’s title cards usually are. Found it? Go to it and click Mark Title Card Here.' })
           ])
         ]));
         else if (card.heard) row.push(el('div', { class: 'ed-proof' }, [
