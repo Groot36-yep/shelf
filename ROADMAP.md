@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.9.0)
 - **Updating Shelf keeps it pinned to the taskbar.** Installing a new version over the old one used to remove
   Shelf's shortcuts and make new ones, which unpinned it. Now the shortcuts (and the pin) stay; a fresh set is made
   only if you install to a different folder.
