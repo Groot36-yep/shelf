@@ -19,6 +19,9 @@ Where things stand, and what's left to do. Newest first.
   says "Deleting “Season 2”… 12 of 40", with those rows greyed out, while you carry on (it used to sit with a greyed-out
   button and look frozen). Files are deleted a few at a time, so it's quicker too (Free Up Space as well).
 - **Quieted logos stay in time with the picture** in .mkv files (the sound was 21 ms behind).
+- **Inspect's title-card markers are where the cards are.** A rough reading of another episode (the Nickelodeon logo
+  "read" as Plankton!) no longer shows up as a card; a card whose lettering can't be read (Bubblestand, Suds) is shown
+  about where it is, from where this show's other files have theirs, marked as an estimate (≈), and Inspect opens there.
 
 ## Done (2.9.0)
 - **Updating Shelf keeps it pinned to the taskbar.** Installing a new version over the old one used to remove
