@@ -2544,6 +2544,12 @@
       }
       var m = P.matchCardText(r.texts, list, near, show, inSeason, notTitle);
       if (!m) return;
+      // A reading of an episode this file doesn't hold is shown only when it's clear, and from the file's own season:
+      // a rough one is what Shelf set aside when it named the file (the Nickelodeon logo "read" as "Plankton!"), and
+      // showing it as a title card would only mislead.
+      var mine = rows.some(function (x) { return x.season === m.entry.season && x.number === m.entry.number; });
+      var fileSeason = v.parsed && v.parsed.season != null ? v.parsed.season : m.entry.season;
+      if (rows.length && !mine && (m.score < P.CLEAR_READ || m.entry.season !== fileSeason)) return;
       var k = m.entry.season + 'x' + m.entry.number;
       // Show the clearest of the readings (the one closest to the title on its own).
       var best = r.texts.map(function (t) { var one = P.matchCardText([t], [m.entry]); return { t: t, s: one ? one.score : 0 }; })

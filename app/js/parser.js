@@ -1619,6 +1619,7 @@
     resolveEpisode: resolveEpisode,
     matchByTitle: matchByTitle,
     cardSpot: cardSpot,
+    CLEAR_READ: CLEAR_READ,
     matchCardText: matchCardText,
     otherCardWords: otherCardWords,
     matchHeard: matchHeard,
