@@ -197,7 +197,8 @@ working while it sends.
 - **Send Everything in My Library…** sends anything in your library that isn't on the server yet.
 - **Server Files…** (in the ⚙ menu) works like FileZilla: your server on the left, this PC on the right.
   Pick files or whole folders and click **Copy to This PC** or **Copy to Server**, or drag them across
-  (from File Explorer too). The transfers list shows speed and time left; pause, resume, cancel, and
+  (from File Explorer too). Pick several as in Windows: **Ctrl**+click, **Shift**+click for a run, **Ctrl+A**,
+  or click and drag from an empty spot (or a file's size or date) to draw a box around them. The transfers list shows speed and time left; pause, resume, cancel, and
   try again if one fails. Copies arrive under a temporary name and only get their real name once
   complete, keep their dates, and pick up where they stopped. Files already there: Shelf asks once
   (Skip, Replace or Keep Both), and skips ones with the same size and date. New Folder, Rename and

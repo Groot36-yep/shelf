@@ -132,6 +132,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await waitFor(async () => (await names('server')).includes('Holiday (2019).mkv'), 'the server side to show it');
   console.log('  ✓ dragging a file from this PC onto the server copies it there');
 
+  // ---- Picking several: a box dragged from an empty spot, Ctrl to toggle, Shift+click for a run ----
+  const picked = (side) => win.$$eval('.xf-pane[data-side=' + side + '] .xf-row[aria-selected="true"]', (r) => r.map((x) => x.dataset.name));
+  const pcRows = await win.$$('.xf-pane[data-side=pc] .xf-row');
+  const pcNames = await names('pc');
+  assert.ok(pcRows.length >= 4, 'enough files on this PC side to pick from: ' + pcNames.length);
+  const boxOf = async (k) => pcRows[k].boundingBox();
+  const r0 = await boxOf(0), r2 = await boxOf(2), r3 = await boxOf(3);
+  // From the date column of the first row (not its name) down to the third: those three.
+  await win.mouse.move(r0.x + r0.width - 20, r0.y + 8); await win.mouse.down();
+  await win.mouse.move(r2.x + r2.width - 60, r2.y + r2.height / 2, { steps: 6 });
+  if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT });
+  await win.mouse.up();
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(0, 3), 'the box picks the rows it touches');
+  // Ctrl + a box over the fourth: added; Ctrl + a box over the first: taken off.
+  await win.keyboard.down('Control');
+  await win.mouse.move(r3.x + r3.width - 20, r3.y + 4); await win.mouse.down(); await win.mouse.move(r3.x + r3.width - 40, r3.y + r3.height - 4, { steps: 4 }); await win.mouse.up();
+  await win.mouse.move(r0.x + r0.width - 20, r0.y + 4); await win.mouse.down(); await win.mouse.move(r0.x + r0.width - 40, r0.y + r0.height - 4, { steps: 4 }); await win.mouse.up();
+  await win.keyboard.up('Control');
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(1, 4), 'Ctrl toggles what the box touches');
+  // A click on a name, then Shift+click another: the run between them.
+  await win.click(row('pc', pcNames[0]) + ' .xf-name');
+  await win.click(row('pc', pcNames[3]) + ' .xf-name', { modifiers: ['Shift'] });
+  assert.deepStrictEqual(await picked('pc'), pcNames.slice(0, 4), 'Shift+click picks the run');
+  assert.match(await win.textContent('.xf-pane[data-side=pc] .xf-selinfo'), /selected$/, 'the footer counts what’s picked');
+  // A plain box elsewhere starts over.
+  await win.mouse.move(r2.x + r2.width - 20, r2.y + 4); await win.mouse.down(); await win.mouse.move(r2.x + r2.width - 40, r2.y + r2.height - 4, { steps: 4 }); await win.mouse.up();
+  assert.deepStrictEqual(await picked('pc'), [pcNames[2]]);
+  console.log('  ✓ picking several: a box from an empty spot, Ctrl to toggle, Shift+click for a run');
+
   // ---- Pause and Resume ----
   net.mbps = 30; net.ms = 2;
   await win.dblclick(row('server', 'Big Movie (2001)'));

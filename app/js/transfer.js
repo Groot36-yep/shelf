@@ -372,10 +372,67 @@
     p.focus = name;
     paintSel(side);
   }
+  // Is the pointer on a row's size or date (where a selection box starts; the name column drags the files)?
+  function besideName(row, e) {
+    var sz = row.querySelector('.xf-size');
+    return !!sz && e.clientX >= sz.getBoundingClientRect().left - 4;
+  }
+  // The selection box (see wireList).
+  function startBox(side, e) {
+    var p = panes[side], list = p.el.list;
+    e.preventDefault(); // (no file drag, no text selection)
+    list.focus({ preventScroll: true });
+    lastSide = side;
+    var toggle = e.ctrlKey || e.metaKey, base = toggle || e.shiftKey ? new Set(p.selBefore || p.sel) : new Set(); // (a plain box starts a new selection)
+    var lr = list.getBoundingClientRect();
+    var y0 = e.clientY - lr.top + list.scrollTop, x0 = e.clientX - lr.left + list.scrollLeft;
+    var box = null, px = e.clientX, py = e.clientY, raf = 0;
+    var byName = {};
+    p.entries.forEach(function (en) { byName[en.name] = en; });
+    function update() {
+      var r = list.getBoundingClientRect();
+      var y1 = Math.max(0, Math.min(list.scrollHeight, py - r.top + list.scrollTop));
+      var x1 = Math.max(0, Math.min(list.clientWidth, px - r.left)) + list.scrollLeft;
+      if (!box) {
+        if (Math.abs(y1 - y0) < 4 && Math.abs(x1 - x0) < 4) return;
+        box = el('div', { class: 'xf-box', 'aria-hidden': 'true' });
+        list.appendChild(box);
+        p.pendingOne = null;
+      }
+      var top = Math.min(y0, y1), h = Math.abs(y1 - y0), left = Math.min(x0, x1), w = Math.abs(x1 - x0);
+      box.style.top = top + 'px'; box.style.left = left + 'px'; box.style.width = w + 'px'; box.style.height = h + 'px';
+      var sel = new Set(base), first = null, last = null;
+      list.querySelectorAll('.xf-row').forEach(function (row) {
+        var a = row.offsetTop, b = a + row.offsetHeight, n = row.dataset.name;
+        if (!(b > top && a < top + h) || (byName[n] && byName[n].drive)) return;
+        if (toggle && base.has(n)) sel.delete(n); else sel.add(n);
+        if (first == null) first = n;
+        last = n;
+      });
+      p.sel = sel;
+      if (first != null) { p.anchor = y1 >= y0 ? first : last; p.focus = y1 >= y0 ? last : first; }
+      paintSel(side);
+    }
+    // Held near the top or bottom edge: the list scrolls, and the box keeps growing.
+    function tick() {
+      var r = list.getBoundingClientRect(), edge = 24, d = py < r.top + edge ? py - (r.top + edge) : py > r.bottom - edge ? py - (r.bottom - edge) : 0;
+      if (d && box) { list.scrollTop += Math.max(-30, Math.min(30, d / 2)); update(); }
+      raf = requestAnimationFrame(tick);
+    }
+    function move(ev) { px = ev.clientX; py = ev.clientY; update(); }
+    function up() {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+      cancelAnimationFrame(raf);
+      if (box) box.remove();
+    }
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    raf = requestAnimationFrame(tick);
+  }
   function wireList(side) {
     var p = panes[side], list = p.el.list;
     list.addEventListener('mousedown', function (e) {
       lastSide = side;
+      p.selBefore = new Set(p.sel); // (a selection box starts from what was picked before this click)
       var row = rowOf(e.target);
       if (!row) { if (e.button === 0 && !e.ctrlKey && !e.shiftKey) { p.sel = new Set(); paintSel(side); } return; }
       var name = row.dataset.name;
@@ -383,6 +440,15 @@
       else if (e.ctrlKey || e.metaKey) pick(side, name, 'toggle');
       else if (!p.sel.has(name)) pick(side, name, 'one');
       else { p.focus = name; p.pendingOne = name; }
+    });
+    // Click and drag from an empty spot (below the files, or on a file's size or date) draws a box, and
+    // every file and folder it touches is picked, as in Windows. Ctrl toggles what it touches; Shift adds to what's
+    // picked. Dragging a name (or its icon) still copies the files to the other side.
+    list.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      var row = rowOf(e.target);
+      if (row && !besideName(row, e)) return;
+      startBox(side, e);
     });
     list.addEventListener('click', function (e) {
       var row = rowOf(e.target);
