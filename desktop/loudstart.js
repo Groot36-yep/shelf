@@ -110,11 +110,23 @@ function checkCut(cut) {
   if (!(c.start >= 0 && c.end > c.start && c.end <= LOOK_SECS + 1 && c.end - c.start <= MAX_LEN + 1 && c.gain < 0 && c.gain >= -24)) throw new Error('Bad loud start');
   return { start: +c.start, end: +c.end, gain: +c.gain };
 }
+// The silent lead-in an encoder puts before the sound (AAC: 1024 samples, 21 ms). MP4 files say so and players skip
+// it; Matroska files don't, so the sound would play that much behind the picture: as much is taken off the start.
+const LEAD_IN = { aac: 1024 };
+/** The sound filter: cut.start–cut.end turned down by cut.gain dB (the pitch and timing stay exactly as they were). */
+function filterOf(c, a, to) {
+  const on = ':enable=\'between(t,' + c.start + ',' + c.end + ')\'';
+  const out = [];
+  const pad = /\.(mkv|mka|webm)$/i.test(to) ? LEAD_IN[ENCODERS[a.codec] || 'aac'] || 0 : 0;
+  if (pad) out.push('atrim=start_sample=' + pad, 'asetpts=PTS-STARTPTS');
+  out.push('volume=volume=' + c.gain + 'dB' + on);
+  return out.join(',');
+}
 /** ffmpeg's arguments to copy `from` to `to` with only cut.start–cut.end of its sound turned down by cut.gain dB. */
 function applyArgs(from, to, cut, a) {
   const c = checkCut(cut);
   return ['-loglevel', 'error', '-i', from, '-map', '0', '-map', '-0:d?', '-c', 'copy'].concat(encoderArgs(a), [
-    '-af', 'volume=volume=' + c.gain + 'dB:enable=\'between(t,' + c.start + ',' + c.end + ')\'',
+    '-af', filterOf(c, a, to),
     '-map_metadata', '0', '-map_chapters', '0', '-n', to]);
 }
 
