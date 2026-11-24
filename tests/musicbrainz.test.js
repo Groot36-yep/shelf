@@ -88,6 +88,18 @@ const srv = http.createServer((req, res) => {
   assert.ok(!fs.existsSync(cacheDir), 'forgotten');
   ok('Forget Remembered Lookups clears music lookups too');
 
+  // 6. A request that never answers gives up, and the lookups after it still go through.
+  let calls = 0;
+  const stuck = MB.create({
+    fetch: (u, init) => { calls++; return calls <= 3 ? new Promise(() => {}) : fetch(u, init); }, // the first three hang for good
+    userAgent: 'Shelf/9.9.9 ( https://example.org )', base: 'http://127.0.0.1:' + port + '/ws/2', coverBase: 'http://127.0.0.1:' + port + '/cover',
+    gapMs: 0, timeoutMs: 150, sleep: () => Promise.resolve()
+  });
+  await assert.rejects(stuck.release(REL), /Couldn’t reach MusicBrainz/);
+  const after = await stuck.release(REL);
+  assert.ok(after && after.title === 'Gold: Greatest Hits', 'the next lookup works');
+  ok('a stuck request times out instead of holding up every lookup after it');
+
   srv.close();
   console.log(passed + ' MusicBrainz checks passed');
 })().catch((e) => { console.error('FAIL', e && (e.stack || e.message)); process.exit(1); });

@@ -22,6 +22,14 @@ const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * o: { fetch, userAgent, cacheDir, base?, coverBase?, gapMs? (1000), now?, sleep? }
  * Everything comes in from outside so tests can run against a pretend MusicBrainz.
  */
+// A request that gives up after `ms` (a connection that stops answering would otherwise wait forever).
+function timedFetch(fetchFn, url, init, ms) {
+  const ac = typeof AbortController === 'function' ? new AbortController() : null;
+  let timer;
+  const late = new Promise((resolve, reject) => { timer = setTimeout(() => { if (ac) ac.abort(); reject(Object.assign(new Error('Timed out'), { code: 'TIMEOUT' })); }, ms); });
+  return Promise.race([Promise.resolve().then(() => fetchFn(url, Object.assign({}, init, ac ? { signal: ac.signal } : {}))), late]).finally(() => clearTimeout(timer));
+}
+
 function create(o) {
   const base = (o.base || 'https://musicbrainz.org/ws/2').replace(/\/$/, '');
   const coverBase = (o.coverBase || 'https://coverartarchive.org').replace(/\/$/, '');
@@ -31,6 +39,7 @@ function create(o) {
   const now = o.now || Date.now;
   const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const headers = { 'User-Agent': o.userAgent, Accept: 'application/json' };
+  const TIMEOUT = o.timeoutMs || 30000; // (one stuck request would otherwise hold up every lookup after it)
 
   // ---- One request a second, in order; busy answers (503) are tried again after a pause ----
   let chain = Promise.resolve(), last = 0;
@@ -47,7 +56,7 @@ function create(o) {
   async function getJson(url) {
     for (let attempt = 0; ; attempt++) {
       let r;
-      try { r = await queued(() => o.fetch(url, { headers })); } catch (e) {
+      try { r = await queued(() => timedFetch(o.fetch, url, { headers }, TIMEOUT)); } catch (e) {
         if (attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
         throw Object.assign(new Error('Couldn’t reach MusicBrainz. Check your internet connection.'), { code: 'NETWORK' });
       }
@@ -159,7 +168,7 @@ function create(o) {
       for (const url of tries) {
         const hit = await remembered('caa:' + url, 30, async () => {
           let r;
-          try { r = await o.fetch(url, { headers: { 'User-Agent': o.userAgent } }); } catch (e) { return null; }
+          try { r = await timedFetch(o.fetch, url, { headers: { 'User-Agent': o.userAgent } }, TIMEOUT); } catch (e) { return null; }
           if (!r.ok) return r.status === 404 ? { none: true } : null;
           const data = Buffer.from(await r.arrayBuffer());
           if (data.length > 12 * 1048576) return { none: true };

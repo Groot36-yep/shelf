@@ -220,7 +220,7 @@ function handle(channel, fn) {
 const CONSENT_W = 460;
 function askConsent(req) {
   req = Object.assign({}, req, { theme });
-  if (typeof global.__shelfConsent === 'function') return Promise.resolve(global.__shelfConsent(req)).then((r) => r === true);
+  if (!app.isPackaged && typeof global.__shelfConsent === 'function') return Promise.resolve(global.__shelfConsent(req)).then((r) => r === true);
   return new Promise((resolve) => {
     const parent = win && !win.isDestroyed() ? win : null;
     const dark = nativeTheme.shouldUseDarkColors;
@@ -270,7 +270,8 @@ if (gotLock) app.whenReady().then(() => {
   // Serve the app's own files, and only those.
   protocol.handle('app', (request) => {
     const u = new URL(request.url);
-    const rel = decodeURIComponent(u.pathname).replace(/^\/+/, '') || 'index.html';
+    let rel;
+    try { rel = decodeURIComponent(u.pathname).replace(/^\/+/, '') || 'index.html'; } catch (e) { return new Response('Not found', { status: 404 }); }
     const full = path.normalize(path.join(APP_ROOT, rel));
     const top = rel.split('/')[0];
     if (u.host !== 'shelf' || !SERVED.has(top) || !fileops.inside(APP_ROOT, full)) {
@@ -524,7 +525,7 @@ if (gotLock) app.whenReady().then(() => {
   // Tests stand in for GitHub and for starting the installer with global.__shelfUpdateTest.
   const updates = require('./updates');
   let offered = null, updateAbort = null;
-  const T = () => global.__shelfUpdateTest || null;
+  const T = () => (!app.isPackaged && global.__shelfUpdateTest) || null;
   handle('shelf:checkUpdate', async () => {
     const kind = (T() && T().kind) || updates.installKind(process.platform, process.env);
     const r = await updates.check((T() && T().fetch) || net.fetch, app.getVersion(), kind);
@@ -601,8 +602,10 @@ if (gotLock) app.whenReady().then(() => {
       const ff = require('ffmpeg-static').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
       const err = await new Promise((resolve) => {
         const c = spawn(ff, ['-hide_banner', '-nostdin', '-i', file], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+        // (A stalled stream from the server never holds it up for long.)
+        const timer = setTimeout(() => { try { c.kill(); } catch (x) { /* gone */ } }, 30000);
         let e = ''; c.stderr.on('data', (d) => { if (e.length < 20000) e += d; });
-        c.on('close', () => resolve(e)); c.on('error', () => resolve(''));
+        c.on('close', () => { clearTimeout(timer); resolve(e); }); c.on('error', () => { clearTimeout(timer); resolve(''); });
       });
       const m = err.match(/,\s*([\d.]+)\s*fps/) || err.match(/,\s*([\d.]+)\s*tbr/);
       const f = m ? parseFloat(m[1]) : 0;
@@ -1046,7 +1049,15 @@ if (gotLock) app.whenReady().then(() => {
     const token = crypto.randomBytes(16).toString('hex');
     mediaTokens.set(token, src.url);
     remoteOpen.set(token, { ext: path.posix.extname(p).slice(1).toLowerCase(), release });
-    return { token, secs: await probe.duration(p, src.fh), fps: await frameRate(src.url), remote: true }; // (split points: splitSuggest reads it the same way)
+    try {
+      return { token, secs: await probe.duration(p, src.fh), fps: await frameRate(src.url), remote: true }; // (split points: splitSuggest reads it the same way)
+    } catch (e) {
+      // The window never gets this token, so nothing would close it: let go of the server connection now (holding it
+      // would make every later server action wait until Shelf restarted).
+      mediaTokens.delete(token); remoteOpen.delete(token);
+      if (release) release();
+      throw e;
+    }
   }
   handle('shelf:openSplit', async (p, also) => {
     if (onServerVideo(p)) return openRemote(p, also);
@@ -1243,7 +1254,12 @@ if (gotLock) app.whenReady().then(() => {
     send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:sendProgress', msg); },
     tidyDirs: async (d) => { const lib = readPrefs().library; if (lib) await fileops.removeEmptyDirs(d, await fs.promises.realpath(lib)); }
   });
-  app.on('before-quit', () => { plexSend.close(); if (scanLoaded) scanLoaded.stopOcr(); });
+  app.on('before-quit', () => {
+    plexSend.close(); if (scanLoaded) scanLoaded.stopOcr();
+    // (On Windows, programs Shelf started keep running after it unless they're stopped.)
+    if (listenerMade) { try { listenerMade.stop(); } catch (e) { /* not running */ } }
+    [...jobsFor.keys()].forEach(stopJobs);
+  });
   // ---- Fix My Plex Library (the files already on your server, over the same SSH connection) ----
   const plexFix = require('./plexfix').setup({ app, log, send: (msg) => { if (win && !win.isDestroyed()) win.webContents.send('shelf:fixProgress', msg); } }, plexSend);
   // ---- Server Files (copy between your Plex server and this PC, over the same SSH login) ----

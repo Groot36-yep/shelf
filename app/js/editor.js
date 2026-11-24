@@ -189,7 +189,11 @@
     frames.get(key).then(function (u) { if (u) img.src = u; });
     return img;
   }
-  function dropFrames() { frames.forEach(function (p) { p.then(function (u) { if (u) URL.revokeObjectURL(u); }); }); frames = new Map(); }
+  var stillUrl = null; // the picture shown at once while the player loads (freed when the window closes)
+  function dropFrames() {
+    frames.forEach(function (p) { p.then(function (u) { if (u) URL.revokeObjectURL(u); }); }); frames = new Map();
+    if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+  }
   var ZOOMS = [0, 600, 180, 60, 20, 6]; // 0 = whole video
   var video, seeking = false, pendingSeek = null, rafId = 0, frameTimer = 0;
 
@@ -253,7 +257,8 @@
     var tok0 = st.token;
     o.native.mediaFrame(st.token, clamp(startAt, 0, Math.max(0, st.secs - 0.04)), 960).then(function (b) {
       if (!b || !st || st.token !== tok0 || !st.playable || (!seeking && pendingSeek == null && video.readyState >= 2 && Math.abs(video.currentTime - st.t) < 0.06)) return;
-      var f = $('edFrame'); f.src = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); f.hidden = false;
+      if (stillUrl) URL.revokeObjectURL(stillUrl);
+      var f = $('edFrame'); f.src = stillUrl = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); f.hidden = false;
     }).catch(function () {});
     if (look) setTimeout(function () { if (st) info('Find the title card for ' + (look.of > 1 ? 'part ' + (look.part + 1) : 'this video') + ' (play or scrub), then click Mark Title Card Here.'); }, 0);
     loop();

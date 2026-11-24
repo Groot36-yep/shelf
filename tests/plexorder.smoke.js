@@ -64,7 +64,8 @@ const DIR = '/srv/disk1/TV/Good Show/Season 01/';
   await sleep(400);
   const btn = await win.waitForSelector('button:has-text("Use TheTVDB (Aired) in Plex")', { timeout: 5000 });
   await btn.click();
-  for (let i = 0; i < 60 && !srv.showOrdering['77']; i++) await sleep(150);
+  // (The order is set, then Plex is asked to refresh the show: wait for both.)
+  for (let i = 0; i < 60 && !(srv.showOrdering['77'] && srv.plexAsked.includes('PUT /library/metadata/77/refresh')); i++) await sleep(150);
   assert.strictEqual(srv.showOrdering['77'], 'aired', 'the show’s order in Plex is now TheTVDB (Aired)');
   assert.ok(srv.plexAsked.includes('PUT /library/metadata/77/prefs?showOrdering=aired') && srv.plexAsked.includes('PUT /library/metadata/77/refresh'), JSON.stringify(srv.plexAsked));
   await sleep(300);

@@ -16,6 +16,14 @@ const { spawn } = require('child_process');
  * o: { fpcalc (path), fetch, key () → your AcoustID key, base?, parallel? (4) }
  * Returns { fingerprint(file), lookup(prints), recognise(files) }.
  */
+// A request that gives up after `ms` (a connection that stops answering would otherwise wait forever).
+function timedFetch(fetchFn, url, init, ms) {
+  const ac = typeof AbortController === 'function' ? new AbortController() : null;
+  let timer;
+  const late = new Promise((resolve, reject) => { timer = setTimeout(() => { if (ac) ac.abort(); reject(Object.assign(new Error('Timed out'), { code: 'TIMEOUT' })); }, ms); });
+  return Promise.race([Promise.resolve().then(() => fetchFn(url, Object.assign({}, init, ac ? { signal: ac.signal } : {}))), late]).finally(() => clearTimeout(timer));
+}
+
 function create(o) {
   const base = (o.base || 'https://api.acoustid.org/v2').replace(/\/$/, '');
   const PARALLEL = o.parallel || 4;
@@ -40,15 +48,20 @@ function create(o) {
   }
 
   // AcoustID allows three requests a second; Shelf asks for up to 10 songs per request, one request at a time.
-  let last = 0;
-  async function ask(prints) {
+  let last = 0, turn = Promise.resolve();
+  function ask(prints) {
+    const p = turn.then(() => askNow(prints));
+    turn = p.catch(() => {});
+    return p;
+  }
+  async function askNow(prints) {
     const wait = last + 400 - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     last = Date.now();
     const body = new URLSearchParams({ client: o.key(), format: 'json', meta: 'recordings releasegroups releases' });
     prints.forEach((p, i) => { body.set('duration.' + i, String(p.duration)); body.set('fingerprint.' + i, p.fingerprint); });
     let r;
-    try { r = await o.fetch(base + '/lookup', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() }); } catch (e) {
+    try { r = await timedFetch(o.fetch, base + '/lookup', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() }, o.timeoutMs || 30000); } catch (e) {
       throw Object.assign(new Error('Couldn’t reach AcoustID. Check your internet connection.'), { code: 'NETWORK' });
     }
     const j = await r.json().catch(() => null);

@@ -326,6 +326,17 @@
     syncMsg(side);
     syncFoot(side);
   }
+  // Only the picked and focused rows change (redrawing a folder of thousands of files on every click or arrow key
+  // made it lag).
+  function paintSel(side) {
+    var p = panes[side];
+    p.el.list.querySelectorAll('.xf-row').forEach(function (row) {
+      var n = row.dataset.name, picked = p.sel.has(n);
+      if (row.getAttribute('aria-selected') !== (picked ? 'true' : 'false')) row.setAttribute('aria-selected', picked ? 'true' : 'false');
+      row.classList.toggle('is-focus', p.focus === n);
+    });
+    syncFoot(side);
+  }
   function selected(side) {
     var p = panes[side];
     return p.entries.filter(function (e) { return p.sel.has(e.name) && !e.drive; });
@@ -359,14 +370,14 @@
       p.anchor = name;
     } else { p.sel = new Set([name]); p.anchor = name; }
     p.focus = name;
-    paint(side);
+    paintSel(side);
   }
   function wireList(side) {
     var p = panes[side], list = p.el.list;
     list.addEventListener('mousedown', function (e) {
       lastSide = side;
       var row = rowOf(e.target);
-      if (!row) { if (e.button === 0 && !e.ctrlKey && !e.shiftKey) { p.sel = new Set(); paint(side); } return; }
+      if (!row) { if (e.button === 0 && !e.ctrlKey && !e.shiftKey) { p.sel = new Set(); paintSel(side); } return; }
       var name = row.dataset.name;
       if (e.shiftKey) pick(side, name, 'range');
       else if (e.ctrlKey || e.metaKey) pick(side, name, 'toggle');
@@ -391,7 +402,7 @@
       else if (e.key === 'End') { e.preventDefault(); move(names.length - 1); }
       else if (e.key === 'Enter') { e.preventDefault(); var en = order[at]; if (en) openEntry(side, en); }
       else if (e.key === 'Backspace') { e.preventDefault(); goUp(side); }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); p.sel = new Set(names.filter(function (n) { return !(order[names.indexOf(n)] || {}).drive; })); paint(side); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); p.sel = new Set(names.filter(function (n) { return !(order[names.indexOf(n)] || {}).drive; })); paintSel(side); }
       else if (e.key === 'Delete' && side === 'server' && p.sel.size) { e.preventDefault(); deleteSelected(); }
       else if (e.key === 'F2' && side === 'server' && p.sel.size === 1) { e.preventDefault(); renameSelected(); }
     });
