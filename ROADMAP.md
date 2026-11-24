@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.10.0)
 - **Missing Episodes: do you have every one?** A show's heading in the list (and the ⚙ menu) can show which of its
   episodes you don't have yet, season by season, or "You have all 77 episodes". It counts the show's files in the
   list and the ones in its folder on your Plex server (names only, nothing changed there), compared with the show's

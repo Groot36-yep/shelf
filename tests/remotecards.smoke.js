@@ -153,7 +153,8 @@ const S5 = require('./fixtures/sb-titles-s3-s7.json').filter((e) => e[0] === 5);
   for (let i = 0; i < 40 && (await sb()) && (await sb()).status !== 'done'; i++) await sleep(250);
   console.log('  ✓ Split on the server: ' + made.map((k) => k.split('/').pop() + ' (' + (srv.files.get(k) / 1e6).toFixed(0) + ' MB)').join(' + ') + '; original kept as ' + REMOTE.split('/').pop() + '.shelf-original');
   await win.click('#undoBar');
-  for (let i = 0; i < 80 && !srv.files.has(REMOTE); i++) await sleep(250);
+  // (Undo puts the original back first, then removes the pieces: wait for both.)
+  for (let i = 0; i < 80 && !(srv.files.has(REMOTE) && piecesOn().length === 0); i++) await sleep(250);
   assert.ok(srv.files.has(REMOTE) && !srv.files.has(REMOTE + '.shelf-original') && piecesOn().length === 0, 'Undo: the original is back, the pieces are gone');
   console.log('  ✓ Undo put the original back and removed the pieces');
 
