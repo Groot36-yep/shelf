@@ -2,7 +2,7 @@
 
 Where things stand, and what's left to do. Newest first.
 
-## Next release (not released yet)
+## Done (2.11.0)
 - **Sound tracks.** A video's details list its sound tracks (English, Hindi…). Shelf plays your language first
   (Settings → File Names → Sound tracks: play it first, keep only it, or leave them), or untick tracks to remove them.
   Rename Now makes a new copy with nothing re-encoded; Undo removes it. **Add a Language from Another File…** takes
