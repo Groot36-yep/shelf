@@ -180,6 +180,8 @@
         <div class="mono-box" id="inspFile"></div>
         <p class="insp-quiet" id="inspQuiet" hidden></p>
       </div>
+      <!-- A video's sound tracks (English, Hindi…): which to keep, which plays first, one added from another file. -->
+      <div class="insp-section insp-sound" id="inspSound" hidden></div>
       <div class="insp-group" id="inspShowGroup">
         <div class="insp-section" id="inspCandWrap" hidden>
           <span class="section-label" id="inspCandLabel">Which show is this?</span>
@@ -264,6 +266,10 @@
       <label class="row" id="renameQuietRow" hidden>
         <span><span id="renameQuietLabel">Turn down loud starts</span><br><small class="muted" id="renameQuietHelp"></small></span>
         <input type="checkbox" class="switch" id="renameQuiet">
+      </label>
+      <label class="row" id="renameSoundRow" hidden>
+        <span><span id="renameSoundLabel">Change sound tracks</span><br><small class="muted" id="renameSoundHelp"></small></span>
+        <input type="checkbox" class="switch" id="renameSound">
       </label>
       <label class="row" id="renameShrinkRow" hidden>
         <span><span id="renameShrinkLabel">Make lossless songs smaller</span><br><small class="muted" id="renameShrinkHelp"></small></span>
@@ -404,6 +410,43 @@
                 <span class="row-text"><b>Add the year to show names</b><small>“Doctor Who (2005)”: tells remakes and old shows of the same name apart.</small></span>
                 <input type="checkbox" class="switch" id="optShowYear">
               </label>
+            </div>
+          </div>
+          <div class="set-item" data-find="sound audio tracks language english hindi spanish dub dubbed default plays first remove keep">
+            <h4 class="set-sub">Sound tracks</h4>
+            <div class="group">
+              <div class="row stack">
+                <label for="optAudioLang"><b>Your language</b></label>
+                <select id="optAudioLang" class="text">
+                  <option value="eng">English</option>
+                  <option value="spa">Spanish</option>
+                  <option value="fre">French</option>
+                  <option value="ger">German</option>
+                  <option value="ita">Italian</option>
+                  <option value="por">Portuguese</option>
+                  <option value="jpn">Japanese</option>
+                  <option value="kor">Korean</option>
+                  <option value="chi">Chinese</option>
+                  <option value="hin">Hindi</option>
+                  <option value="tam">Tamil</option>
+                  <option value="tel">Telugu</option>
+                  <option value="rus">Russian</option>
+                  <option value="ara">Arabic</option>
+                  <option value="dut">Dutch</option>
+                  <option value="swe">Swedish</option>
+                  <option value="pol">Polish</option>
+                  <option value="tur">Turkish</option>
+                </select>
+              </div>
+              <div class="row stack">
+                <label for="optAudioRule"><b>When a video also has other languages</b></label>
+                <select id="optAudioRule" class="text">
+                  <option value="first">Play yours first (keep the others)</option>
+                  <option value="only">Keep only yours (remove the others)</option>
+                  <option value="leave">Leave its sound tracks as they are</option>
+                </select>
+                <span class="set-help">Done in Rename Now, in a new copy: nothing is re-encoded, so it’s quick and the picture and sound stay exactly as good. Pick tracks for one video in its details. (Plex also has a preferred audio language of its own, in your Plex account’s settings.)</span>
+              </div>
             </div>
           </div>
           <div class="set-item" data-find="file names music album folder year editions">

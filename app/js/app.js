@@ -32,6 +32,8 @@
     musicCover: load('musicCover', 'both'), musicYear: load('musicYear', true), musicGenres: load('musicGenres', false),
     musicCountry: load('musicCountry', ''), musicFormat: load('musicFormat', ''),
     // Lossless songs made smaller in Rename Now (off until you switch it on there), and into what.
+    // Sound tracks: your language, and what Rename Now does when a video has others too (first | only | leave).
+    audioLang: load('audioLang', 'eng'), audioRule: load('audioRule', 'first'), soundOn: load('soundOn', true),
     quietStarts: load('quietStarts', true), musicShrink: load('musicShrink', false), musicShrinkFormat: load('musicShrinkFormat', 'vorbis'),
     autoSplit: load('autoSplit', true), // split files whose cartoons' title cards were all read clearly, by itself
     autoDeep: load('autoDeep', true),   // after Read Title Cards, deep scan the videos it didn't recognise
@@ -1489,6 +1491,8 @@
       ? '🔉 The loud start (' + fmtClock(lq.start) + '–' + fmtClock(lq.end) + ') will be turned down ' + Math.abs(lq.gain) + ' dB to match the show.'
       : '🔊 Loud start at ' + fmtClock(lq.start) + '–' + fmtClock(lq.end) + ' (' + Math.round(lq.loud - lq.body) + ' dB louder than the show). ' + (qv.split ? 'Not turned down when a video is split.' : settings.mode === 'link' ? 'Not turned down with Hard Link.' : 'Turn on “Turn down the loud start” in Rename Now to fix it.');
 
+    renderSound(item);
+
     $('searchKind').value = item.kind;
     var si = $('searchInput');
     if (document.activeElement !== si) si.value = '';
@@ -1542,6 +1546,7 @@
   var lastReady = -1;
   function render() {
     refreshDupes();
+    wantSound(items);
     var has = items.length > 0;
     $('dropZone').hidden = has;
     $('listWrap').hidden = !has;
@@ -1649,6 +1654,7 @@
       $('optQuality').checked = settings.quality;
       $('optShowIds').checked = settings.showIds;
       $('optAutoSplit').checked = settings.autoSplit !== false;
+      $('optAudioLang').value = settings.audioLang; $('optAudioRule').value = settings.audioRule;
       $('optAutoDeep').checked = settings.autoDeep !== false;
       $('optOrder').value = settings.order;
       $('tvdbInput').value = settings.tvdbKey;
@@ -1714,6 +1720,18 @@
       $('renameQuietHelp').textContent = 'A logo before the episode much louder than the show (like Nickelodeon’s) is brought down to the show’s level. Only the sound changes. ' +
         (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
     }
+    // Videos whose sound tracks change (your language first, others removed, one added).
+    var sn = r.filter(function (i) { return soundPlanFor(i); });
+    $('renameSoundRow').hidden = !sn.length;
+    if (sn.length) {
+      $('renameSound').checked = settings.soundOn !== false;
+      var only = settings.audioRule === 'only', ln = langLabel(settings.audioLang);
+      var mine = sn.filter(function (i) { return i.soundPick; }).length;
+      $('renameSoundLabel').textContent = mine === sn.length ? 'Change the sound tracks you picked (' + sn.length + ' video' + (sn.length === 1 ? ')' : 's)')
+        : (only ? 'Keep only ' + ln + ' sound' : ln + ' sound plays first') + ' in ' + sn.length + ' video' + (sn.length === 1 ? '' : 's');
+      $('renameSoundHelp').textContent = 'A new copy with the sound tracks changed: nothing is re-encoded, so it’s quick and loses nothing. ' +
+        (settings.mode === 'move' ? 'The originals go to the Recycle Bin.' : 'Your originals stay as they are.');
+    }
     // Lossless songs: offer to make them smaller, with what it saves.
     var sh = music.shrinkable(r);
     $('renameShrinkRow').hidden = !sh.count;
@@ -1774,6 +1792,7 @@
         var p = plexFor(i), op = { source: i.fullPath, folder: p.folder, file: p.file };
         if (i.kind === 'track') { var mx = music.renameExtra(i); if (mx) op.music = mx; } // its new tags and cover
         if (quietFor(i)) op.quiet = quietFor(i); // its loud start turned down
+        if (soundFor(i)) op.tracks = soundFor(i); // its sound tracks changed
         return op;
       });
       var btn = $('renameNow');
@@ -1787,7 +1806,7 @@
           if (!item) return;
           if (r.ok && r.to) item.batch = r.batch || null; // which Rename Now this was, for Undo
           if (r.ok && r.split) { ok++; item._justDone = true; item.status = 'done'; item.error = (r.subtitle ? 'Subtitles split into ' + r.pieces.length + ' file' + (r.pieces.length === 1 ? '' : 's') + ' to match the video.' : 'Split into ' + r.pieces.length + ' files.') + ' Your original was kept where it was.'; item.newPath = r.to; item.sendPaths = r.pieces.slice(); item.sendState = ''; newPaths = newPaths.concat(r.pieces); }
-          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.quieted ? 'Its loud start was turned down ' + Math.abs(r.quieted) + ' dB.' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
+          else if (r.ok && r.to) { ok++; item._justDone = true; item.status = 'done'; item.error = r.note || (r.quieted || r.retracked ? [r.quieted ? 'Its loud start was turned down ' + Math.abs(r.quieted) + ' dB.' : '', r.retracked ? soundWords(item, soundFor(item)) + '.' : '', r.trashed ? 'The original is in the Recycle Bin.' : ''].filter(Boolean).join(' ') : r.converted ? 'Made smaller (' + (r.converted === 'opus' ? 'Opus' : 'Ogg Vorbis') + ').' + (r.trashed ? ' The original is in the Recycle Bin.' : '') : ''); item.trashedOriginal = !!r.trashed; item.origPath = item.fullPath; if (settings.mode === 'move') item.fullPath = r.to; item.newPath = r.to; item.sendPaths = [r.to]; item.sendState = ''; newPaths.push(r.to); }
           else if (r.ok || r.skipped) { skipped++; item.error = r.skipped || ''; }
           else { failed++; item.error = 'Couldn’t rename: ' + r.error; }
         });
@@ -1887,7 +1906,7 @@
   var steps = [];
   // What your picks change on a file. (Shelf works the names out again from these.)
   var PICKED = ['kind', 'choice', 'candidates', 'confirmed', 'handPicked', 'checked', 'status', 'error', 'showStatus', 'showError', 'showAmbiguous',
-    'manualEp', 'split', 'wantSplit', 'marks', 'linkTo', 'unlinked', 'needsKey'];
+    'manualEp', 'split', 'wantSplit', 'marks', 'linkTo', 'unlinked', 'needsKey', 'soundPick'];
   function copyField(k, x) { return k === 'candidates' ? (x || []).slice() : x && typeof x === 'object' ? JSON.parse(JSON.stringify(x)) : x; }
   function fieldsOf(i) { var o = {}; PICKED.forEach(function (k) { o[k] = copyField(k, i[k]); }); return o; }
   function fieldsSig(f) { return JSON.stringify(PICKED.map(function (k) { return k === 'candidates' ? (f[k] || []).map(function (c) { return c && showIdKey(c); }) : f[k] === undefined ? null : f[k]; })); }
@@ -2089,6 +2108,9 @@
   on('optQuality', 'change', function (e) { settings.quality = e.target.checked; save('quality', settings.quality); render(); });
   on('optShowIds', 'change', function (e) { settings.showIds = e.target.checked; save('showIds', settings.showIds); render(); });
   on('optAutoSplit', 'change', function (e) { settings.autoSplit = e.target.checked; save('autoSplit', settings.autoSplit); });
+  on('optAudioLang', 'change', function (e) { settings.audioLang = e.target.value; save('audioLang', settings.audioLang); render(); });
+  on('optAudioRule', 'change', function (e) { settings.audioRule = e.target.value; save('audioRule', settings.audioRule); render(); });
+  on('renameSound', 'change', function (e) { settings.soundOn = e.target.checked; save('soundOn', settings.soundOn); prepareRename(); });
   on('optAutoDeep', 'change', function (e) { settings.autoDeep = e.target.checked; save('autoDeep', settings.autoDeep); });
 
   // ---------- Looking inside videos (only when you click, and Shelf's own prompt asks first) ----------
@@ -2670,6 +2692,120 @@
     return q && settings.quietStarts !== false && settings.mode !== 'link' && !i.remote && !i.split && i.fullPath ? { start: q.start, end: q.end, gain: q.gain } : null;
   }
   function byNumber(es) { return es.slice().sort(function (a, b) { return a.season - b.season || a.number - b.number; }); }
+
+  // ---------- Sound tracks (English, Hindi…): see desktop/audiotracks.js ----------
+  var LANG_NAMES = { eng: 'English', spa: 'Spanish', fre: 'French', ger: 'German', ita: 'Italian', por: 'Portuguese', jpn: 'Japanese', kor: 'Korean',
+    chi: 'Chinese', hin: 'Hindi', tam: 'Tamil', tel: 'Telugu', rus: 'Russian', ara: 'Arabic', dut: 'Dutch', swe: 'Swedish', pol: 'Polish', tur: 'Turkish' };
+  function langLabel(c) { return LANG_NAMES[c] || (c ? c.toUpperCase() : 'Unknown language'); }
+  function trackLabel(t) { return t.lang ? (t.langName || langLabel(t.lang)) : 'Unknown language'; }
+  // Which videos' tracks are known: read in the background, two at a time (a second or less each).
+  var soundQueue = [], soundBusy = 0;
+  function canSound(v) { return !!(v && native.audioTracks && v.parsed.isVideo && v.fullPath && !v.remote && (v.kind === 'episode' || v.kind === 'movie') && v.status !== 'done' && v.status !== 'skipped'); }
+  function wantSound(list) {
+    list.forEach(function (v) { if (!v.sound && !v._soundAsked && canSound(v)) { v._soundAsked = true; soundQueue.push(v); } });
+    while (soundBusy < 2 && soundQueue.length) readSound(soundQueue.shift());
+  }
+  function readSound(v) {
+    soundBusy++;
+    native.audioTracks(v.fullPath).then(function (r) { v.sound = { tracks: r.tracks || [] }; }, function () { v.sound = { tracks: [], failed: true }; }).then(function () {
+      soundBusy--;
+      if (soundQueue.length) readSound(soundQueue.shift());
+      var sel = itemById(selectedId);
+      if (sel && (sel === v || linkedVideo(sel) === v)) renderSound(sel);
+      if ($('renameSheet').open) prepareRename();
+    });
+  }
+  function firstNow(ts) { var d = ts.filter(function (t) { return t.def; })[0]; return d ? d.n : ts.length ? ts[0].n : -1; }
+  // What Rename Now does to a video's sound tracks: { keep, first, add } (see audiotracks.js checkPlan), or null.
+  function soundPlanFor(v) {
+    var ts = v && v.sound && v.sound.tracks;
+    if (!ts || !ts.length || settings.mode === 'link' || v.remote || v.split || !v.fullPath || v.kind === 'track') return null;
+    var plan;
+    if (v.soundPick) plan = { keep: v.soundPick.keep.slice(), first: v.soundPick.first, add: v.soundPick.add || null };
+    else {
+      var want = settings.audioLang, rule = settings.audioRule;
+      if (rule === 'leave' || !want) return null;
+      var mine = ts.filter(function (t) { return t.lang === want; });
+      if (!mine.length || !ts.some(function (t) { return t.lang && t.lang !== want; })) return null;
+      var best = mine.filter(function (t) { return t.def; })[0] || mine[0];
+      // (Keep only yours: tracks without a language label stay, as Shelf can't tell what they are.)
+      plan = { keep: ts.filter(function (t) { return rule !== 'only' || t.lang === want || !t.lang; }).map(function (t) { return t.n; }), first: best.n, add: null };
+    }
+    var same = plan.keep.length === ts.length && !plan.add && plan.first === firstNow(ts) && ts.filter(function (t) { return t.def; }).length <= 1;
+    return same ? null : plan;
+  }
+  // The plan Rename Now uses (unless you switched it off there).
+  function soundFor(v) { return settings.soundOn !== false ? soundPlanFor(v) : null; }
+  function soundWords(v, plan) {
+    var ts = (v.sound && v.sound.tracks) || [];
+    if (!plan) return 'Sound tracks left as they are';
+    var name = function (x) { return x === 'add' ? langLabel(plan.add.lang) + ' (added)' : trackLabel(ts[x] || {}); };
+    var gone = ts.filter(function (t) { return plan.keep.indexOf(t.n) < 0; }).map(trackLabel);
+    return [name(plan.first) + ' plays first', gone.length ? gone.join(', ') + ' removed' : '', plan.add && plan.first !== 'add' ? langLabel(plan.add.lang) + ' added' : ''].filter(Boolean).join('; ');
+  }
+  // Your picks for this video, starting from what Rename Now would do now.
+  function soundEdit(v, fn) {
+    var ts = v.sound.tracks, cur = soundPlanFor(v) || { keep: ts.map(function (t) { return t.n; }), first: firstNow(ts), add: null };
+    var p = { keep: cur.keep.slice(), first: cur.first, add: cur.add ? Object.assign({}, cur.add) : null };
+    fn(p);
+    if (!p.keep.length && !p.add) { toast('Keep at least one sound track.'); render(); return; }
+    if (p.first !== 'add' && p.keep.indexOf(p.first) < 0) p.first = p.keep.length ? p.keep[0] : 'add';
+    if (p.first === 'add' && !p.add) p.first = p.keep[0];
+    remember('the sound tracks of “' + v.name + '”');
+    v.soundPick = p;
+    render();
+  }
+  function renderSound(item) {
+    var box = $('inspSound'), v = linkedVideo(item) || item;
+    var ts = v.sound && v.sound.tracks;
+    box.hidden = !canSound(v) || !ts || !ts.length || item.status === 'done';
+    if (box.hidden) { box.textContent = ''; return; }
+    var plan = soundPlanFor(v), link = settings.mode === 'link';
+    var keep = plan ? plan.keep : ts.map(function (t) { return t.n; }), first = plan ? plan.first : firstNow(ts);
+    var row = function (key, b, small, kept, extra) {
+      var box1 = el('input', { type: 'checkbox', checked: kept, 'aria-label': 'Keep ' + b, disabled: link || (key === 'add'), style: key === 'add' ? 'visibility:hidden' : null });
+      if (key !== 'add') box1.addEventListener('change', function () { soundEdit(v, function (p) { if (box1.checked) { if (p.keep.indexOf(key) < 0) p.keep.push(key); p.keep.sort(function (x, y) { return x - y; }); } else p.keep = p.keep.filter(function (n) { return n !== key; }); }); });
+      var radio = el('input', { type: 'radio', name: 'sndFirst', checked: first === key, disabled: link || !kept });
+      radio.addEventListener('change', function () { soundEdit(v, function (p) { p.first = key; }); });
+      return el('div', { class: 'snd-row' + (kept ? '' : ' is-off') }, [box1, el('span', { class: 'snd-name' }, [el('b', { text: b }), small ? el('small', { text: small, title: small }) : null].concat(extra || [])),
+        el('label', { class: 'snd-first', title: 'This one plays first (Plex and players pick it)' }, [radio, el('span', { text: 'Plays first' })])]);
+    };
+    var rows = ts.map(function (t) {
+      return row(t.n, trackLabel(t), [t.codec ? t.codec.toUpperCase() : '', t.channels, t.title && t.title !== trackLabel(t) ? '“' + t.title + '”' : ''].filter(Boolean).join(' · '), keep.indexOf(t.n) >= 0);
+    });
+    if (plan && plan.add) {
+      var a = plan.add, sel = el('select', { class: 'text', 'aria-label': 'Its language' }, [el('option', { value: '', text: 'Which language?' })].concat(Object.keys(LANG_NAMES).map(function (c) { return el('option', { value: c, text: LANG_NAMES[c] }); })));
+      sel.value = a.lang || '';
+      sel.addEventListener('change', function () { soundEdit(v, function (p) { p.add.lang = sel.value; }); });
+      var rm = el('button', { type: 'button', class: 'link-btn quiet', text: 'Remove' });
+      rm.addEventListener('click', function () { soundEdit(v, function (p) { p.add = null; if (p.first === 'add') p.first = firstNow(ts); }); });
+      rows.push(row('add', '+ ' + (a.lang ? langLabel(a.lang) : 'Added track'), 'From “' + (a.name || a.file.split(/[\\/]/).pop()) + '” · lined up (' + (a.offset === 0 ? 'starts together' : Math.abs(a.offset).toFixed(2) + ' s ' + (a.offset < 0 ? 'earlier' : 'later')) + ')', true, [el('span', { class: 'snd-acts' }, [sel, rm])]));
+    }
+    var what = link ? 'Hard Link can’t change sound tracks (the link and your original are one file). Choose Move or Copy in Rename Now.'
+      : plan ? 'Rename Now makes a copy: ' + soundWords(v, plan) + '. ' + (plan.add ? 'Only the added track is re-encoded (once, to line it up); the rest is copied as it is.' : 'Nothing is re-encoded.') + (v.soundPick ? '' : ' (Your setting for videos with more than one language.)')
+      : ts.length > 1 ? 'Left as they are: ' + trackLabel(ts[firstNow(ts)] || ts[0]) + ' plays first.' : 'Left as it is.';
+    var add = el('button', { type: 'button', class: 'pill small-pill', id: 'sndAdd', text: 'Add a Language from Another File…', disabled: link });
+    add.addEventListener('click', function () { addSound(v); });
+    var acts = [add];
+    if (v.soundPick) { var reset = el('button', { type: 'button', class: 'link-btn quiet', text: 'Undo My Changes' }); reset.addEventListener('click', function () { remember('the sound tracks of “' + v.name + '”'); v.soundPick = null; render(); }); acts.push(reset); }
+    box.replaceChildren(el('span', { class: 'section-label', text: ts.length === 1 ? 'Sound track' : ts.length + ' sound tracks' }), el('div', { class: 'snd-list' }, rows),
+      el('p', { class: 'snd-what', id: 'sndWhat', text: what }), el('div', { class: 'snd-acts' }, acts));
+  }
+  // Another copy of the same episode or movie (another release, in another language): one of its sound tracks,
+  // lined up with this video's (or refused when it can't be: a different cut, or a European copy running 4% fast).
+  function addSound(v) {
+    native.pickAudioSource(v.fullPath).then(function (r) {
+      if (!r) return null;
+      var mineLangs = v.sound.tracks.map(function (t) { return t.lang; });
+      var t = r.tracks.filter(function (x) { return x.lang && mineLangs.indexOf(x.lang) < 0; })[0] || r.tracks.filter(function (x) { return x.def; })[0] || r.tracks[0];
+      if (!t) { toast('“' + r.name + '” has no sound track.'); return null; }
+      return work('Lining up the sound of “' + r.name + '”…', function () { return native.alignAudio(v.fullPath, r.file, t.n); }).then(function (a) {
+        if (!a || !a.ok) { toast('Couldn’t add it: ' + ((a && a.why) || 'its sound doesn’t line up with this video.')); return; }
+        soundEdit(v, function (p) { p.add = { file: r.file, name: r.name, n: t.n, offset: a.offset, lang: t.lang || '' }; });
+        toast('Added ' + (t.lang ? trackLabel(t) : 'its sound track') + ' from “' + r.name + '”: it lines up ' + (a.offset === 0 ? 'exactly' : Math.abs(a.offset).toFixed(2) + ' s ' + (a.offset < 0 ? 'earlier' : 'later')) + '. Rename Now puts it in the copy.');
+      });
+    }, function (e) { toast(String(e.message || e).replace(/^Error invoking remote method '[^']*':\s*(\w*Error:\s*)?/, '')); });
+  }
   function inRow(es) { return es.every(function (e, k) { return k === 0 || (e.season === es[k - 1].season && e.number === es[k - 1].number + 1); }); }
   function joinAnd(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
   // The episodes Shelf thinks a video holds, in the order they play (with where each title card was read).

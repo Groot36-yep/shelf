@@ -2,6 +2,16 @@
 
 Where things stand, and what's left to do. Newest first.
 
+## Next release (not released yet)
+- **Sound tracks.** A video's details list its sound tracks (English, Hindi…). Shelf plays your language first
+  (Settings → File Names → Sound tracks: play it first, keep only it, or leave them), or untick tracks to remove them.
+  Rename Now makes a new copy with nothing re-encoded; Undo removes it. **Add a Language from Another File…** takes
+  the sound from another copy of the episode, lined up automatically, and refuses one that can't stay in time (a
+  different cut, or a European copy running 4% fast). Not for videos on your Plex server yet (each would have to be
+  copied here and back).
+- **Covers kept in copies.** A Matroska video's cover picture came out of a loud-start copy as a second video track;
+  it stays a cover now.
+
 ## Done (2.10.0)
 - **Missing Episodes: do you have every one?** A show's heading in the list (and the ⚙ menu) can show which of its
   episodes you don't have yet, season by season, or "You have all 77 episodes". It counts the show's files in the

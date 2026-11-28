@@ -571,7 +571,9 @@ if (gotLock) app.whenReady().then(() => {
       library, mode, allowed: allowedSources, journalPath: batch,
       writePiece: (from, start, end, to) => require('./split').writePiece(from, start, end, to),
       // A video's loud start turned down (a new copy; see loudstart.js).
-      quieten: (from, to, cut) => require('./loudstart').apply(from, to, cut),
+      quieten: (from, to, cut, tracks) => require('./loudstart').apply(from, to, cut, soundPlan(tracks)),
+      // Its sound tracks: which to keep, which plays first, one added from another file (see audiotracks.js).
+      retrack: (from, to, tracks) => require('./audiotracks').apply(from, to, soundPlan(tracks)),
       // Songs' covers come from the Cover Art Archive, through Shelf (never from the window).
       coverFor: (ref, size) => mb().cover(ref.release, ref.group, size),
       // An original made smaller (Move): to the Recycle Bin, where it can be put back from.
@@ -1129,6 +1131,38 @@ if (gotLock) app.whenReady().then(() => {
     if (!file) throw new Error('This split window has closed');
     t = Number(t) || 0;
     return require('./split').quietAndKeys(file, Math.max(0, t - 20), t + 20);
+  });
+
+  // ---- A video's sound tracks (English, Hindi…): see audiotracks.js ----
+  const videoOk = (p) => typeof p === 'string' && allowedSources.has(path.resolve(p)) && P.VIDEO_EXT.includes(path.extname(p).slice(1).toLowerCase());
+  // Files you picked to take a sound track from (only these can be read for it).
+  const soundSources = new Set();
+  // A plan from the window, made safe: a track added from another file only from one you picked.
+  function soundPlan(t) {
+    if (!t) return null;
+    if (t.add && !soundSources.has(path.resolve(String(t.add.file || '')))) throw new Error('Pick the file to take the sound track from again.');
+    return t;
+  }
+  handle('shelf:audioTracks', async (file) => {
+    if (!videoOk(file)) throw new Error('That file isn’t one you added.');
+    const r = await require('./audiotracks').list(path.resolve(file));
+    return { tracks: r.tracks, secs: r.secs };
+  });
+  // "Add a Sound Track from Another File…": you pick the file; its tracks come back (then alignAudio lines one up).
+  handle('shelf:pickAudioSource', async (video) => {
+    if (!videoOk(video)) throw new Error('That file isn’t one you added.');
+    const r = await dialog.showOpenDialog(win, { title: 'Pick the same episode or movie with the sound track you want', defaultPath: path.dirname(video),
+      properties: ['openFile'], filters: [{ name: 'Videos and sound', extensions: P.VIDEO_EXT.concat(['mka', 'm4a', 'aac', 'ac3', 'eac3', 'dts', 'flac', 'opus', 'ogg', 'mp3', 'wav']) }] });
+    if (r.canceled || !r.filePaths.length) return null;
+    const file = path.resolve(r.filePaths[0]);
+    if (file === path.resolve(video)) throw new Error('That’s this video itself. Pick another copy of it, with the language you want.');
+    soundSources.add(file);
+    const l = await require('./audiotracks').list(file);
+    return { file, name: path.basename(file), tracks: l.tracks, secs: l.secs };
+  });
+  handle('shelf:alignAudio', async (video, other, n) => {
+    if (!videoOk(video) || !soundSources.has(path.resolve(String(other || '')))) throw new Error('Pick the file again.');
+    return require('./audiotracks').align(path.resolve(video), path.resolve(other), Math.max(0, Math.min(63, Number(n) || 0)));
   });
 
   // ---- Music: tags in the files, and looking albums up on MusicBrainz (see app/js/music.js) ----

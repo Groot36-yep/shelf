@@ -1881,6 +1881,18 @@ html.os-win32 .sheet:not(.editor-sheet) { max-height: calc(100vh - 76px); }
 /* (A picture still on its way shows nothing, not a broken-picture mark.) */
 .ed-thumb img:not([src]), .ed-part-pic img:not([src]), .rv-pic img:not([src]) { visibility: hidden; }
 .insp-quiet { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+/* Sound tracks: one row each (keep it? which plays first), what Rename Now will do, and adding one. */
+.snd-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.snd-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 9px; background: var(--fill); font-size: 13px; }
+.snd-row.is-off { opacity: 0.5; }
+.snd-row.is-off .snd-name b { text-decoration: line-through; }
+.snd-name { min-width: 0; display: flex; flex-direction: column; }
+.snd-name small { color: var(--text-2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snd-first { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-2); white-space: nowrap; cursor: pointer; }
+.snd-first input { margin: 0; accent-color: var(--accent); }
+.snd-row select { font-size: 12px; padding: 2px 4px; }
+.snd-what { margin: 6px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.snd-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 /* ---------- Missing Episodes: a show's episode list against the files you have ---------- */
 .missing-sheet { width: min(600px, calc(100vw - 32px)); }
