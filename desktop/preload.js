@@ -159,6 +159,10 @@ contextBridge.exposeInMainWorld('shelfNative', {
     return () => ipcRenderer.removeListener('shelf:fixProgress', listener);
   },
   // Server Files: browse your server and this PC side by side, and copy either way (desktop/transfer.js).
+  // A video's sound tracks; picking another file to take one from, and lining it up (see desktop/audiotracks.js).
+  audioTracks: (file) => ipcRenderer.invoke('shelf:audioTracks', String(file || '')),
+  pickAudioSource: (video) => ipcRenderer.invoke('shelf:pickAudioSource', String(video || '')),
+  alignAudio: (video, other, n) => ipcRenderer.invoke('shelf:alignAudio', String(video || ''), String(other || ''), Number(n) || 0),
   xferStart: () => ipcRenderer.invoke('shelf:xferStart'),
   xferListServer: (where) => ipcRenderer.invoke('shelf:xferListServer', String(where || '')),
   xferListPC: (where) => ipcRenderer.invoke('shelf:xferListPC', String(where || '')),

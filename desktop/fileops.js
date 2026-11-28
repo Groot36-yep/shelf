@@ -234,7 +234,7 @@ async function run(ops, opts) {
         continue;
       }
       // A video with a loud start (a channel's logo) turned down: a new copy, like a song made smaller.
-      if (op.quiet && mode !== 'link' && !caseOnly && opts.quieten) {
+      if ((op.quiet || op.tracks) && mode !== 'link' && !caseOnly && (op.quiet ? opts.quieten : opts.retrack)) {
         await runQuiet(op, from, to, mode, opts, res, journal);
         if (opts.onProgress) opts.onProgress({ done: n, total: ops.length });
         continue;
@@ -351,15 +351,23 @@ async function runShrink(op, from, to, dir, format, mode, opts, res, journal) {
 }
 
 /**
- * A video whose loud start (op.quiet: { start, end, gain }) is turned down: a new copy is written and checked
- * (loudstart.js). Copy: your original stays. Move: your original goes to the Recycle Bin, only now. Undo removes
- * the copy (as for a song made smaller).
+ * A video whose loud start (op.quiet: { start, end, gain }) is turned down, and/or whose sound tracks change
+ * (op.tracks: which to keep, which plays first, one added from another file): a new copy is written and checked
+ * (loudstart.js, audiotracks.js). Copy: your original stays. Move: your original goes to the Recycle Bin, only now.
+ * Undo removes the copy (as for a song made smaller).
  */
 async function runQuiet(op, from, to, mode, opts, res, journal) {
-  const q = op.quiet || {};
-  const cut = { start: +q.start, end: +q.end, gain: +q.gain };
-  if (!(cut.start >= 0 && cut.end > cut.start && cut.end <= 31 && cut.gain < 0 && cut.gain >= -24)) throw new Error('Bad loud start');
-  await opts.quieten(from, to, cut);
+  let cut = null;
+  if (op.quiet) {
+    const q = op.quiet;
+    cut = { start: +q.start, end: +q.end, gain: +q.gain };
+    if (!(cut.start >= 0 && cut.end > cut.start && cut.end <= 31 && cut.gain < 0 && cut.gain >= -24)) throw new Error('Bad loud start');
+  }
+  const tracks = op.tracks || null;
+  if (tracks && (typeof tracks !== 'object' || !Array.isArray(tracks.keep))) throw new Error('Bad sound tracks');
+  if (cut) await opts.quieten(from, to, cut, tracks);
+  else if (opts.retrack) await opts.retrack(from, to, tracks);
+  else throw new Error('Sound tracks can’t be changed here');
   const rec = { from, to, converted: 'quiet', size: (await fsp.stat(to)).size };
   if (mode === 'move') {
     if (opts.trash) { await opts.trash(from); rec.trashed = true; }
@@ -367,7 +375,7 @@ async function runQuiet(op, from, to, mode, opts, res, journal) {
   }
   journal.done.push(rec);
   if (opts.journalPath) await writeJournal(opts.journalPath, journal);
-  res.ok = true; res.to = to; res.quieted = cut.gain; res.trashed = !!rec.trashed;
+  res.ok = true; res.to = to; res.quieted = cut ? cut.gain : null; res.retracked = !!tracks; res.trashed = !!rec.trashed;
 }
 
 /**

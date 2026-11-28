@@ -9,12 +9,7 @@
  */
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
-const fsp = fs.promises;
-const crypto = require('crypto');
 const { spawn } = require('child_process');
-const probe = require('./probe');
 
 const unpacked = (p) => p.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
 const ffmpegPath = () => unpacked(require('ffmpeg-static'));
@@ -116,38 +111,30 @@ const LEAD_IN = { aac: 1024 };
 /** The sound filter: cut.start–cut.end turned down by cut.gain dB (the pitch and timing stay exactly as they were). */
 function filterOf(c, a, to) {
   const on = ':enable=\'between(t,' + c.start + ',' + c.end + ')\'';
-  const out = [];
+  return leadIn(a, to).concat(['volume=volume=' + c.gain + 'dB' + on]).join(',');
+}
+// The filters that take the encoder's lead-in off the start (Matroska only; see LEAD_IN).
+function leadIn(a, to) {
   const pad = /\.(mkv|mka|webm)$/i.test(to) ? LEAD_IN[ENCODERS[a.codec] || 'aac'] || 0 : 0;
-  if (pad) out.push('atrim=start_sample=' + pad, 'asetpts=PTS-STARTPTS');
-  out.push('volume=volume=' + c.gain + 'dB' + on);
-  return out.join(',');
+  return pad ? ['atrim=start_sample=' + pad, 'asetpts=PTS-STARTPTS'] : [];
 }
-/** ffmpeg's arguments to copy `from` to `to` with only cut.start–cut.end of its sound turned down by cut.gain dB. */
-function applyArgs(from, to, cut, a) {
-  const c = checkCut(cut);
-  return ['-loglevel', 'error', '-i', from, '-map', '0', '-map', '-0:d?', '-c', 'copy'].concat(encoderArgs(a), [
-    '-af', filterOf(c, a, to),
-    '-map_metadata', '0', '-map_chapters', '0', '-n', to]);
+/**
+ * ffmpeg's arguments to copy `from` to `to` with only cut.start–cut.end of its sound turned down by cut.gain dB
+ * (the picture and everything else copied as they are: see audiotracks.js buildArgs, which both copies share).
+ */
+function applyArgs(from, to, cut, a, info) {
+  return require('./audiotracks').buildArgs(from, to, info || { tracks: [], pics: [], attachments: 0 }, null, { cut: checkCut(cut), audio: a }, null);
 }
 
-/** Write `to` (which must not exist): `from` with its loud start turned down. Checked before it counts. */
-async function apply(from, to, cut) {
-  const ext = path.extname(to);
-  const tmp = path.join(path.dirname(to), '.shelf-quiet-' + crypto.randomBytes(4).toString('hex') + ext);
-  try {
-    const a = await audioOf(from);
-    await ffmpeg(applyArgs(from, tmp, cut, a), 1800000);
-    const [want, got] = await Promise.all([probe.duration(from).catch(() => null), probe.duration(tmp).catch(() => null)]);
-    if (want && !(got && Math.abs(got - want) <= 1.5)) throw new Error('The new copy came out the wrong length');
-    // (Never over a file that's there. A drive without hard links: renamed, after checking.)
-    try { await fsp.link(tmp, to); } catch (e) {
-      if (e.code === 'EEXIST') throw e;
-      if (await fsp.stat(to).then(() => true, () => false)) { const x = new Error('A file with this name already exists'); x.code = 'EEXIST'; throw x; }
-      await fsp.rename(tmp, to);
-    }
-  } finally {
-    await fsp.unlink(tmp).catch(() => {});
-  }
+/**
+ * Write `to` (which must not exist): `from` with its loud start turned down, and with only these sound tracks if
+ * `tracks` says so (see audiotracks.js). Checked before it counts.
+ */
+async function apply(from, to, cut, tracks) {
+  const T = require('./audiotracks');
+  const a = await audioOf(from);
+  const plan = tracks ? T.checkPlan(tracks, (await T.list(from)).tracks.length) : null;
+  await T.remake(from, to, plan, { cut: checkCut(cut), audio: a });
 }
 
-module.exports = { measure, apply, findLoudStart, readings, integrated, applyArgs, checkCut };
+module.exports = { measure, apply, findLoudStart, readings, integrated, applyArgs, checkCut, encoderArgs, filterOf, leadIn };

@@ -95,6 +95,20 @@ each one shows a prompt naming the files first:
   change (re-encoded once, at about the same quality), the picture is copied as it is, and your original is kept (or
   goes to the Recycle Bin with Move). There's a switch for it in Rename Now.
 
+## Sound tracks: English first, others removed, another language added
+
+A video with more than one language (Hindi and English, say) lists its sound tracks in its details. Shelf suggests
+your language to play first (**Settings → File Names → Sound tracks**: your language, and whether to play it first,
+keep only it, or leave the tracks alone), and you can untick tracks to remove them or pick another to play first.
+**Rename Now** makes a new copy with the tracks changed: nothing is re-encoded, so it's quick and loses nothing, and
+your original is kept (or goes to the Recycle Bin with Move); Undo removes the copy. Ctrl+Z undoes your picks.
+
+**Add a Language from Another File…** takes the sound track from another copy of the same episode or movie (another
+release, in another language) and adds it. Shelf lines it up with this video by comparing how the two sound moment by
+moment, and refuses one that won't stay in time: a different cut (scenes added or taken out), or a European copy that
+plays about 4% faster. Only that added track is re-encoded, once. (Plex also has a preferred audio language of its own,
+in your Plex account's settings.) Videos on your Plex server aren't changed here: rename them on this PC first.
+
 ## Inspect: see what's really in a file (and split it, if you want)
 
 Every TV file shows which episodes Shelf thinks it holds, with the frame of each title card it read
